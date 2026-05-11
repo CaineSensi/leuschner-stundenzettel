@@ -28,6 +28,7 @@ export interface Site {
 
 export interface Worker {
   id: string;
+  companyId?: string;
   initials: string;
   firstName: string;
   lastName: string;
@@ -84,3 +85,19 @@ export const DEFAULT_PLAN = {
   endMin: 16 * 60 + 30,    // 16:30
   pauseMin: 30
 } as const;
+
+export interface EntryPhoto {
+  id: string;
+  entryId: string;
+  workerId: string;
+  rawPath: string;
+  stampedPath?: string;
+  takenAt?: string;
+  geo?: { lat: number; lng: number };
+  width?: number;
+  height?: number;
+  bytesRaw?: number;
+  bytesStamped?: number;
+  position: number;
+  createdAt: string;
+}

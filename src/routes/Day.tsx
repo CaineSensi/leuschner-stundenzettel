@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { listEntries, listSites } from "../lib/api";
+import { listEntryPhotos } from "../lib/photos";
 import { useRefreshOnVisible } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
+import PhotoStrip from "../components/PhotoStrip";
 import { fmtHours, fmtTime, shortDate, workMinutes } from "../lib/utils";
-import { isWorkEntry, type Entry, type Site } from "../lib/types";
+import { isWorkEntry, type Entry, type EntryPhoto, type Site } from "../lib/types";
 
 function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
@@ -21,6 +23,7 @@ export default function Day() {
 
   const [entry, setEntry] = useState<Entry | null>(null);
   const [site, setSite] = useState<Site | null>(null);
+  const [photos, setPhotos] = useState<EntryPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -46,6 +49,12 @@ export default function Day() {
           setSite(sites.find((s) => s.id === e.siteId) ?? null);
         } else {
           setSite(null);
+        }
+        // Fotos für diesen Eintrag laden
+        if (e) {
+          listEntryPhotos(e.id)
+            .then((ps) => { if (!cancelled) setPhotos(ps); })
+            .catch((err) => console.warn("[day] photos fail", err));
         }
         console.log("[day] load ok", { hasEntry: !!e });
       } catch (err: any) {
@@ -117,6 +126,12 @@ export default function Day() {
           <Row label="Zeitraum" value={entry.endDate ? `${shortDate(entry.date)} – ${shortDate(entry.endDate)}` : `Nur ${shortDate(entry.date)}`} />
           {entry.note && <Row label="Notiz" value={entry.note} />}
         </ul>
+
+        {photos.length > 0 && (
+          <div className="px-6">
+            <PhotoStrip existing={photos} />
+          </div>
+        )}
       </main>
     );
   }
@@ -151,6 +166,12 @@ export default function Day() {
         {entry.weather && <Row label="Wetter" value={WEATHER_LABEL[entry.weather]} sub={entry.note ?? "—"} />}
         <Row label="Standort" value={entry.geoVerified ? "GPS bestätigt" : "Manuell eingetragen"} sub={entry.geoVerified ? "± wenige Meter" : "Kein Geo-Match"} />
       </ul>
+
+      {photos.length > 0 && (
+        <div className="px-6">
+          <PhotoStrip existing={photos} />
+        </div>
+      )}
     </main>
   );
 }

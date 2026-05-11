@@ -133,6 +133,7 @@ export async function signInWithCode(code: string): Promise<{ worker?: Worker; e
 
     const worker: Worker = {
       id: data.id,
+      companyId: data.company_id,
       initials: data.initials,
       firstName: data.first_name,
       lastName: data.last_name,
@@ -162,7 +163,7 @@ export async function syncWorkerFromSession(): Promise<Worker | null> {
   const sb: any = supabase;
   const { data, error } = await sb
     .from("workers")
-    .select("id, initials, first_name, last_name, role, is_admin")
+    .select("id, company_id, initials, first_name, last_name, role, is_admin")
     .eq("auth_user_id", session.user.id)
     .single();
 
@@ -173,6 +174,7 @@ export async function syncWorkerFromSession(): Promise<Worker | null> {
 
   const worker: Worker = {
     id: data.id,
+    companyId: data.company_id,
     initials: data.initials,
     firstName: data.first_name,
     lastName: data.last_name,

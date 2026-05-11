@@ -3,8 +3,12 @@ import { Link, useLocation, useNavigate, useSearchParams } from "react-router-do
 import { deleteEntry, getTodayAssignment, listEntries, listSites } from "../lib/api";
 import { saveEntryWithSync } from "../lib/sync";
 import { currentUser } from "../lib/auth";
+import {
+  deleteEntryPhoto, getCurrentCompanyId, listEntryPhotos, uploadEntryPhoto
+} from "../lib/photos";
+import PhotoStrip from "../components/PhotoStrip";
 import { fmtHours, fmtTime, todayIso } from "../lib/utils";
-import { DEFAULT_PLAN, type Assignment, type Discipline, type EntryType, type Site } from "../lib/types";
+import { DEFAULT_PLAN, type Assignment, type Discipline, type EntryPhoto, type EntryType, type Site } from "../lib/types";
 
 type Step = "type" | "activity" | "absence" | "nowork";
 
@@ -80,6 +84,11 @@ export default function Entry() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [existingId, setExistingId] = useState<string | null>(null);
 
+  // Fotos
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
+  const [existingPhotos, setExistingPhotos] = useState<EntryPhoto[]>([]);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
   // Bestehenden Eintrag für targetDate laden — falls vorhanden, in Edit-Modus springen
   useEffect(() => {
     const me = currentUser();
@@ -142,6 +151,25 @@ export default function Entry() {
       .catch(() => { });
   }, [assignment]);
 
+  // Bestehende Fotos für Edit-Modus laden
+  useEffect(() => {
+    if (!existingId) return;
+    listEntryPhotos(existingId)
+      .then(setExistingPhotos)
+      .catch((e) => console.warn("[entry] listEntryPhotos", e));
+  }, [existingId]);
+
+  function handleAddPhotos(files: File[]) {
+    setPendingPhotos((prev) => [...prev, ...files]);
+  }
+  function handleRemovePending(index: number) {
+    setPendingPhotos((prev) => prev.filter((_, i) => i !== index));
+  }
+  async function handleDeleteExisting(photo: EntryPhoto) {
+    await deleteEntryPhoto(photo);
+    setExistingPhotos((prev) => prev.filter((p) => p.id !== photo.id));
+  }
+
   const totalMin = Math.max(0, endMin - startMin - pause);
 
   function handleTypeSelect(t: EntryType) {
@@ -183,11 +211,58 @@ export default function Entry() {
     setSaving(true);
     console.log("[entry] save start", { ...draft, mode: existingId ? "update" : "insert" });
     try {
-      await Promise.race([
+      const entryId = await Promise.race<string>([
         saveEntryWithSync(draft, existingId ?? undefined),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Zeitüberschreitung beim Speichern")), 6000))
+        new Promise<string>((_, reject) =>
+          setTimeout(() => reject(new Error("Zeitüberschreitung beim Speichern")), 6000)
+        )
       ]);
-      console.log("[entry] save ok");
+      console.log("[entry] save ok", entryId);
+
+      // Fotos hochladen — nur wenn echte UUID (kein local-Offline-Id)
+      if (pendingPhotos.length > 0 && !entryId.startsWith("local-")) {
+        setPhotoBusy(true);
+        const companyId = me.companyId ?? await getCurrentCompanyId();
+        if (!companyId) {
+          setSaveError("Fotos konnten nicht hochgeladen werden — bitte neu anmelden");
+        } else {
+          const stampContext = {
+            siteName: todaySite?.name,
+            projectNumber: todaySite?.projectNumber
+          };
+          let failed = 0;
+          for (let i = 0; i < pendingPhotos.length; i++) {
+            try {
+              await uploadEntryPhoto({
+                file: pendingPhotos[i],
+                entryId,
+                workerId: me.id,
+                companyId,
+                stampContext,
+                position: existingPhotos.length + i
+              });
+            } catch (err) {
+              console.warn("[entry] photo upload failed", err);
+              failed++;
+            }
+          }
+          if (failed > 0) {
+            setSaveError(`${failed} von ${pendingPhotos.length} Fotos konnten nicht hochgeladen werden`);
+            setPhotoBusy(false);
+            setSaving(false);
+            // Eintrag ist gespeichert — wir bleiben auf der Seite, damit der User
+            // die fehlgeschlagenen Fotos erneut hinzufügen kann
+            return;
+          }
+        }
+        setPhotoBusy(false);
+      } else if (pendingPhotos.length > 0 && entryId.startsWith("local-")) {
+        // Offline: Fotos können noch nicht hochgeladen werden
+        setSaveError("Eintrag offline gespeichert — Fotos bitte später hinzufügen, wenn wieder online");
+        setSaving(false);
+        return;
+      }
+
       navigate("/", { replace: true });
     } catch (err: any) {
       console.warn("[entry] save FAIL", err);
@@ -230,6 +305,12 @@ export default function Entry() {
         onDelete={existingId ? handleDelete : undefined}
         saving={saving}
         error={saveError}
+        existingPhotos={existingPhotos}
+        pendingPhotos={pendingPhotos}
+        onAddPhotos={handleAddPhotos}
+        onRemovePending={handleRemovePending}
+        onDeleteExisting={handleDeleteExisting}
+        photoBusy={photoBusy}
       />
     );
   if (step === "nowork") return <NoWorkScreen date={targetDate} onBack={() => setStep("type")} />;
@@ -253,6 +334,12 @@ export default function Entry() {
       onDelete={existingId ? handleDelete : undefined}
       saving={saving}
       error={saveError}
+      existingPhotos={existingPhotos}
+      pendingPhotos={pendingPhotos}
+      onAddPhotos={handleAddPhotos}
+      onRemovePending={handleRemovePending}
+      onDeleteExisting={handleDeleteExisting}
+      photoBusy={photoBusy}
     />
   );
 }
@@ -336,7 +423,8 @@ function NoWorkScreen({ date, onBack }: { date: string; onBack: () => void }) {
 // ===== ABSENCE PICKER =====
 
 function AbsencePicker({
-  type, startDate, endDate, note, onStart, onEnd, onNote, onBack, onSave, onDelete, saving, error
+  type, startDate, endDate, note, onStart, onEnd, onNote, onBack, onSave, onDelete, saving, error,
+  existingPhotos, pendingPhotos, onAddPhotos, onRemovePending, onDeleteExisting, photoBusy
 }: {
   type: Exclude<EntryType, "work">;
   startDate: string;
@@ -350,6 +438,12 @@ function AbsencePicker({
   onDelete?: () => void;
   saving: boolean;
   error: string | null;
+  existingPhotos: EntryPhoto[];
+  pendingPhotos: File[];
+  onAddPhotos: (files: File[]) => void;
+  onRemovePending: (index: number) => void;
+  onDeleteExisting: (photo: EntryPhoto) => Promise<void>;
+  photoBusy: boolean;
 }) {
   const labels = {
     sick:     { title: "Krankheit", emoji: "🏥", note: "z. B. Arzt-Attest, Hausarzt …" },
@@ -391,6 +485,16 @@ function AbsencePicker({
         </div>
       </div>
 
+      <PhotoStrip
+        existing={existingPhotos}
+        pending={pendingPhotos}
+        onAddFiles={onAddPhotos}
+        onRemovePending={onRemovePending}
+        onDeleteExisting={onDeleteExisting}
+        disabled={saving}
+        busy={photoBusy}
+      />
+
       <div className="fixed bottom-0 left-0 right-0 bg-bg-DEFAULT border-t border-ink/10 px-6 pt-3 safe-bottom z-30">
         <div className="max-w-md mx-auto">
           {error && <div className="text-[12px] text-rust mb-2 leading-snug">{error}</div>}
@@ -409,7 +513,7 @@ function AbsencePicker({
               disabled={saving}
               className="btn-primary flex-1 disabled:opacity-60"
             >
-              {saving ? "Speichert …" : onDelete ? `Speichern · ${days} ${days === 1 ? "Tag" : "Tage"}` : `${meta.title} eintragen · ${days} ${days === 1 ? "Tag" : "Tage"}`}
+              {saving ? (photoBusy ? "Fotos hoch …" : "Speichert …") : onDelete ? `Speichern · ${days} ${days === 1 ? "Tag" : "Tage"}` : `${meta.title} eintragen · ${days} ${days === 1 ? "Tag" : "Tage"}`}
             </button>
           </div>
         </div>
@@ -446,7 +550,8 @@ function ActivityTime({
   date, isPast, site, assignment, discipline, onDiscipline,
   startMin, endMin, pause, totalMin,
   onStart, onEnd, onPause,
-  onBack, onSave, onDelete, saving, error
+  onBack, onSave, onDelete, saving, error,
+  existingPhotos, pendingPhotos, onAddPhotos, onRemovePending, onDeleteExisting, photoBusy
 }: {
   date: string;
   isPast: boolean;
@@ -466,6 +571,12 @@ function ActivityTime({
   onDelete?: () => void;
   saving: boolean;
   error: string | null;
+  existingPhotos: EntryPhoto[];
+  pendingPhotos: File[];
+  onAddPhotos: (files: File[]) => void;
+  onRemovePending: (index: number) => void;
+  onDeleteExisting: (photo: EntryPhoto) => Promise<void>;
+  photoBusy: boolean;
 }) {
   const dateLabel = new Date(date).toLocaleDateString("de-DE", {
     weekday: "long", day: "2-digit", month: "long"
@@ -544,6 +655,16 @@ function ActivityTime({
         </div>
       </section>
 
+      <PhotoStrip
+        existing={existingPhotos}
+        pending={pendingPhotos}
+        onAddFiles={onAddPhotos}
+        onRemovePending={onRemovePending}
+        onDeleteExisting={onDeleteExisting}
+        disabled={saving}
+        busy={photoBusy}
+      />
+
       <div className="fixed bottom-0 left-0 right-0 bg-bg-DEFAULT border-t border-ink/10 px-6 pt-3 safe-bottom z-30">
         <div className="max-w-md mx-auto">
           {error && <div className="text-[12px] text-rust mb-2 leading-snug">{error}</div>}
@@ -562,7 +683,7 @@ function ActivityTime({
               disabled={saving}
               className="btn-primary flex-1 disabled:opacity-60"
             >
-              {saving ? "Speichert …" : `Speichern · ${fmtHours(totalMin)} h`}
+              {saving ? (photoBusy ? "Fotos hoch …" : "Speichert …") : `Speichern · ${fmtHours(totalMin)} h`}
             </button>
           </div>
         </div>
