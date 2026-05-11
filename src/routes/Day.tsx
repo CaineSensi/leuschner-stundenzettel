@@ -1,11 +1,82 @@
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { CURRENT_WORKER, ENTRIES } from "../lib/mockData";
-import { fmtHours, fmtTime, shortDate, siteById, workMinutes } from "../lib/utils";
-import { isWorkEntry } from "../lib/types";
+import { listEntries, listSites } from "../lib/api";
+import { useRefreshOnVisible } from "../lib/realtime";
+import { currentUser } from "../lib/auth";
+import { fmtHours, fmtTime, shortDate, workMinutes } from "../lib/utils";
+import { isWorkEntry, type Entry, type Site } from "../lib/types";
+
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Zeitüberschreitung: ${label}`)), ms)
+    )
+  ]);
+}
 
 export default function Day() {
   const { date } = useParams<{ date: string }>();
-  const entry = ENTRIES.find((e) => e.workerId === CURRENT_WORKER.id && e.date === date);
+  const me = currentUser();
+
+  const [entry, setEntry] = useState<Entry | null>(null);
+  const [site, setSite] = useState<Site | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (!me || !date) { setLoading(false); return; }
+    let cancelled = false;
+    setLoading(true);
+    (async () => {
+      console.log("[day] load start", date);
+      try {
+        const [entries, sites] = await Promise.all([
+          withTimeout(listEntries(me.id, date, date), 6000, "Eintrag laden")
+            .catch((e) => { console.warn("[day] entries fail", e); return [] as Entry[]; }),
+          withTimeout(listSites(), 6000, "Baustellen")
+            .catch((e) => { console.warn("[day] sites fail", e); return [] as Site[]; })
+        ]);
+        if (cancelled) return;
+        const e = entries[0] ?? null;
+        setEntry(e);
+        if (e && isWorkEntry(e)) {
+          setSite(sites.find((s) => s.id === e.siteId) ?? null);
+        } else {
+          setSite(null);
+        }
+        console.log("[day] load ok", { hasEntry: !!e });
+      } catch (err: any) {
+        console.error("[day] load FAIL", err);
+        if (!cancelled) setError(err?.message ?? "Fehler beim Laden");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, me?.id, refreshKey]);
+
+  useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
+
+  if (loading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center">
+        <div className="h-mono text-paper/55 text-[12px]">Wird geladen …</div>
+      </main>
+    );
+  }
+
+  if (error) {
+    return (
+      <main className="min-h-screen flex flex-col items-center justify-center px-6 text-center max-w-md mx-auto">
+        <p className="text-rust text-sm">{error}</p>
+        <Link to="/" className="btn-ghost mt-4">Zurück zur Woche</Link>
+      </main>
+    );
+  }
 
   if (!entry || !date) {
     return (
@@ -27,7 +98,7 @@ export default function Day() {
       <main className="min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
         <header className="px-6 safe-top pt-3 flex items-center justify-between">
           <Link to="/" className="h-mono text-paper/55 text-[12px]">← Zurück</Link>
-          <span className="h-mono text-paper/55 text-[12px]">Bearbeiten</span>
+          <Link to={`/entry?date=${date}`} className="h-mono text-copper text-[12px]">Bearbeiten →</Link>
         </header>
 
         <section className={`px-6 pt-6 pb-8 ${meta.gradient} border-b border-ink/10`}>
@@ -41,51 +112,45 @@ export default function Day() {
           )}
         </section>
 
-        <ul className="px-6 py-4 divide-y divide-ink/5">
+        <ul className="px-6 py-4 divide-y divide-ink/10">
           <Row label="Typ" value={meta.title} sub={meta.sub} />
           <Row label="Zeitraum" value={entry.endDate ? `${shortDate(entry.date)} – ${shortDate(entry.endDate)}` : `Nur ${shortDate(entry.date)}`} />
           {entry.note && <Row label="Notiz" value={entry.note} />}
         </ul>
-
-        <div className="mt-auto px-6 grid grid-cols-2 gap-2">
-          <button className="btn-ghost">Foto hinzufügen</button>
-          <button className="btn-primary">Bestätigen</button>
-        </div>
       </main>
     );
   }
 
   // Work entry
-  const site = siteById(entry.siteId)!;
   const min = workMinutes(entry);
 
   return (
     <main className="min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
       <header className="px-6 safe-top pt-3 flex items-center justify-between">
         <Link to="/" className="h-mono text-paper/55 text-[12px]">← Zurück</Link>
-        <span className="h-mono text-paper/55 text-[12px]">Bearbeiten</span>
+        <Link to={`/entry?date=${date}`} className="h-mono text-copper text-[12px]">Bearbeiten →</Link>
       </header>
 
       <section className="px-6 pt-4 pb-6 bg-gradient-to-br from-copper/15 to-transparent border-b border-ink/10">
         <div className="h-mono text-copper text-[12px] uppercase">{dayLabel}</div>
-        <h1 className="h-display text-3xl mt-1">{site.name}</h1>
-        <p className="h-mono text-paper/55 text-[12px] mt-1">{site.street} · {site.city}</p>
+        {site?.projectNumber && (
+          <div className="h-mono text-paper/55 text-[11px] mt-1">— Auftrag {site.projectNumber}</div>
+        )}
+        <h1 className="h-display text-3xl mt-1">{site?.name ?? "Baustelle (gelöscht)"}</h1>
+        {site && (
+          <p className="h-mono text-paper/55 text-[12px] mt-1">{site.street} · {site.city}</p>
+        )}
         <div className="h-display text-6xl mt-3">
           {fmtHours(min)}<span className="text-copper text-3xl">h</span>
         </div>
       </section>
 
-      <ul className="px-6 py-4 divide-y divide-ink/5">
+      <ul className="px-6 py-4 divide-y divide-ink/10">
         <Row label="Tätigkeit" value={entry.discipline} sub={DISCIPLINE_NAME[entry.discipline]} />
         <Row label="Zeit" value={`${fmtTime(entry.startMin)} – ${fmtTime(entry.endMin)}`} sub={`${entry.pauseMin} min Pause · ${fmtHours(min)} h netto`} />
         {entry.weather && <Row label="Wetter" value={WEATHER_LABEL[entry.weather]} sub={entry.note ?? "—"} />}
         <Row label="Standort" value={entry.geoVerified ? "GPS bestätigt" : "Manuell eingetragen"} sub={entry.geoVerified ? "± wenige Meter" : "Kein Geo-Match"} />
       </ul>
-
-      <div className="mt-auto px-6 grid grid-cols-2 gap-2">
-        <button className="btn-ghost">Foto hinzufügen</button>
-        <button className="btn-primary">Bestätigen</button>
-      </div>
     </main>
   );
 }

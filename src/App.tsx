@@ -7,9 +7,14 @@ import Onboarding from "./routes/Onboarding";
 import Day from "./routes/Day";
 import Admin from "./routes/Admin";
 import AdminLogin from "./routes/AdminLogin";
+import Plan from "./routes/Plan";
+import Sites from "./routes/Sites";
+import Hours from "./routes/Hours";
 import AuthCallback from "./routes/AuthCallback";
 import OfflineIndicator from "./components/OfflineIndicator";
 import InstallPrompt from "./components/InstallPrompt";
+import UpdatePrompt from "./components/UpdatePrompt";
+import AdminPushBanner from "./components/AdminPushBanner";
 import { currentUser, isOnboarded, syncWorkerFromSession } from "./lib/auth";
 import { supabase } from "./lib/supabase";
 import { syncPending } from "./lib/sync";
@@ -47,8 +52,10 @@ export default function App() {
 
   return (
     <div className="grain min-h-full">
+      <AdminPushBanner />
       <OfflineIndicator />
       <InstallPrompt />
+      <UpdatePrompt />
       <Routes>
         <Route path="/onboarding"    element={<Onboarding />} />
         <Route path="/login"         element={<Login />} />
@@ -56,6 +63,9 @@ export default function App() {
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/"              element={<ProtectedRoute><RoleRoot /></ProtectedRoute>} />
         <Route path="/admin"         element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+        <Route path="/admin/plan"    element={<ProtectedRoute adminOnly><Plan /></ProtectedRoute>} />
+        <Route path="/admin/sites"   element={<ProtectedRoute adminOnly><Sites /></ProtectedRoute>} />
+        <Route path="/admin/stunden" element={<ProtectedRoute adminOnly><Hours /></ProtectedRoute>} />
         <Route path="/entry"         element={<ProtectedRoute><Entry /></ProtectedRoute>} />
         <Route path="/day/:date"     element={<ProtectedRoute><Day /></ProtectedRoute>} />
         <Route path="*"              element={<Navigate to="/" replace />} />

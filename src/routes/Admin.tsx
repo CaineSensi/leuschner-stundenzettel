@@ -1,22 +1,21 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import QRCode from "qrcode";
 import Logo from "../components/Logo";
-import { ACTIVITY, WEEKLY_SUMMARY } from "../lib/mockData";
-import type { ActivityEvent, WeeklySummary } from "../lib/mockData";
-import { listWorkers, listEntries, createInvitation, updateWorkerPhone } from "../lib/api";
+import type { WeeklySummary } from "../lib/mockData";
+import { listWorkers, listEntries, createInvitation, updateWorkerPhone, unlinkWorker } from "../lib/api";
+import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { isBackendConnected } from "../lib/supabase";
-import { fmtDateLong, fmtHours, isoWeek, siteById, todayIso, weekDays } from "../lib/utils";
-import { currentUser, logout } from "../lib/auth";
+import { fmtDateLong, fmtHours, isoWeek, siteById, todayIso, weekDays, workMinutes } from "../lib/utils";
+import { currentUser, signOutFully } from "../lib/auth";
 import {
-  enableNotifications, notificationsEnabled, notificationsSupported,
-  sendReminderToAll, workersWithoutEntry, notify
+  sendReminderToAll, workersWithoutEntry
 } from "../lib/notifications";
-import type { Entry, Worker } from "../lib/types";
+import { isWorkEntry, type Entry, type Worker } from "../lib/types";
 
 export default function Admin() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState<"all" | "submitted" | "open">("all");
-  const [notifReady, setNotifReady] = useState(notificationsEnabled());
 
   const [team, setTeam] = useState<Worker[]>([]);
   const [allWorkers, setAllWorkers] = useState<Worker[]>([]);
@@ -24,6 +23,7 @@ export default function Admin() {
   const [loading, setLoading] = useState(true);
   const [showInvite, setShowInvite] = useState(false);
   const [showWorkers, setShowWorkers] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [preselectWorker, setPreselectWorker] = useState<Worker | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -31,7 +31,7 @@ export default function Admin() {
   const adminLabel = me ? `${me.firstName.charAt(0)}. ${me.lastName} · Admin` : "Admin";
   const today = todayIso();
   const { year, week } = isoWeek(new Date());
-  const days = weekDays(year, week);
+  const days = weekDays(year, week).slice(0, 5); // Mo–Fr
   const todayInWeek = days.includes(today);
   const refDate = todayInWeek ? today : "2026-05-08";
 
@@ -60,10 +60,33 @@ export default function Admin() {
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshKey]);
+
+  // Echtzeit: bei Änderungen an Workers, Einträgen oder Zuweisungen sofort neu laden
+  useRealtime("admin-dashboard", ["workers", "entries", "assignments"], () => setRefreshKey((k) => k + 1));
+  useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
 
   const missingToday = workersWithoutEntry(refDate, allEntries, team);
-  const summaries = WEEKLY_SUMMARY;
+
+  // Echte Wochenstatistik aus den geladenen Einträgen
+  const summaries: WeeklySummary[] = team.map((w) => {
+    const myEntries = allEntries.filter((e) => e.workerId === w.id);
+    const minutes = myEntries.reduce((s, e) => s + workMinutes(e), 0);
+    const daysFilled = myEntries.length;
+    const daysExpected = days.filter((d) => d <= today).length;
+    const todayE = myEntries.find((e) => e.date === today && isWorkEntry(e));
+    return {
+      workerId: w.id,
+      minutes,
+      daysFilled,
+      daysExpected,
+      submitted: myEntries.length > 0 && days.every((d) =>
+        myEntries.some((e) => e.date === d) || d > today
+      ),
+      lastActivity: myEntries.length > 0 ? myEntries[myEntries.length - 1].date : "",
+      currentSite: todayE && isWorkEntry(todayE) ? todayE.siteId : undefined
+    };
+  });
 
   const totalMinutes = summaries.reduce((s, w) => s + w.minutes, 0);
   const submitted = summaries.filter((w) => w.submitted).length;
@@ -75,19 +98,18 @@ export default function Admin() {
     return true;
   });
 
-  async function handleEnableNotif() {
-    const ok = await enableNotifications();
-    setNotifReady(ok);
-    if (ok) notify("Notifications aktiv", "Du wirst informiert, wenn Mitarbeiter offene Tage haben.");
-  }
+  // Echter Live-Feed: zeigt die letzten Einträge der Woche, frischeste oben
+  const liveFeed = [...allEntries]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 8);
 
   function handleRemindAll() {
     sendReminderToAll(missingToday);
   }
 
-  function handleLogout() {
-    logout();
-    navigate("/login", { replace: true });
+  async function handleLogout() {
+    await signOutFully();
+    navigate("/buero", { replace: true });
   }
 
   return (
@@ -100,9 +122,10 @@ export default function Admin() {
           <nav className="mt-10 flex flex-col gap-1 text-[12px]">
             <NavItem icon="▦" label="Übersicht" active />
             <NavItem icon="●" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
-            <NavItem icon="⌂" label="Baustellen" disabled />
+            <NavItem icon="◷" label="Wochenplan" to="/admin/plan" />
+            <NavItem icon="⌂" label="Baustellen" to="/admin/sites" />
+            <NavItem icon="≡" label="Stunden" to="/admin/stunden" />
             <NavItem icon="▮" label="Auswertung" disabled />
-            <NavItem icon="≡" label="Stundenkonten" disabled />
             <NavItem icon="↗" label="DATEV-Export" disabled />
           </nav>
 
@@ -111,7 +134,7 @@ export default function Admin() {
           </button>
         </aside>
 
-        <main className="flex-1 px-5 py-5 lg:px-10 lg:py-8 max-w-[1600px] mx-auto w-full">
+        <main className="flex-1 px-5 py-5 lg:px-12 xl:px-16 lg:py-8 w-full">
           <header className="lg:hidden mb-6 flex items-center justify-between">
             <div>
               <Logo />
@@ -142,6 +165,9 @@ export default function Admin() {
               )}
             </div>
             <div className="flex gap-2 flex-wrap">
+              <Link to="/admin/plan" className="btn-ghost text-[12px] lg:hidden">
+                Wochenplan
+              </Link>
               <button className="btn-ghost text-[12px]">Filter</button>
               <button className="btn-ghost text-[12px]">PDF</button>
               <button className="btn-primary text-[11px]">DATEV-Export ↗</button>
@@ -194,22 +220,7 @@ export default function Admin() {
             </Link>
           )}
 
-          {/* Notification opt-in für Admin */}
-          {notificationsSupported() && !notifReady && (
-            <button
-              onClick={handleEnableNotif}
-              className="w-full mb-5 px-5 py-4 bg-bg-2 border border-copper/40 rounded-xl flex items-center gap-4 text-left lg:gap-5"
-            >
-              <span className="text-3xl">🔔</span>
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-sm">Browser-Push aktivieren</div>
-                <div className="h-mono text-paper/55 text-[12px] mt-0.5">
-                  Du erhältst eine Notification, sobald jemand seine Woche sendet oder ein Tag offen bleibt.
-                </div>
-              </div>
-              <span className="text-copper text-2xl">→</span>
-            </button>
-          )}
+          {/* Notification-Banner ist global (AdminPushBanner) — hier kein doppeltes Element */}
 
           {/* Wer fehlt heute */}
           {missingToday.length > 0 && (
@@ -236,7 +247,7 @@ export default function Admin() {
 
           <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-8">
             <Stat
-              kicker="Gesamt KW 19"
+              kicker={`Gesamt KW ${week}`}
               value={`${fmtHours(totalMinutes)} h`}
               sub={`${team.length} Mitarbeiter`}
               tone="primary"
@@ -244,7 +255,7 @@ export default function Admin() {
             <Stat
               kicker="Wochenstatus"
               value={`${submitted} / ${team.length}`}
-              sub="haben gesendet"
+              sub="Wochen komplett"
               tone={submitted === team.length ? "good" : "neutral"}
             />
             <Stat
@@ -266,8 +277,8 @@ export default function Admin() {
                 <h2 className="h-mono text-copper">— Mitarbeiter</h2>
                 <div className="flex gap-1.5 text-[12px]">
                   <FilterChip active={filter === "all"}       onClick={() => setFilter("all")}>Alle</FilterChip>
-                  <FilterChip active={filter === "submitted"} onClick={() => setFilter("submitted")}>Gesendet</FilterChip>
-                  <FilterChip active={filter === "open"}      onClick={() => setFilter("open")}>Offen</FilterChip>
+                  <FilterChip active={filter === "submitted"} onClick={() => setFilter("submitted")}>Komplett</FilterChip>
+                  <FilterChip active={filter === "open"}      onClick={() => setFilter("open")}>Nachtrag</FilterChip>
                 </div>
               </div>
 
@@ -303,12 +314,20 @@ export default function Admin() {
             </div>
 
             <div>
-              <h2 className="h-mono text-copper mb-3">— Live-Feed · heute</h2>
-              <ul className="space-y-2">
-                {ACTIVITY.map((event) => (
-                  <ActivityRow key={event.id} event={event} team={team} />
-                ))}
-              </ul>
+              <h2 className="h-mono text-copper mb-3">— Letzte Einträge · KW {week}</h2>
+              {liveFeed.length === 0 ? (
+                <div className="bg-bg-2 border border-ink/10 rounded-xl px-4 py-6 text-center">
+                  <div className="h-mono text-paper/55 text-[11px]">Noch keine Einträge</div>
+                  <div className="text-[12px] text-paper/65 mt-1">Sobald jemand Stunden speichert, taucht hier eine Live-Meldung auf.</div>
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {liveFeed.map((entry) => {
+                    const w = allWorkers.find((wo) => wo.id === entry.workerId);
+                    return <EntryFeedRow key={entry.id} entry={entry} worker={w} />;
+                  })}
+                </ul>
+              )}
             </div>
           </section>
         </main>
@@ -386,6 +405,7 @@ function WorkerRow({
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
@@ -399,6 +419,24 @@ function WorkerRow({
       setError(err?.message ?? "Speichern fehlgeschlagen");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function unlink() {
+    if (!confirm(
+      `Verknüpfung von ${worker.firstName} ${worker.lastName} mit dem aktuellen Gerät wirklich lösen?\n\n` +
+      `Danach kannst du einen neuen Code/QR ausgeben — z.B. wenn das Handy gewechselt wurde.\n\n` +
+      `Bisherige Einträge bleiben erhalten.`
+    )) return;
+    setUnlinking(true);
+    setError(null);
+    try {
+      await unlinkWorker(worker.id);
+      onUpdated({ ...worker, linked: false });
+    } catch (err: any) {
+      setError(err?.message ?? "Verknüpfung konnte nicht gelöst werden");
+    } finally {
+      setUnlinking(false);
     }
   }
 
@@ -428,6 +466,16 @@ function WorkerRow({
             className="h-mono text-[10px] text-copper hover:underline whitespace-nowrap"
           >
             📱 Code →
+          </button>
+        )}
+        {!worker.isAdmin && worker.linked && (
+          <button
+            onClick={unlink}
+            disabled={unlinking}
+            className="h-mono text-[10px] text-rust hover:underline whitespace-nowrap disabled:opacity-50"
+            title="Trennung des Mitarbeiters vom aktuell verknüpften Gerät"
+          >
+            {unlinking ? "Lösche …" : "× Verknüpfung lösen"}
           </button>
         )}
       </div>
@@ -488,9 +536,24 @@ function InviteModal({
 }) {
   const [worker, setWorker] = useState<Worker | null>(preselect ?? team[0] ?? null);
   const [code, setCode] = useState<string | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // QR-Code rendern, sobald Code da ist
+  useEffect(() => {
+    if (!code) { setQrDataUrl(null); return; }
+    const url = window.location.origin + "/onboarding?code=" + code;
+    QRCode.toDataURL(url, {
+      errorCorrectionLevel: "M",
+      width: 480,
+      margin: 1,
+      color: { dark: "#000000", light: "#FFFFFF" }
+    })
+      .then(setQrDataUrl)
+      .catch((err) => console.error("[invite] QR generation failed", err));
+  }, [code]);
 
   async function generate() {
     if (!worker) return;
@@ -503,6 +566,32 @@ function InviteModal({
       setError(err?.message ?? "Code konnte nicht erzeugt werden");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function printQr() {
+    if (!qrDataUrl || !worker || !code) return;
+    const html = `<!doctype html><html><head><title>${worker.firstName} ${worker.lastName} · Einladung</title>
+      <style>
+        body { font-family: -apple-system, system-ui, sans-serif; padding: 32px; text-align: center; }
+        h1 { font-size: 32px; margin: 0 0 4px; }
+        .role { color: #6B7280; font-size: 14px; margin-bottom: 28px; }
+        img { max-width: 320px; }
+        .code { font-family: 'Courier New', monospace; font-size: 28px; letter-spacing: 6px; margin-top: 18px; }
+        .hint { color: #6B7280; font-size: 13px; margin-top: 18px; line-height: 1.5; }
+      </style></head>
+      <body>
+        <h1>${worker.firstName} ${worker.lastName}</h1>
+        <div class="role">${worker.role}</div>
+        <img src="${qrDataUrl}" alt="QR-Code"/>
+        <div class="code">${code}</div>
+        <div class="hint">QR mit der iPhone-Kamera scannen<br/>oder Code manuell eingeben<br/><br/>24 Stunden gültig</div>
+      </body></html>`;
+    const w = window.open("", "_blank");
+    if (w) {
+      w.document.write(html);
+      w.document.close();
+      w.onload = () => w.print();
     }
   }
 
@@ -573,42 +662,62 @@ function InviteModal({
           </button>
         ) : code ? (
           <div className="space-y-4">
-            <div className="bg-gradient-to-br from-copper/20 to-copper/5 border border-copper rounded-xl p-5 text-center">
-              <div className="h-mono text-copper text-[11px]">— Einladungs-Code</div>
-              <div className="h-display text-5xl tracking-widest mt-2">{code}</div>
+            <div className="bg-bg-DEFAULT border-2 border-copper rounded-xl p-5 text-center">
+              <div className="h-mono text-copper text-[11px] mb-3">— QR-Code · scannen mit iPhone-Kamera</div>
+              {qrDataUrl ? (
+                <img
+                  src={qrDataUrl}
+                  alt={`QR-Code für ${worker?.firstName}`}
+                  className="mx-auto w-64 h-64 rounded-lg"
+                />
+              ) : (
+                <div className="w-64 h-64 mx-auto bg-bg-2 rounded-lg flex items-center justify-center text-paper/55 text-[12px]">
+                  QR wird erzeugt …
+                </div>
+              )}
+              <div className="h-mono text-paper/65 text-[11px] mt-3">— oder Code manuell eingeben</div>
+              <div className="font-mono font-bold text-2xl tracking-widest mt-1.5">{code}</div>
               <div className="h-mono text-paper/45 text-[11px] mt-2">24 Stunden gültig</div>
             </div>
 
-            <div>
-              <label className="h-mono text-copper text-[12px] block mb-1.5">— Telefonnummer (optional)</label>
-              <input
-                type="tel"
-                placeholder="+49 152 …"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full bg-bg-3 border border-ink/10 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-copper"
-              />
-              <p className="h-mono text-paper/40 text-[11px] mt-1.5">
-                Mit Nummer öffnet WhatsApp direkt den Chat. Ohne Nummer: Empfänger danach auswählen.
-              </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={printQr}
+                disabled={!qrDataUrl}
+                className="btn-ghost text-[12px] disabled:opacity-50"
+              >
+                🖨 Drucken
+              </button>
+              <button
+                onClick={() => navigator.clipboard.writeText(code)}
+                className="btn-ghost text-[12px]"
+              >
+                Code kopieren
+              </button>
             </div>
 
-            <a
-              href={whatsAppUrl()}
-              target="_blank"
-              rel="noopener"
-              className="btn-primary w-full flex items-center justify-center gap-2 bg-[#25D366] text-bg-deep"
-            >
-              <span className="text-lg">📱</span>
-              Per WhatsApp senden
-            </a>
-
-            <button
-              onClick={() => navigator.clipboard.writeText(code)}
-              className="btn-ghost w-full"
-            >
-              Code kopieren
-            </button>
+            <details className="bg-bg-3 rounded-xl">
+              <summary className="px-4 py-3 cursor-pointer h-mono text-copper text-[11px]">
+                — Per WhatsApp schicken (optional)
+              </summary>
+              <div className="px-4 pb-4 pt-2 space-y-3">
+                <input
+                  type="tel"
+                  placeholder="+49 152 …"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="w-full bg-bg-DEFAULT border border-ink/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-copper"
+                />
+                <a
+                  href={whatsAppUrl()}
+                  target="_blank"
+                  rel="noopener"
+                  className="block text-center w-full px-4 py-2.5 rounded-lg bg-[#25D366] text-bg-deep font-bold text-[13px]"
+                >
+                  📱 Per WhatsApp senden
+                </a>
+              </div>
+            </details>
           </div>
         ) : null}
 
@@ -621,29 +730,35 @@ function InviteModal({
 }
 
 function NavItem({
-  icon, label, active, disabled, onClick
+  icon, label, active, disabled, onClick, to
 }: {
   icon: string;
   label: string;
   active?: boolean;
   disabled?: boolean;
   onClick?: () => void;
+  to?: string;
 }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-left h-mono transition-colors ${
-        active
-          ? "bg-copper/15 text-copper"
-          : disabled
-            ? "text-paper/30 cursor-not-allowed"
-            : "text-paper/65 hover:bg-ink/5 hover:text-paper"
-      }`}
-    >
+  const className = `flex items-center gap-3 px-3 py-2.5 rounded-lg text-left h-mono transition-colors ${
+    active
+      ? "bg-copper/15 text-copper"
+      : disabled
+        ? "text-paper/30 cursor-not-allowed"
+        : "text-paper/65 hover:bg-ink/5 hover:text-paper"
+  }`;
+  const content = (
+    <>
       <span className="w-4 text-center">{icon}</span>
       <span>{label}</span>
       {disabled && <span className="ml-auto h-mono text-[9px] text-paper/30">bald</span>}
+    </>
+  );
+  if (to && !disabled) {
+    return <Link to={to} className={className}>{content}</Link>;
+  }
+  return (
+    <button onClick={onClick} disabled={disabled} className={className}>
+      {content}
     </button>
   );
 }
@@ -716,7 +831,7 @@ function TeamRow({
         <div className="font-semibold text-sm">{worker.firstName} {worker.lastName}</div>
         <div className="h-mono text-paper/55 text-[11px] mt-0.5">
           {todayEntry
-            ? <span className="text-rust">{ABSENCE_LABEL[todayEntry.type]}</span>
+            ? <span className="text-rust">{ABSENCE_LABEL[todayEntry.type].label}</span>
             : site
             ? <><span className="text-good">●</span> auf {site.name}</>
             : worker.role}
@@ -740,7 +855,7 @@ function TeamRow({
             ? "bg-rust/25 text-rust"
             : "bg-copper/20 text-copper"
         }`}>
-          {summary.submitted ? "Gesendet" : isMissingToday ? "Heute fehlt" : "Offen"}
+          {summary.submitted ? "Komplett" : isMissingToday ? "Heute fehlt" : "Nachtrag nötig"}
         </span>
         <button
           onClick={onInvite}
@@ -753,38 +868,50 @@ function TeamRow({
   );
 }
 
-function ActivityRow({ event, team }: { event: ActivityEvent; team: Worker[] }) {
-  const worker = team.find((w) => w.id === event.workerId);
+function EntryFeedRow({ entry, worker }: { entry: Entry; worker?: Worker }) {
   if (!worker) return null;
-  const time = new Date(event.timestamp).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
-  const dot =
-    event.type === "submit"  ? "bg-good" :
-    event.type === "delay"   ? "bg-rust" :
-    event.type === "checkin" ? "bg-copper" :
-    "bg-paper/40";
-  const label =
-    event.type === "submit"  ? "GESENDET" :
-    event.type === "delay"   ? "VERZÖGERUNG" :
-    event.type === "checkin" ? "ANGEKOMMEN" :
-    "EINTRAG";
+  const dateLabel = new Date(entry.date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
 
+  if (isWorkEntry(entry)) {
+    const site = siteById(entry.siteId);
+    const min = (entry.endMin - entry.startMin) - entry.pauseMin;
+    return (
+      <li className="bg-bg-2 rounded-lg px-3 py-2.5 flex gap-3 items-start border border-ink/10">
+        <span className="w-2 h-2 rounded-full mt-1.5 bg-copper flex-shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="font-semibold text-[13px]">{worker.firstName} {worker.lastName.charAt(0)}.</span>
+            <span className="h-mono text-paper/55 text-[11px] flex-shrink-0">{dateLabel}</span>
+          </div>
+          <div className="h-mono text-copper text-[11px] mt-0.5">— {entry.discipline} · {fmtHours(Math.max(0, min))} h</div>
+          <div className="text-[12px] text-paper/75 mt-1 leading-snug truncate">
+            {site?.name ?? "Baustelle"}
+          </div>
+        </div>
+      </li>
+    );
+  }
+
+  const meta = ABSENCE_LABEL[entry.type];
   return (
-    <li className="bg-bg-2 rounded-lg px-3 py-2.5 flex gap-3 items-start">
-      <span className={`w-2 h-2 rounded-full mt-1.5 ${dot} flex-shrink-0`} />
+    <li className="bg-bg-2 rounded-lg px-3 py-2.5 flex gap-3 items-start border border-ink/10">
+      <span className={`w-2 h-2 rounded-full mt-1.5 ${meta.dot} flex-shrink-0`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-2">
-          <span className="font-semibold text-[12px]">{worker.firstName} {worker.lastName.charAt(0)}.</span>
-          <span className="h-mono text-paper/40 text-[11px] flex-shrink-0">{time}</span>
+          <span className="font-semibold text-[13px]">{worker.firstName} {worker.lastName.charAt(0)}.</span>
+          <span className="h-mono text-paper/55 text-[11px] flex-shrink-0">{dateLabel}</span>
         </div>
-        <div className="h-mono text-copper text-[12px] mt-0.5">— {label}</div>
-        <div className="text-[11px] text-paper/70 mt-1 leading-snug">{event.message}</div>
+        <div className={`h-mono text-[11px] mt-0.5 ${meta.fg}`}>— {meta.label}</div>
+        {entry.note && (
+          <div className="text-[12px] text-paper/75 mt-1 leading-snug truncate">„{entry.note}"</div>
+        )}
       </div>
     </li>
   );
 }
 
 const ABSENCE_LABEL = {
-  sick:     "🏥 Krank",
-  vacation: "🏖 Urlaub",
-  holiday:  "🎉 Feiertag"
+  sick:     { label: "🏥 Krank",    dot: "bg-rust",   fg: "text-rust" },
+  vacation: { label: "🏖 Urlaub",   dot: "bg-moss",   fg: "text-moss-bright" },
+  holiday:  { label: "🎉 Feiertag", dot: "bg-bronze", fg: "text-bronze" }
 } as const;

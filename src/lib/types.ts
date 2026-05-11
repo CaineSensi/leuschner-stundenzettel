@@ -18,6 +18,7 @@ export const ENTRY_TYPE_LABEL: Record<EntryType, string> = {
 export interface Site {
   id: string;
   name: string;
+  projectNumber?: string;   // Auftragsnummer / Job-Number
   street: string;
   city: string;
   disciplines: Discipline[];
@@ -64,3 +65,22 @@ export type Entry = WorkEntry | AbsenceEntry;
 export function isWorkEntry(e: Entry): e is WorkEntry {
   return e.type === "work";
 }
+
+export interface Assignment {
+  id: string;
+  workerId: string;
+  date: string;            // ISO YYYY-MM-DD
+  siteId: string;
+  discipline: Discipline;
+  plannedStartMin?: number;
+  plannedEndMin?: number;
+  plannedPauseMin?: number;
+  note?: string;
+  publishedAt?: string;    // null = Draft, gefüllt = veröffentlicht
+}
+
+export const DEFAULT_PLAN = {
+  startMin: 7 * 60,        // 07:00
+  endMin: 16 * 60 + 30,    // 16:30
+  pauseMin: 30
+} as const;

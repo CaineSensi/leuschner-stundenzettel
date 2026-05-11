@@ -1,16 +1,16 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { SITES } from "../lib/mockData";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
+import { deleteEntry, getTodayAssignment, listEntries, listSites } from "../lib/api";
 import { saveEntryWithSync } from "../lib/sync";
 import { currentUser } from "../lib/auth";
-import { fmtHours, fmtTime } from "../lib/utils";
-import {
-  resolveCurrentLocation, fmtDistance,
-  type ResolvedAddress, type SiteWithDistance, type GeoError
-} from "../lib/geo";
-import type { Discipline, EntryType, Site } from "../lib/types";
+import { fmtHours, fmtTime, todayIso } from "../lib/utils";
+import { DEFAULT_PLAN, type Assignment, type Discipline, type EntryType, type Site } from "../lib/types";
 
-type Step = "type" | "site" | "activity" | "absence";
+type Step = "type" | "activity" | "absence" | "nowork";
+
+interface EntryNavState {
+  assignment?: Assignment;
+}
 
 const DISCIPLINES: { id: Discipline; label: string; icon: JSX.Element }[] = [
   {
@@ -48,83 +48,129 @@ const DISCIPLINES: { id: Discipline; label: string; icon: JSX.Element }[] = [
 const TYPE_OPTIONS: {
   id: EntryType; label: string; sub: string; emoji: string; tone: "primary" | "rust" | "moss" | "neutral";
 }[] = [
-  { id: "work",     label: "Arbeit",      sub: "Pflaster · Garten · Zaun", emoji: "🛠", tone: "primary" },
-  { id: "sick",     label: "Krankheit",   sub: "Krankschreibung",          emoji: "🏥", tone: "rust" },
-  { id: "vacation", label: "Urlaub",      sub: "Geplant oder spontan",     emoji: "🏖", tone: "moss" },
-  { id: "holiday",  label: "Feiertag",    sub: "Gesetzlicher Feiertag",    emoji: "🎉", tone: "neutral" }
+  { id: "work",     label: "Arbeit",      sub: "Stunden auf Baustelle",  emoji: "🛠", tone: "primary" },
+  { id: "sick",     label: "Krankheit",   sub: "Krankschreibung",        emoji: "🏥", tone: "rust" },
+  { id: "vacation", label: "Urlaub",      sub: "Geplant oder spontan",   emoji: "🏖", tone: "moss" }
+  // Feiertage werden zentral aus lib/holidays.ts gepflegt — keine Mitarbeiter-Eingabe nötig
 ];
 
 export default function Entry() {
   const navigate = useNavigate();
-  const [step, setStep] = useState<Step>("type");
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const navAssignment = (location.state as EntryNavState | null)?.assignment ?? null;
+  // Datum aus URL-Param ?date=YYYY-MM-DD oder vom Assignment, sonst heute
+  const targetDate = searchParams.get("date") ?? navAssignment?.date ?? todayIso();
+  const isPastDay = targetDate < todayIso();
+
+  const [assignment, setAssignment] = useState<Assignment | null>(navAssignment);
+  const [todaySite, setTodaySite] = useState<Site | null>(null);
+  const [step, setStep] = useState<Step>(navAssignment ? "activity" : "type");
   const [type, setType] = useState<EntryType>("work");
 
-  const [siteId, setSiteId] = useState<string | null>(null);
-  const [discipline, setDiscipline] = useState<Discipline>("PFL");
-  const [startMin, setStartMin] = useState(7 * 60);
-  const [endMin, setEndMin] = useState(16 * 60 + 30);
-  const [pause, setPause] = useState(30);
+  const [discipline, setDiscipline] = useState<Discipline>(navAssignment?.discipline ?? "PFL");
+  const [startMin, setStartMin] = useState(navAssignment?.plannedStartMin ?? DEFAULT_PLAN.startMin);
+  const [endMin, setEndMin] = useState(navAssignment?.plannedEndMin ?? DEFAULT_PLAN.endMin);
+  const [pause, setPause] = useState(navAssignment?.plannedPauseMin ?? DEFAULT_PLAN.pauseMin);
 
-  const [absStart, setAbsStart] = useState(new Date().toISOString().slice(0, 10));
+  const [absStart, setAbsStart] = useState(targetDate);
   const [absEnd, setAbsEnd] = useState("");
   const [absNote, setAbsNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [existingId, setExistingId] = useState<string | null>(null);
 
-  const [geoStatus, setGeoStatus] = useState<"idle" | "loading" | "ready" | GeoError>("idle");
-  const [accuracy, setAccuracy] = useState<number | null>(null);
-  const [address, setAddress] = useState<ResolvedAddress | null>(null);
-  const [nearbySites, setNearbySites] = useState<SiteWithDistance[]>([]);
-
+  // Bestehenden Eintrag für targetDate laden — falls vorhanden, in Edit-Modus springen
   useEffect(() => {
-    if (step !== "site") return;
-    if (geoStatus !== "idle") return;
-    let cancelled = false;
-    setGeoStatus("loading");
-
-    resolveCurrentLocation(SITES)
-      .then((result) => {
-        if (cancelled) return;
-        setAccuracy(result.accuracy);
-        setAddress(result.address);
-        setNearbySites(result.nearbySites);
-        setGeoStatus("ready");
+    const me = currentUser();
+    if (!me) return;
+    listEntries(me.id, targetDate, targetDate)
+      .then((entries) => {
+        const ex = entries[0];
+        if (!ex) return;
+        setExistingId(ex.id);
+        if (ex.type === "work") {
+          setType("work");
+          setDiscipline(ex.discipline);
+          setStartMin(ex.startMin);
+          setEndMin(ex.endMin);
+          setPause(ex.pauseMin);
+          // Synthetic Assignment, damit ActivityTime die Site rendert
+          setAssignment({
+            id: "edit",
+            workerId: me.id,
+            date: targetDate,
+            siteId: ex.siteId,
+            discipline: ex.discipline
+          });
+          setStep("activity");
+        } else {
+          setType(ex.type);
+          setAbsStart(ex.date);
+          setAbsEnd(ex.endDate ?? "");
+          setAbsNote(ex.note ?? "");
+          setStep("absence");
+        }
       })
-      .catch((err: GeoError) => {
-        if (cancelled) return;
-        setGeoStatus(err);
-      });
+      .catch((e) => console.warn("[entry] load existing", e));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetDate]);
 
-    return () => { cancelled = true; };
-  }, [step, geoStatus]);
+  // Zuweisung für targetDate laden, falls nicht via Navigation übergeben
+  useEffect(() => {
+    if (assignment) return;
+    const me = currentUser();
+    if (!me) return;
+    getTodayAssignment(me.id, targetDate)
+      .then((a) => {
+        if (!a) return;
+        setAssignment(a);
+        setDiscipline(a.discipline);
+        setStartMin(a.plannedStartMin ?? DEFAULT_PLAN.startMin);
+        setEndMin(a.plannedEndMin ?? DEFAULT_PLAN.endMin);
+        setPause(a.plannedPauseMin ?? DEFAULT_PLAN.pauseMin);
+      })
+      .catch((e) => console.warn("[entry] getAssignment", e));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetDate]);
 
-  // Top-Treffer (nächste Stamm-Baustelle), wenn unter 500 m
-  const nearest = nearbySites[0]?.distance != null && nearbySites[0].distance < 500
-    ? nearbySites[0].site
-    : null;
+  // Site-Daten zur Anzeige holen, sobald wir wissen welche Baustelle
+  useEffect(() => {
+    if (!assignment) return;
+    listSites()
+      .then((sites) => setTodaySite(sites.find((s) => s.id === assignment.siteId) ?? null))
+      .catch(() => { });
+  }, [assignment]);
 
   const totalMin = Math.max(0, endMin - startMin - pause);
 
   function handleTypeSelect(t: EntryType) {
     setType(t);
-    setStep(t === "work" ? "site" : "absence");
+    if (t === "work") {
+      setStep(assignment ? "activity" : "nowork");
+    } else {
+      setStep("absence");
+    }
   }
 
   async function handleSave() {
+    if (saving) return;
+    setSaveError(null);
     const me = currentUser();
     if (!me) { navigate("/login"); return; }
-    const today = new Date().toISOString().slice(0, 10);
 
     const draft =
       type === "work"
         ? {
             type: "work" as const,
             workerId: me.id,
-            date: today,
-            siteId: siteId!,
+            date: targetDate,
+            siteId: assignment!.siteId,
             discipline,
             startMin,
             endMin,
             pauseMin: pause,
-            geoVerified: nearest !== null
+            geoVerified: false
           }
         : {
             type,
@@ -134,15 +180,41 @@ export default function Entry() {
             note: absNote || undefined
           };
 
+    setSaving(true);
+    console.log("[entry] save start", { ...draft, mode: existingId ? "update" : "insert" });
     try {
-      await saveEntryWithSync(draft);
-    } catch (err) {
-      console.warn("save failed, but should be queued", err);
+      await Promise.race([
+        saveEntryWithSync(draft, existingId ?? undefined),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Zeitüberschreitung beim Speichern")), 6000))
+      ]);
+      console.log("[entry] save ok");
+      navigate("/", { replace: true });
+    } catch (err: any) {
+      console.warn("[entry] save FAIL", err);
+      if (!navigator.onLine) {
+        navigate("/", { replace: true });
+        return;
+      }
+      setSaveError(err?.message ?? "Speichern fehlgeschlagen");
+      setSaving(false);
     }
-    navigate("/", { replace: true });
   }
 
-  if (step === "type") return <TypePicker onPick={handleTypeSelect} />;
+  async function handleDelete() {
+    if (!existingId) return;
+    if (!confirm("Diesen Eintrag wirklich löschen?")) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await deleteEntry(existingId);
+      navigate("/", { replace: true });
+    } catch (err: any) {
+      setSaveError(err?.message ?? "Löschen fehlgeschlagen");
+      setSaving(false);
+    }
+  }
+
+  if (step === "type") return <TypePicker date={targetDate} onPick={handleTypeSelect} />;
   if (step === "absence")
     return (
       <AbsencePicker
@@ -155,25 +227,18 @@ export default function Entry() {
         onNote={setAbsNote}
         onBack={() => setStep("type")}
         onSave={handleSave}
+        onDelete={existingId ? handleDelete : undefined}
+        saving={saving}
+        error={saveError}
       />
     );
-  if (step === "site")
-    return (
-      <SitePicker
-        geoStatus={geoStatus}
-        address={address}
-        accuracy={accuracy}
-        nearbySites={nearbySites}
-        nearest={nearest}
-        selectedId={siteId}
-        onSelect={setSiteId}
-        onBack={() => setStep("type")}
-        onNext={() => siteId && setStep("activity")}
-      />
-    );
+  if (step === "nowork") return <NoWorkScreen date={targetDate} onBack={() => setStep("type")} />;
   return (
     <ActivityTime
-      siteId={siteId!}
+      date={targetDate}
+      isPast={isPastDay}
+      site={todaySite}
+      assignment={assignment!}
       discipline={discipline}
       onDiscipline={setDiscipline}
       startMin={startMin}
@@ -183,22 +248,31 @@ export default function Entry() {
       onStart={setStartMin}
       onEnd={setEndMin}
       onPause={setPause}
-      onBack={() => setStep("site")}
+      onBack={() => navAssignment ? navigate("/") : setStep("type")}
       onSave={handleSave}
+      onDelete={existingId ? handleDelete : undefined}
+      saving={saving}
+      error={saveError}
     />
   );
 }
 
-function TypePicker({ onPick }: { onPick: (t: EntryType) => void }) {
+// ===== TYPE PICKER =====
+
+function TypePicker({ date, onPick }: { date: string; onPick: (t: EntryType) => void }) {
+  const isToday = date === todayIso();
+  const dateLabel = new Date(date).toLocaleDateString("de-DE", {
+    weekday: "long", day: "2-digit", month: "long"
+  });
   return (
     <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
       <header className="pt-3 flex items-center justify-between">
         <Link to="/" className="h-mono text-paper/55 text-[12px]">← Zurück</Link>
-        <span className="h-mono text-copper">Schritt 0 / 3</span>
+        <span className="h-mono text-copper text-[11px]">{isToday ? "Heute" : "Nachtrag"}</span>
       </header>
 
-      <h1 className="h-display text-3xl mt-6">Was war heute?</h1>
-      <p className="h-mono text-paper/55 text-[12px] mt-1.5">— Wähle einen Eintrags-Typ</p>
+      <h1 className="h-display text-3xl mt-6">Was war {isToday ? "heute" : "an diesem Tag"}?</h1>
+      <p className="h-mono text-paper/55 text-[12px] mt-1.5">— {dateLabel}</p>
 
       <div className="grid grid-cols-2 gap-3 mt-8 flex-1 content-start">
         {TYPE_OPTIONS.map((opt) => (
@@ -218,7 +292,7 @@ function TypePicker({ onPick }: { onPick: (t: EntryType) => void }) {
             <span className="text-4xl">{opt.emoji}</span>
             <div className="text-center">
               <div className="h-display text-xl">{opt.label}</div>
-              <div className="h-mono text-paper/45 text-[12px] mt-1 px-2">{opt.sub}</div>
+              <div className="h-mono text-paper/55 text-[12px] mt-1 px-2">{opt.sub}</div>
             </div>
           </button>
         ))}
@@ -227,8 +301,42 @@ function TypePicker({ onPick }: { onPick: (t: EntryType) => void }) {
   );
 }
 
+// ===== NOWORK (kein Plan heute) =====
+
+function NoWorkScreen({ date, onBack }: { date: string; onBack: () => void }) {
+  const isToday = date === todayIso();
+  const dateLabel = new Date(date).toLocaleDateString("de-DE", {
+    weekday: "long", day: "2-digit", month: "long"
+  });
+  return (
+    <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
+      <header className="pt-3 flex items-center justify-between">
+        <button onClick={onBack} className="h-mono text-paper/55 text-[12px]">← Zurück</button>
+      </header>
+
+      <div className="flex-1 flex flex-col items-center justify-center text-center">
+        <div className="text-6xl mb-4">🤔</div>
+        <h1 className="h-display text-3xl">Keine Baustelle hinterlegt</h1>
+        <p className="mt-2 h-mono text-copper text-[11px]">— {dateLabel}</p>
+        <p className="mt-4 text-paper/75 text-sm leading-relaxed max-w-xs">
+          {isToday
+            ? "Für heute wurde dir vom Büro noch keine Baustelle zugewiesen."
+            : "Für diesen Tag wurde dir keine Baustelle zugewiesen — Rick muss das im Wochenplan nachtragen."}
+        </p>
+        <p className="mt-4 text-paper/65 text-[13px] leading-relaxed max-w-xs">
+          Frag kurz im Büro — sobald die Zuweisung steht, taucht hier die Baustelle automatisch auf.
+        </p>
+      </div>
+
+      <Link to="/" className="btn-primary w-full">Zurück zur Übersicht</Link>
+    </main>
+  );
+}
+
+// ===== ABSENCE PICKER =====
+
 function AbsencePicker({
-  type, startDate, endDate, note, onStart, onEnd, onNote, onBack, onSave
+  type, startDate, endDate, note, onStart, onEnd, onNote, onBack, onSave, onDelete, saving, error
 }: {
   type: Exclude<EntryType, "work">;
   startDate: string;
@@ -239,6 +347,9 @@ function AbsencePicker({
   onNote: (s: string) => void;
   onBack: () => void;
   onSave: () => void;
+  onDelete?: () => void;
+  saving: boolean;
+  error: string | null;
 }) {
   const labels = {
     sick:     { title: "Krankheit", emoji: "🏥", note: "z. B. Arzt-Attest, Hausarzt …" },
@@ -251,10 +362,9 @@ function AbsencePicker({
     : 1;
 
   return (
-    <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
+    <main className="min-h-screen flex flex-col px-6 safe-top max-w-md mx-auto pb-32">
       <header className="pt-3 flex items-center justify-between">
         <button onClick={onBack} className="h-mono text-paper/55 text-[12px]">← Zurück</button>
-        <span className="h-mono text-copper">Schritt 1 / 1</span>
       </header>
 
       <div className="mt-6 flex items-center gap-4">
@@ -276,14 +386,34 @@ function AbsencePicker({
             onChange={(e) => onNote(e.target.value)}
             placeholder={meta.note}
             rows={2}
-            className="w-full bg-bg-3 border border-ink/10 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-copper resize-none"
+            className="w-full bg-bg-3 border border-ink/15 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-copper resize-none"
           />
         </div>
       </div>
 
-      <button onClick={onSave} className="btn-primary w-full mt-auto">
-        {meta.title} eintragen · {days} {days === 1 ? "Tag" : "Tage"}
-      </button>
+      <div className="fixed bottom-0 left-0 right-0 bg-bg-DEFAULT border-t border-ink/10 px-6 pt-3 safe-bottom z-30">
+        <div className="max-w-md mx-auto">
+          {error && <div className="text-[12px] text-rust mb-2 leading-snug">{error}</div>}
+          <div className="flex gap-2">
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                disabled={saving}
+                className="px-4 py-3 rounded-xl border border-rust/40 text-rust font-mono text-xs uppercase tracking-wide disabled:opacity-50"
+              >
+                Löschen
+              </button>
+            )}
+            <button
+              onClick={onSave}
+              disabled={saving}
+              className="btn-primary flex-1 disabled:opacity-60"
+            >
+              {saving ? "Speichert …" : onDelete ? `Speichern · ${days} ${days === 1 ? "Tag" : "Tage"}` : `${meta.title} eintragen · ${days} ${days === 1 ? "Tag" : "Tage"}`}
+            </button>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
@@ -304,204 +434,24 @@ function DateField({
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-bg-3 border border-ink/10 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-copper"
+        className="w-full bg-bg-3 border border-ink/15 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-copper"
       />
     </div>
   );
 }
 
-function SitePicker({
-  geoStatus, address, accuracy, nearbySites, nearest,
-  selectedId, onSelect, onBack, onNext
-}: {
-  geoStatus: "idle" | "loading" | "ready" | GeoError;
-  address: ResolvedAddress | null;
-  accuracy: number | null;
-  nearbySites: SiteWithDistance[];
-  nearest: Site | null;
-  selectedId: string | null;
-  onSelect: (id: string) => void;
-  onBack: () => void;
-  onNext: () => void;
-}) {
-  const sorted = useMemo(
-    () => [...SITES].sort((a, b) =>
-      Number(!!b.starred) - Number(!!a.starred) || a.name.localeCompare(b.name, "de")
-    ),
-    []
-  );
-
-  const otherNearby = nearbySites
-    .filter((n) => n.site.id !== nearest?.id && n.distance < 2000)
-    .slice(0, 3);
-
-  return (
-    <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
-      <header className="pt-3 flex items-center justify-between">
-        <button onClick={onBack} className="h-mono text-paper/55 text-[12px]">← Zurück</button>
-        <span className="h-mono text-copper">Schritt 1 / 2</span>
-      </header>
-
-      <h1 className="h-display text-3xl mt-6">Welche Baustelle?</h1>
-
-      <GeoBanner geoStatus={geoStatus} address={address} accuracy={accuracy} />
-
-      {nearest && (
-        <button
-          onClick={() => onSelect(nearest.id)}
-          className={`mt-3 w-full text-left rounded-xl p-3.5 border ${
-            selectedId === nearest.id
-              ? "bg-gradient-to-br from-copper/25 to-copper/8 border-copper"
-              : "bg-bg-2 border-copper/40"
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className="relative w-8 h-8 flex items-center justify-center">
-              <span className="absolute inset-0 rounded-full bg-copper opacity-25 animate-ping" />
-              <span className="relative w-3 h-3 rounded-full bg-copper-bright border-2 border-bg-2" />
-            </div>
-            <div className="flex-1">
-              <div className="h-mono text-copper text-[11px]">
-                — Stamm-Baustelle · {fmtDistance(nearbySites[0]?.distance ?? 0)} entfernt
-              </div>
-              <div className="font-bold text-[15px] mt-0.5">{nearest.name}</div>
-              <div className="h-mono text-paper/55 text-[11px]">{nearest.street} · {nearest.city}</div>
-            </div>
-            <div className={`w-5 h-5 rounded-full ${selectedId === nearest.id ? "bg-copper text-bg-deep" : "border border-copper"} flex items-center justify-center text-[11px] font-bold`}>
-              {selectedId === nearest.id ? "✓" : ""}
-            </div>
-          </div>
-        </button>
-      )}
-
-      {otherNearby.length > 0 && (
-        <>
-          <div className="h-mono text-paper/45 text-[11px] mt-4 mb-1.5">— Auch in der Nähe</div>
-          <ul className="space-y-1.5">
-            {otherNearby.map(({ site, distance }) => (
-              <li key={site.id}>
-                <button
-                  onClick={() => onSelect(site.id)}
-                  className={`w-full text-left rounded-lg px-3 py-2.5 flex items-center gap-3 ${
-                    selectedId === site.id
-                      ? "bg-gradient-to-br from-copper/20 to-bg-3 border border-copper"
-                      : "bg-bg-2 border border-ink/10"
-                  }`}
-                >
-                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-display font-extrabold text-xs ${
-                    selectedId === site.id ? "bg-copper text-bg-deep" : "bg-bg-4 text-copper-bright"
-                  }`}>
-                    {site.name.split(" ").slice(-1)[0].slice(0, 2).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-[13px] leading-tight">{site.name}</div>
-                    <div className="h-mono text-paper/50 text-[10px]">
-                      {fmtDistance(distance)} · {site.street}
-                    </div>
-                  </div>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-
-      <div className="h-mono text-paper/45 text-[11px] mt-4 mb-2">— Alle Baustellen</div>
-
-      <ul className="space-y-1.5 flex-1 overflow-y-auto pb-4">
-        {sorted.map((site) => (
-          <li key={site.id}>
-            <button
-              onClick={() => onSelect(site.id)}
-              className={`w-full text-left rounded-lg px-3 py-2.5 flex items-center gap-3 ${
-                selectedId === site.id
-                  ? "bg-gradient-to-br from-copper/20 to-bg-3 border border-copper"
-                  : "bg-bg-3 border border-transparent"
-              }`}
-            >
-              <div className={`w-7 h-7 rounded-lg flex items-center justify-center font-display font-extrabold text-xs ${
-                selectedId === site.id ? "bg-copper text-bg-deep" : "bg-bg-4 text-copper-bright"
-              }`}>
-                {site.name.split(" ").slice(-1)[0].slice(0, 2).toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="font-semibold text-[13px] leading-tight">{site.name}</div>
-                <div className="h-mono text-paper/50 text-[12px]">{site.street} · {site.city}</div>
-              </div>
-              {site.starred && <span className="text-copper text-base">★</span>}
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      <button
-        disabled={!selectedId}
-        onClick={onNext}
-        className="btn-primary w-full mt-2 disabled:opacity-40 disabled:active:scale-100"
-      >
-        Weiter · Tätigkeit
-      </button>
-    </main>
-  );
-}
-
-function GeoBanner({
-  geoStatus, address, accuracy
-}: {
-  geoStatus: "idle" | "loading" | "ready" | GeoError;
-  address: ResolvedAddress | null;
-  accuracy: number | null;
-}) {
-  if (geoStatus === "idle" || geoStatus === "loading") {
-    return (
-      <div className="mt-4 px-3 py-2.5 bg-bg-2 border border-ink/10 rounded-lg flex items-center gap-3">
-        <span className="text-lg animate-pulse">📍</span>
-        <div className="h-mono text-paper/55 text-[12px]">Standort wird ermittelt …</div>
-      </div>
-    );
-  }
-  if (geoStatus === "permission_denied") {
-    return (
-      <div className="mt-4 px-3 py-2.5 bg-rust/10 border border-rust/40 rounded-lg">
-        <div className="h-mono text-rust text-[11px]">— Standort blockiert</div>
-        <p className="text-[12px] text-paper/75 mt-0.5 leading-snug">
-          iPhone: Einstellungen → Safari → Standort → Erlauben. Dann diese Seite neu öffnen.
-        </p>
-      </div>
-    );
-  }
-  if (geoStatus === "position_unavailable" || geoStatus === "timeout" || geoStatus === "unsupported") {
-    return (
-      <div className="mt-4 px-3 py-2.5 bg-bg-2 border border-ink/15 rounded-lg">
-        <div className="h-mono text-paper/55 text-[11px]">— Kein Standort verfügbar</div>
-        <p className="text-[12px] text-paper/65 mt-0.5">
-          Wähle die Baustelle manuell aus der Liste unten.
-        </p>
-      </div>
-    );
-  }
-  return (
-    <div className="mt-4 px-3 py-2.5 bg-bg-2 border border-good/40 rounded-lg flex items-start gap-3">
-      <span className="text-lg leading-none mt-0.5">📍</span>
-      <div className="flex-1 min-w-0">
-        <div className="h-mono text-good text-[11px]">
-          — Standort {accuracy ? `· ±${accuracy} m` : ""}
-        </div>
-        <div className="text-[13px] font-semibold mt-0.5 leading-snug">
-          {address?.display ?? "Adresse wird gesucht …"}
-        </div>
-      </div>
-    </div>
-  );
-}
+// ===== ACTIVITY TIME =====
 
 function ActivityTime({
-  siteId, discipline, onDiscipline,
+  date, isPast, site, assignment, discipline, onDiscipline,
   startMin, endMin, pause, totalMin,
   onStart, onEnd, onPause,
-  onBack, onSave
+  onBack, onSave, onDelete, saving, error
 }: {
-  siteId: string;
+  date: string;
+  isPast: boolean;
+  site: Site | null;
+  assignment: Assignment;
   discipline: Discipline;
   onDiscipline: (d: Discipline) => void;
   startMin: number;
@@ -513,19 +463,35 @@ function ActivityTime({
   onPause: (p: number) => void;
   onBack: () => void;
   onSave: () => void;
+  onDelete?: () => void;
+  saving: boolean;
+  error: string | null;
 }) {
-  const site = SITES.find((s) => s.id === siteId)!;
-
+  const dateLabel = new Date(date).toLocaleDateString("de-DE", {
+    weekday: "long", day: "2-digit", month: "long"
+  });
   return (
-    <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
+    <main className="min-h-screen flex flex-col px-6 safe-top max-w-md mx-auto pb-32">
       <header className="pt-3 flex items-center justify-between">
         <button onClick={onBack} className="h-mono text-paper/55 text-[12px]">← Zurück</button>
-        <span className="h-mono text-copper">Schritt 2 / 2</span>
+        <span className="h-mono text-copper">{isPast ? "Nachtrag" : "Heute · vom Büro geplant"}</span>
       </header>
 
-      <div className="mt-2">
-        <div className="h-mono text-paper/55 text-[11px]">— {site.street} · {site.city}</div>
-        <h1 className="h-display text-2xl">{site.name}</h1>
+      <div className="mt-3 h-mono text-paper/65 text-[11px]">— {dateLabel}</div>
+
+      <div className="mt-3">
+        {site?.projectNumber && (
+          <div className="h-mono text-paper/55 text-[11px]">— Auftrag {site.projectNumber}</div>
+        )}
+        <h1 className="h-display text-2xl mt-1">{site?.name ?? "Baustelle"}</h1>
+        {site && (
+          <div className="h-mono text-paper/55 text-[11px] mt-0.5">{site.street} · {site.city}</div>
+        )}
+        {assignment.note && (
+          <div className="mt-2 px-3 py-2 bg-bg-2 border border-copper/30 rounded-lg text-[12px] italic leading-snug">
+            „{assignment.note}"
+          </div>
+        )}
       </div>
 
       <section className="mt-6">
@@ -567,20 +533,40 @@ function ActivityTime({
 
         <div className="bg-bg-3 rounded-xl px-4 py-3 mt-3 flex items-center justify-between">
           <div>
-            <div className="h-mono text-paper/60 text-[12px]">— Pause</div>
+            <div className="h-mono text-paper/65 text-[12px]">— Pause</div>
             <div className="font-semibold">{pause} Minuten</div>
           </div>
           <div className="flex items-center gap-1.5">
-            <button onClick={() => onPause(Math.max(0, pause - 15))} className="w-8 h-8 rounded-full bg-bg-2 border border-ink/10 font-bold">−</button>
+            <button onClick={() => onPause(Math.max(0, pause - 15))} className="w-8 h-8 rounded-full bg-bg-2 border border-ink/15 font-bold">−</button>
             <span className="h-display text-xl w-9 text-center">{pause}</span>
-            <button onClick={() => onPause(pause + 15)} className="w-8 h-8 rounded-full bg-bg-2 border border-ink/10 font-bold">+</button>
+            <button onClick={() => onPause(pause + 15)} className="w-8 h-8 rounded-full bg-bg-2 border border-ink/15 font-bold">+</button>
           </div>
         </div>
       </section>
 
-      <button onClick={onSave} className="btn-primary w-full mt-auto">
-        Speichern · {fmtHours(totalMin)} h
-      </button>
+      <div className="fixed bottom-0 left-0 right-0 bg-bg-DEFAULT border-t border-ink/10 px-6 pt-3 safe-bottom z-30">
+        <div className="max-w-md mx-auto">
+          {error && <div className="text-[12px] text-rust mb-2 leading-snug">{error}</div>}
+          <div className="flex gap-2">
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                disabled={saving}
+                className="px-4 py-3 rounded-xl border border-rust/40 text-rust font-mono text-xs uppercase tracking-wide disabled:opacity-50"
+              >
+                Löschen
+              </button>
+            )}
+            <button
+              onClick={onSave}
+              disabled={saving}
+              className="btn-primary flex-1 disabled:opacity-60"
+            >
+              {saving ? "Speichert …" : `Speichern · ${fmtHours(totalMin)} h`}
+            </button>
+          </div>
+        </div>
+      </div>
     </main>
   );
 }
@@ -589,7 +575,7 @@ function TimeSlider({ value, onChange, label }: { value: number; onChange: (v: n
   const min = 6 * 60, max = 18 * 60, step = 15;
   return (
     <div className="mt-3">
-      <div className="flex justify-between h-mono text-paper/45 text-[11px] mb-1">
+      <div className="flex justify-between h-mono text-paper/55 text-[11px] mb-1">
         <span>{label}</span>
         <span>{fmtTime(value)}</span>
       </div>

@@ -32,7 +32,13 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
-        navigateFallback: "/index.html"
+        navigateFallback: "/index.html",
+        // Neue Service-Worker-Version sofort übernehmen — User sieht den
+        // neuen Build beim ERSTEN Öffnen statt beim zweiten
+        skipWaiting: true,
+        clientsClaim: true,
+        // Cleanup alter Caches automatisch
+        cleanupOutdatedCaches: true
       }
     })
   ],

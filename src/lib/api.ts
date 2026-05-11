@@ -3,7 +3,7 @@
 // Sobald die ENV-Variablen gesetzt sind, läuft alles gegen die echte Datenbank.
 
 import { supabase, isBackendConnected } from "./supabase";
-import type { AbsenceEntry, Entry, Site, Worker, WorkEntry } from "./types";
+import type { AbsenceEntry, Assignment, Discipline, Entry, Site, Worker, WorkEntry } from "./types";
 import * as mock from "./mockData";
 
 type EntryDraft =
@@ -31,6 +31,27 @@ export async function listWorkers(): Promise<Worker[]> {
   }));
 }
 
+export async function unlinkWorker(workerId: string): Promise<void> {
+  if (!isBackendConnected() || !supabase) {
+    console.log("[mock] unlinkWorker", workerId);
+    return;
+  }
+  const sb: any = supabase;
+  // 1) auth_user_id zurücksetzen → Mitarbeiter kann mit neuem Gerät neu eingeladen werden
+  const { error: e1 } = await sb
+    .from("workers")
+    .update({ auth_user_id: null })
+    .eq("id", workerId);
+  if (e1) throw e1;
+  // 2) Offene Einladungs-Codes invalidieren
+  const { error: e2 } = await sb
+    .from("invitations")
+    .update({ used_at: new Date().toISOString() })
+    .eq("worker_id", workerId)
+    .is("used_at", null);
+  if (e2) throw e2;
+}
+
 export async function updateWorkerPhone(workerId: string, phone: string | null): Promise<void> {
   if (!isBackendConnected() || !supabase) {
     console.log("[mock] updateWorkerPhone", { workerId, phone });
@@ -54,12 +75,126 @@ export async function listSites(): Promise<Site[]> {
   return (data ?? []).map((s: any) => ({
     id: s.id,
     name: s.name,
+    projectNumber: s.project_number ?? undefined,
     street: s.street ?? "",
     city: s.city ?? "",
     disciplines: ["PFL", "GTN", "ZAU"],
     starred: s.starred,
     geo: s.geo_lat && s.geo_lng ? { lat: s.geo_lat, lng: s.geo_lng } : undefined
   }));
+}
+
+export async function listAllSites(includeArchived = false): Promise<(Site & { archived?: boolean })[]> {
+  if (!isBackendConnected() || !supabase) return mock.SITES;
+  const sb: any = supabase;
+  let q = sb.from("sites").select("*").order("starred", { ascending: false }).order("name");
+  if (!includeArchived) q = q.is("archived_at", null);
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []).map((s: any) => ({
+    id: s.id,
+    name: s.name,
+    projectNumber: s.project_number ?? undefined,
+    street: s.street ?? "",
+    city: s.city ?? "",
+    disciplines: ["PFL", "GTN", "ZAU"] as Discipline[],
+    starred: s.starred,
+    geo: s.geo_lat && s.geo_lng ? { lat: s.geo_lat, lng: s.geo_lng } : undefined,
+    archived: !!s.archived_at
+  }));
+}
+
+export interface SiteInput {
+  name: string;
+  projectNumber?: string;
+  street?: string;
+  city?: string;
+  starred?: boolean;
+  geoLat?: number;
+  geoLng?: number;
+}
+
+export async function createSite(input: SiteInput): Promise<Site> {
+  if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
+  const sb: any = supabase;
+  // company_id aus Admin holen
+  const { data: w, error: wErr } = await sb
+    .from("workers")
+    .select("company_id")
+    .eq("auth_user_id", (await sb.auth.getUser()).data.user.id)
+    .single();
+  if (wErr) throw wErr;
+  const row = {
+    company_id: w.company_id,
+    name: input.name.trim(),
+    project_number: input.projectNumber?.trim() || null,
+    street: input.street?.trim() || null,
+    city: input.city?.trim() || null,
+    starred: input.starred ?? false,
+    geo_lat: input.geoLat ?? null,
+    geo_lng: input.geoLng ?? null
+  };
+  const { data, error } = await sb.from("sites").insert(row).select("*").single();
+  if (error) throw error;
+  return {
+    id: data.id,
+    name: data.name,
+    projectNumber: data.project_number ?? undefined,
+    street: data.street ?? "",
+    city: data.city ?? "",
+    disciplines: ["PFL", "GTN", "ZAU"],
+    starred: data.starred,
+    geo: data.geo_lat && data.geo_lng ? { lat: data.geo_lat, lng: data.geo_lng } : undefined
+  };
+}
+
+export async function updateSite(id: string, patch: Partial<SiteInput>): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const row: any = {};
+  if (patch.name !== undefined) row.name = patch.name.trim();
+  if (patch.projectNumber !== undefined) row.project_number = patch.projectNumber?.trim() || null;
+  if (patch.street !== undefined) row.street = patch.street?.trim() || null;
+  if (patch.city !== undefined) row.city = patch.city?.trim() || null;
+  if (patch.starred !== undefined) row.starred = patch.starred;
+  if (patch.geoLat !== undefined) row.geo_lat = patch.geoLat;
+  if (patch.geoLng !== undefined) row.geo_lng = patch.geoLng;
+  const { error } = await sb.from("sites").update(row).eq("id", id);
+  if (error) throw error;
+}
+
+export async function archiveSite(id: string): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb
+    .from("sites")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function unarchiveSite(id: string): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb
+    .from("sites")
+    .update({ archived_at: null })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+export async function listAllEntries(dateFrom: string, dateTo: string): Promise<Entry[]> {
+  if (!isBackendConnected() || !supabase) {
+    return mock.ENTRIES.filter((e) => e.date >= dateFrom && e.date <= dateTo);
+  }
+  const { data, error } = await supabase
+    .from("entries")
+    .select("*")
+    .gte("date", dateFrom)
+    .lte("date", dateTo)
+    .order("date");
+  if (error) throw error;
+  return (data ?? []).map(rowToEntry);
 }
 
 export async function listEntries(workerId: string, weekStart: string, weekEnd: string): Promise<Entry[]> {
@@ -81,20 +216,33 @@ export async function listEntries(workerId: string, weekStart: string, weekEnd: 
 
 // ===== WRITE =====
 
-export async function saveEntry(entry: EntryDraft): Promise<string> {
+export async function saveEntry(entry: EntryDraft, existingId?: string): Promise<string> {
   if (!isBackendConnected() || !supabase) {
-    const fakeId = `local-${Date.now()}`;
-    console.log("[mock] saveEntry", { ...entry, id: fakeId });
+    const fakeId = existingId ?? `local-${Date.now()}`;
+    console.log("[mock] saveEntry", { ...entry, id: fakeId, mode: existingId ? "update" : "insert" });
     return fakeId;
   }
   const row = entryToRow(entry);
-  const { data, error } = await supabase
+  const sb: any = supabase;
+  if (existingId) {
+    const { error } = await sb.from("entries").update(row).eq("id", existingId);
+    if (error) throw error;
+    return existingId;
+  }
+  const { data, error } = await sb
     .from("entries")
-    .insert(row as any)
+    .insert(row)
     .select("id")
     .single();
   if (error) throw error;
   return (data as any).id as string;
+}
+
+export async function deleteEntry(id: string): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb.from("entries").delete().eq("id", id);
+  if (error) throw error;
 }
 
 export async function submitWeek(workerId: string, weekStart: string, weekEnd: string): Promise<void> {
@@ -141,6 +289,140 @@ export async function redeemInvitation(code: string): Promise<Worker> {
     role: data.role,
     isAdmin: data.is_admin
   };
+}
+
+// ===== ASSIGNMENTS (Admin-Tagesplanung) =====
+
+export async function listAssignments(workerId: string, dateFrom: string, dateTo: string): Promise<Assignment[]> {
+  if (!isBackendConnected() || !supabase) return [];
+  const { data, error } = await supabase
+    .from("assignments")
+    .select("id, worker_id, date, site_id, discipline, planned_start_min, planned_end_min, planned_pause_min, note, published_at")
+    .eq("worker_id", workerId)
+    .gte("date", dateFrom)
+    .lte("date", dateTo)
+    .order("date");
+  if (error) throw error;
+  return (data ?? []).map(rowToAssignment);
+}
+
+export async function listAssignmentsForCompany(dateFrom: string, dateTo: string): Promise<Assignment[]> {
+  if (!isBackendConnected() || !supabase) return [];
+  const { data, error } = await supabase
+    .from("assignments")
+    .select("id, worker_id, date, site_id, discipline, planned_start_min, planned_end_min, planned_pause_min, note, published_at")
+    .gte("date", dateFrom)
+    .lte("date", dateTo);
+  if (error) throw error;
+  return (data ?? []).map(rowToAssignment);
+}
+
+export async function getTodayAssignment(workerId: string, date: string): Promise<Assignment | null> {
+  if (!isBackendConnected() || !supabase) return null;
+  const { data, error } = await supabase
+    .from("assignments")
+    .select("id, worker_id, date, site_id, discipline, planned_start_min, planned_end_min, planned_pause_min, note, published_at")
+    .eq("worker_id", workerId)
+    .eq("date", date)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToAssignment(data) : null;
+}
+
+export async function upsertAssignment(input: {
+  workerId: string;
+  date: string;
+  siteId: string;
+  discipline: "PFL" | "GTN" | "ZAU";
+  plannedStartMin?: number;
+  plannedEndMin?: number;
+  plannedPauseMin?: number;
+  note?: string;
+}): Promise<Assignment> {
+  if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
+  const sb: any = supabase;
+
+  // Wir brauchen company_id für die RLS-check + INSERT — aus dem Worker holen
+  const { data: w, error: wErr } = await sb
+    .from("workers")
+    .select("company_id")
+    .eq("id", input.workerId)
+    .single();
+  if (wErr) throw wErr;
+
+  const row = {
+    company_id: w.company_id,
+    worker_id: input.workerId,
+    date: input.date,
+    site_id: input.siteId,
+    discipline: input.discipline,
+    planned_start_min: input.plannedStartMin ?? null,
+    planned_end_min: input.plannedEndMin ?? null,
+    planned_pause_min: input.plannedPauseMin ?? null,
+    note: input.note ?? null
+  };
+
+  const { data, error } = await sb
+    .from("assignments")
+    .upsert(row, { onConflict: "worker_id,date" })
+    .select("id, worker_id, date, site_id, discipline, planned_start_min, planned_end_min, planned_pause_min, note, published_at")
+    .single();
+  if (error) throw error;
+  return rowToAssignment(data);
+}
+
+export async function deleteAssignment(workerId: string, date: string): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb
+    .from("assignments")
+    .delete()
+    .eq("worker_id", workerId)
+    .eq("date", date);
+  if (error) throw error;
+}
+
+function rowToAssignment(r: any): Assignment {
+  return {
+    id: r.id,
+    workerId: r.worker_id,
+    date: r.date,
+    siteId: r.site_id,
+    discipline: r.discipline,
+    plannedStartMin: r.planned_start_min ?? undefined,
+    plannedEndMin: r.planned_end_min ?? undefined,
+    plannedPauseMin: r.planned_pause_min ?? undefined,
+    note: r.note ?? undefined,
+    publishedAt: r.published_at ?? undefined
+  };
+}
+
+export async function publishWeek(dateFrom: string, dateTo: string): Promise<number> {
+  if (!isBackendConnected() || !supabase) return 0;
+  const sb: any = supabase;
+  const { data, error } = await sb
+    .from("assignments")
+    .update({ published_at: new Date().toISOString() })
+    .gte("date", dateFrom)
+    .lte("date", dateTo)
+    .is("published_at", null)
+    .select("id");
+  if (error) throw error;
+  return (data ?? []).length;
+}
+
+export async function unpublishWeek(dateFrom: string, dateTo: string): Promise<number> {
+  if (!isBackendConnected() || !supabase) return 0;
+  const sb: any = supabase;
+  const { data, error } = await sb
+    .from("assignments")
+    .update({ published_at: null })
+    .gte("date", dateFrom)
+    .lte("date", dateTo)
+    .not("published_at", "is", null)
+    .select("id");
+  if (error) throw error;
+  return (data ?? []).length;
 }
 
 export async function listInvitations() {
