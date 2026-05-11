@@ -14,7 +14,7 @@
 
 import exifr from "exifr";
 import { supabase, isBackendConnected } from "./supabase";
-import type { EntryPhoto } from "./types";
+import type { EntryPhoto, PhotoWithContext } from "./types";
 
 const BUCKET = "entry-photos";
 const MAX_DIMENSION = 2000;
@@ -297,6 +297,36 @@ export async function listEntryPhotos(entryId: string): Promise<EntryPhoto[]> {
     .order("created_at");
   if (error) throw error;
   return (data ?? []).map(rowToPhoto);
+}
+
+/**
+ * Alle Fotos einer Baustelle — über alle Einträge aller Mitarbeiter, chronologisch.
+ * Optional eingegrenzt auf Zeitraum und/oder einen Mitarbeiter.
+ * Nutzt PostgREST-Foreign-Embedding über die entries→site_id Beziehung.
+ */
+export async function listPhotosForSite(
+  siteId: string,
+  opts: { dateFrom?: string; dateTo?: string; workerId?: string } = {}
+): Promise<PhotoWithContext[]> {
+  if (!isBackendConnected() || !supabase) return [];
+  const sb: any = supabase;
+  let q = sb
+    .from("entry_photos")
+    .select("*, entries!inner(date, site_id, worker_id)")
+    .eq("entries.site_id", siteId);
+  if (opts.dateFrom) q = q.gte("entries.date", opts.dateFrom);
+  if (opts.dateTo)   q = q.lte("entries.date", opts.dateTo);
+  if (opts.workerId) q = q.eq("worker_id", opts.workerId);
+  q = q
+    .order("taken_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+  const { data, error } = await q;
+  if (error) throw error;
+  return (data ?? []).map((r: any): PhotoWithContext => ({
+    ...rowToPhoto(r),
+    date: r.entries?.date ?? "",
+    siteId: r.entries?.site_id ?? siteId
+  }));
 }
 
 /**

@@ -101,3 +101,10 @@ export interface EntryPhoto {
   position: number;
   createdAt: string;
 }
+
+// Foto mit aufgelösten Eintrag-Metadaten (Baustelle, Datum, Mitarbeiter).
+// Wird im Admin-Site-Detail genutzt.
+export interface PhotoWithContext extends EntryPhoto {
+  date: string;
+  siteId: string;
+}

@@ -9,6 +9,7 @@ import Admin from "./routes/Admin";
 import AdminLogin from "./routes/AdminLogin";
 import Plan from "./routes/Plan";
 import Sites from "./routes/Sites";
+import SiteDetail from "./routes/SiteDetail";
 import Hours from "./routes/Hours";
 import AuthCallback from "./routes/AuthCallback";
 import OfflineIndicator from "./components/OfflineIndicator";
@@ -64,8 +65,9 @@ export default function App() {
         <Route path="/"              element={<ProtectedRoute><RoleRoot /></ProtectedRoute>} />
         <Route path="/admin"         element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
         <Route path="/admin/plan"    element={<ProtectedRoute adminOnly><Plan /></ProtectedRoute>} />
-        <Route path="/admin/sites"   element={<ProtectedRoute adminOnly><Sites /></ProtectedRoute>} />
-        <Route path="/admin/stunden" element={<ProtectedRoute adminOnly><Hours /></ProtectedRoute>} />
+        <Route path="/admin/sites"     element={<ProtectedRoute adminOnly><Sites /></ProtectedRoute>} />
+        <Route path="/admin/sites/:id" element={<ProtectedRoute adminOnly><SiteDetail /></ProtectedRoute>} />
+        <Route path="/admin/stunden"   element={<ProtectedRoute adminOnly><Hours /></ProtectedRoute>} />
         <Route path="/entry"         element={<ProtectedRoute><Entry /></ProtectedRoute>} />
         <Route path="/day/:date"     element={<ProtectedRoute><Day /></ProtectedRoute>} />
         <Route path="*"              element={<Navigate to="/" replace />} />
