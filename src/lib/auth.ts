@@ -55,14 +55,37 @@ export async function signInWithEmail(email: string): Promise<{ error?: string }
   return error ? { error: error.message } : {};
 }
 
+function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Zeitüberschreitung bei ${label} (${ms}ms)`)), ms)
+    )
+  ]);
+}
+
 export async function signInWithPassword(email: string, password: string): Promise<{ error?: string }> {
   if (!supabase) return { error: "Backend nicht verfügbar" };
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) return { error: error.message };
-  // Worker aus DB laden und in localStorage speichern
-  const worker = await syncWorkerFromSession();
-  if (!worker) return { error: "Account nicht in Mitarbeiter-Liste gefunden" };
-  return {};
+  try {
+    console.log("[auth] signIn start", email);
+    const { error } = await withTimeout(
+      supabase.auth.signInWithPassword({ email, password }),
+      10000,
+      "Auth-Server"
+    );
+    if (error) {
+      console.warn("[auth] signIn error", error.message);
+      return { error: error.message };
+    }
+    console.log("[auth] signIn ok, syncing worker …");
+    const worker = await withTimeout(syncWorkerFromSession(), 8000, "Worker-Sync");
+    if (!worker) return { error: "Account nicht in Mitarbeiter-Liste gefunden" };
+    console.log("[auth] worker", worker.firstName, worker.lastName, "isAdmin=", worker.isAdmin);
+    return {};
+  } catch (err: any) {
+    console.error("[auth] signIn caught", err);
+    return { error: err?.message ?? "Unbekannter Fehler beim Login" };
+  }
 }
 
 export async function signOutFully() {
@@ -81,15 +104,31 @@ export async function signOutFully() {
 export async function signInWithCode(code: string): Promise<{ worker?: Worker; error?: string }> {
   if (!supabase) return { error: "Backend nicht verfügbar" };
 
-  // Anonymous Auth
-  const { error: anonError } = await supabase.auth.signInAnonymously();
-  if (anonError) return { error: anonError.message };
-
-  // Code einlösen
   try {
+    console.log("[auth] code login start", code);
+    // Anonymous Auth — mit Timeout falls Auth-Server hängt
+    const { error: anonError } = await withTimeout(
+      supabase.auth.signInAnonymously(),
+      8000,
+      "Anonymous-Auth"
+    );
+    if (anonError) {
+      console.warn("[auth] anonymous signin failed", anonError.message);
+      return { error: anonError.message };
+    }
+    console.log("[auth] anonymous signin ok, redeeming code …");
+
+    // Code einlösen
     const sb: any = supabase;
-    const { data, error } = await sb.rpc("redeem_invitation", { p_code: code });
-    if (error) return { error: error.message };
+    const { data, error } = await withTimeout<{ data: any; error: any }>(
+      sb.rpc("redeem_invitation", { p_code: code }),
+      8000,
+      "Code-Einlösung"
+    );
+    if (error) {
+      console.warn("[auth] redeem failed", error.message);
+      return { error: error.message };
+    }
     if (!data) return { error: "Code konnte nicht eingelöst werden" };
 
     const worker: Worker = {
@@ -101,8 +140,10 @@ export async function signInWithCode(code: string): Promise<{ worker?: Worker; e
       isAdmin: data.is_admin
     };
     login(worker);
+    console.log("[auth] code login ok", worker.firstName, worker.lastName);
     return { worker };
   } catch (err: any) {
+    console.error("[auth] code login caught", err);
     return { error: err?.message ?? "Unbekannter Fehler" };
   }
 }

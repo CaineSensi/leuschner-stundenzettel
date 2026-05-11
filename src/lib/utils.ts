@@ -34,7 +34,9 @@ export function shortDate(iso: string): string {
 }
 
 export function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  // Lokales Datum (sonst Mitternacht-Bug bei Sommerzeit)
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function fmtDateLong(iso: string): string {
@@ -83,7 +85,12 @@ export function weekDays(year: number, week: number): string[] {
   return Array.from({ length: 5 }, (_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
-    return d.toISOString().slice(0, 10);
+    // Lokales Datum als ISO-String (nicht toISOString — das wäre UTC und
+    // würde wegen Zeitzone Mo→So verschieben)
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
   });
 }
 

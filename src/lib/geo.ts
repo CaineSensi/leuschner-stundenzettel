@@ -61,9 +61,14 @@ export async function reverseGeocode(
     `https://nominatim.openstreetmap.org/reverse?format=jsonv2` +
     `&lat=${lat}&lon=${lng}&addressdetails=1&zoom=18&accept-language=de`;
   try {
+    // 5s-Timeout — Nominatim hängt sonst gerne mal bei schlechter Verbindung
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), 5000);
     const res = await fetch(url, {
-      headers: { "Accept": "application/json" }
+      headers: { "Accept": "application/json" },
+      signal: ac.signal
     });
+    clearTimeout(t);
     if (!res.ok) return null;
     const data = await res.json();
     const a = data.address ?? {};
@@ -108,9 +113,8 @@ export function findNearbySites(
  */
 export async function resolveCurrentLocation(sites: Site[]): Promise<GeoResult> {
   const pos = await getCurrentPosition();
-  const [address] = await Promise.all([
-    reverseGeocode(pos.lat, pos.lng)
-  ]);
+  // Reverse-Geocode darf scheitern oder hängen — Adresse ist nice-to-have, nicht kritisch
+  const address = await reverseGeocode(pos.lat, pos.lng).catch(() => null);
   return {
     position: { lat: pos.lat, lng: pos.lng },
     accuracy: pos.accuracy,

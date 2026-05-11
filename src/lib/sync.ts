@@ -21,16 +21,17 @@ function emit() {
  * Speichert einen Eintrag — direkt zur DB wenn online, sonst lokal.
  * Returnt die ID (echte UUID oder local-ID).
  */
-export async function saveEntryWithSync(draft: EntryDraft): Promise<string> {
+export async function saveEntryWithSync(draft: EntryDraft, existingId?: string): Promise<string> {
   if (navigator.onLine && isBackendConnected()) {
     try {
-      const id = await apiSave(draft);
+      const id = await apiSave(draft, existingId);
       emit();
       return id;
     } catch (err) {
       console.warn("[sync] direct save failed, queueing", err);
     }
   }
+  // Offline-Update wird aktuell nicht unterstützt — neuer Eintrag in Queue
   const localId = await queueEntry(draft);
   emit();
   return localId;

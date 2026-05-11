@@ -10,7 +10,10 @@ export const supabase: SupabaseClient<Database> | null =
         auth: {
           persistSession: true,
           autoRefreshToken: true,
-          detectSessionInUrl: true
+          detectSessionInUrl: true,
+          // Web-Locks-Bug umgehen: SDK hängt sonst beim Token-Refresh,
+          // wenn ein anderer Tab die Lock hält oder eine alte Lock noch offen ist.
+          lock: async (_name, _acquireTimeout, fn) => fn()
         }
       })
     : null;
