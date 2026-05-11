@@ -300,9 +300,11 @@ export async function listEntryPhotos(entryId: string): Promise<EntryPhoto[]> {
 }
 
 /**
- * Alle Fotos einer Baustelle — über alle Einträge aller Mitarbeiter, chronologisch.
- * Optional eingegrenzt auf Zeitraum und/oder einen Mitarbeiter.
- * Nutzt PostgREST-Foreign-Embedding über die entries→site_id Beziehung.
+ * Alle Fotos einer Baustelle — über zwei Quellen:
+ *  1) Fotos die an einem Stundeneintrag dieser Baustelle hängen (entries.site_id)
+ *  2) Fotos die direkt an die Baustelle gehängt sind (entry_photos.site_id)
+ *     — z.B. Vorab-Begehung, Pläne, Bestandsaufnahme
+ * Chronologisch sortiert, optional eingegrenzt auf Zeitraum und/oder Mitarbeiter.
  */
 export async function listPhotosForSite(
   siteId: string,
@@ -310,23 +312,124 @@ export async function listPhotosForSite(
 ): Promise<PhotoWithContext[]> {
   if (!isBackendConnected() || !supabase) return [];
   const sb: any = supabase;
-  let q = sb
+
+  // Query 1: Eintrag-Fotos via Foreign-Embedding
+  let qEntry = sb
     .from("entry_photos")
     .select("*, entries!inner(date, site_id, worker_id)")
     .eq("entries.site_id", siteId);
-  if (opts.dateFrom) q = q.gte("entries.date", opts.dateFrom);
-  if (opts.dateTo)   q = q.lte("entries.date", opts.dateTo);
-  if (opts.workerId) q = q.eq("worker_id", opts.workerId);
-  q = q
-    .order("taken_at", { ascending: false, nullsFirst: false })
-    .order("created_at", { ascending: false });
-  const { data, error } = await q;
-  if (error) throw error;
-  return (data ?? []).map((r: any): PhotoWithContext => ({
+  if (opts.dateFrom) qEntry = qEntry.gte("entries.date", opts.dateFrom);
+  if (opts.dateTo)   qEntry = qEntry.lte("entries.date", opts.dateTo);
+  if (opts.workerId) qEntry = qEntry.eq("worker_id", opts.workerId);
+
+  // Query 2: Site-direct Fotos
+  let qDirect = sb
+    .from("entry_photos")
+    .select("*")
+    .eq("site_id", siteId);
+  if (opts.workerId) qDirect = qDirect.eq("worker_id", opts.workerId);
+  // Datum-Filter nur über taken_at (kein entry vorhanden)
+  if (opts.dateFrom) qDirect = qDirect.gte("taken_at", `${opts.dateFrom}T00:00:00`);
+  if (opts.dateTo)   qDirect = qDirect.lte("taken_at", `${opts.dateTo}T23:59:59`);
+
+  const [{ data: dEntry, error: eEntry }, { data: dDirect, error: eDirect }] = await Promise.all([qEntry, qDirect]);
+  if (eEntry)  throw eEntry;
+  if (eDirect) throw eDirect;
+
+  const entryPhotos: PhotoWithContext[] = (dEntry ?? []).map((r: any): PhotoWithContext => ({
     ...rowToPhoto(r),
     date: r.entries?.date ?? "",
-    siteId: r.entries?.site_id ?? siteId
+    siteId
   }));
+  const directPhotos: PhotoWithContext[] = (dDirect ?? []).map((r: any): PhotoWithContext => ({
+    ...rowToPhoto(r),
+    date: (r.taken_at ?? r.created_at ?? "").slice(0, 10),
+    siteId
+  }));
+
+  // Merge + chronologisch sortiert (neueste oben)
+  const merged = [...entryPhotos, ...directPhotos];
+  merged.sort((a, b) => {
+    const ta = a.takenAt ?? a.createdAt;
+    const tb = b.takenAt ?? b.createdAt;
+    return tb.localeCompare(ta);
+  });
+  return merged;
+}
+
+/**
+ * Upload eines Site-direct Fotos (Vorab-Begehung, Plan, Skizze).
+ * Wie uploadEntryPhoto, aber ohne entry_id; site_id wird gesetzt.
+ */
+export async function uploadSitePhoto(args: {
+  file: File;
+  siteId: string;
+  workerId: string;
+  companyId: string;
+  stampContext?: StampContext;
+  position?: number;
+}): Promise<{ photo: EntryPhoto }> {
+  if (!isBackendConnected() || !supabase) {
+    throw new Error("Backend nicht verbunden");
+  }
+  const sb: any = supabase;
+
+  const { takenAt: exifTaken, geo } = await extractExif(args.file);
+  const takenAt = exifTaken ?? new Date();
+
+  const img = await loadImage(args.file);
+  const naturalW = img.naturalWidth;
+  const naturalH = img.naturalHeight;
+
+  const raw = await resizeToJpeg(img);
+
+  let stampedBlob: Blob | null = null;
+  try {
+    stampedBlob = await stampJpeg(img, { takenAt, geo }, args.stampContext ?? {});
+  } catch (err) {
+    console.warn("[photos] Stamp fehlgeschlagen, lade nur Raw hoch", err);
+  }
+
+  const photoId = crypto.randomUUID();
+  const basePath = `${args.companyId}/${args.siteId}/${photoId}`;
+  const rawPath = `${basePath}.jpg`;
+  const stampedPath = stampedBlob ? `${basePath}_s.jpg` : null;
+
+  const uploadRaw = sb.storage.from(BUCKET).upload(rawPath, raw.blob, {
+    contentType: "image/jpeg", cacheControl: "31536000", upsert: false
+  });
+  const uploadStamped = stampedBlob
+    ? sb.storage.from(BUCKET).upload(stampedPath!, stampedBlob, {
+        contentType: "image/jpeg", cacheControl: "31536000", upsert: false
+      })
+    : Promise.resolve({ error: null });
+
+  const [{ error: rawErr }, { error: stampErr }] = await Promise.all([uploadRaw, uploadStamped]);
+  if (rawErr) throw rawErr;
+
+  const row = {
+    id: photoId,
+    site_id: args.siteId,
+    worker_id: args.workerId,
+    company_id: args.companyId,
+    raw_path: rawPath,
+    stamped_path: stampErr ? null : stampedPath,
+    taken_at: takenAt.toISOString(),
+    geo_lat: geo?.lat ?? null,
+    geo_lng: geo?.lng ?? null,
+    width_px: naturalW,
+    height_px: naturalH,
+    bytes_raw: raw.blob.size,
+    bytes_stamped: stampedBlob?.size ?? null,
+    position: args.position ?? 0
+  };
+  const { data, error } = await sb
+    .from("entry_photos").insert(row).select("*").single();
+  if (error) {
+    await sb.storage.from(BUCKET).remove([rawPath, stampedPath].filter(Boolean) as string[]);
+    throw error;
+  }
+  return { photo: rowToPhoto(data) };
 }
 
 /**

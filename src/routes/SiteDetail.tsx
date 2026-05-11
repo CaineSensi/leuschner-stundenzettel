@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { listAllSites, listWorkers, updateSite } from "../lib/api";
-import { listPhotosForSite, photoUrl, deleteEntryPhoto } from "../lib/photos";
+import { currentUser } from "../lib/auth";
+import {
+  deleteEntryPhoto, getCurrentCompanyId, listPhotosForSite, photoUrl, uploadSitePhoto
+} from "../lib/photos";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import SiteEditor from "../components/SiteEditor";
 import type { PhotoWithContext, Site, Worker } from "../lib/types";
@@ -24,6 +27,8 @@ export default function SiteDetail() {
 
   const [editing, setEditing] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   async function refresh() {
     if (!id) return;
@@ -63,6 +68,47 @@ export default function SiteDetail() {
     workers.forEach((w) => m.set(w.id, w));
     return m;
   }, [workers]);
+
+  async function handlePickFiles(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length || !site) return;
+    const me = currentUser();
+    if (!me) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const companyId = me.companyId ?? await getCurrentCompanyId();
+      if (!companyId) {
+        setUploadError("Konnte company_id nicht ermitteln — bitte neu anmelden");
+        return;
+      }
+      const stampContext = {
+        siteName: site.name,
+        projectNumber: site.projectNumber
+      };
+      let failed = 0;
+      for (let i = 0; i < files.length; i++) {
+        try {
+          await uploadSitePhoto({
+            file: files[i],
+            siteId: site.id,
+            workerId: me.id,
+            companyId,
+            stampContext,
+            position: photos.length + i
+          });
+        } catch (err) {
+          console.warn("[site-detail] upload failed", err);
+          failed++;
+        }
+      }
+      if (failed > 0) setUploadError(`${failed} von ${files.length} Fotos konnten nicht hochgeladen werden`);
+      await refresh();
+    } finally {
+      setUploading(false);
+    }
+  }
 
   if (loading && !site) {
     return (
@@ -108,7 +154,18 @@ export default function SiteDetail() {
               </p>
             )}
           </div>
-          <div className="flex gap-2 flex-shrink-0">
+          <div className="flex gap-2 flex-shrink-0 items-center">
+            <label className={`btn-primary text-[12px] cursor-pointer ${uploading ? "opacity-60" : ""}`}>
+              {uploading ? "Lädt hoch …" : "+ Fotos"}
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                disabled={uploading}
+                onChange={handlePickFiles}
+                className="sr-only"
+              />
+            </label>
             <button onClick={() => setEditing(true)} className="btn-ghost text-[12px]">Bearbeiten</button>
           </div>
         </div>
@@ -118,6 +175,11 @@ export default function SiteDetail() {
         {error && (
           <div className="mb-4 px-4 py-2.5 bg-rust/10 border border-rust/35 rounded-lg text-[12px] text-rust">
             {error}
+          </div>
+        )}
+        {uploadError && (
+          <div className="mb-4 px-4 py-2.5 bg-rust/10 border border-rust/35 rounded-lg text-[12px] text-rust">
+            {uploadError}
           </div>
         )}
 
