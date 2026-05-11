@@ -105,16 +105,33 @@ Mockup-Datei mit allen 10 Theme-Varianten (zur späteren Referenz): `E:\Leuschne
 - [ ] Echte Stamm-Baustellen mit GPS-Koordinaten
 - [ ] Logo-Auswahl aus Vol. II finalisieren
 
-## ⚪ Phase 5 · Live-Deployment
+## 🟢 Phase 5 · Live-Deployment
 
-- [ ] GitHub-Repo `<dein-user>/leuschner-stundenzettel` anlegen
-- [ ] Git-Push der App
-- [ ] GitHub Secrets: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-- [ ] GitHub Pages aktivieren (Source: GitHub Actions)
-- [ ] Squarespace-DNS: CNAME `app` → `<user>.github.io`
-- [ ] Custom Domain in GitHub: `app.galabauleuschner.de` + HTTPS aktivieren
-- [ ] Supabase URL Configuration: Live-Domain als Redirect-URL hinzufügen
+**Aktive Live-URL:** <https://leuschner-stundenzettel.pages.dev> (Cloudflare Pages, seit 08.05.2026)
+
+- [x] GitHub-Repo `CaineSensi/leuschner-stundenzettel` (public) angelegt + Initial-Push
+- [x] GitHub Secrets `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` gesetzt
+- [x] GitHub Pages aktiviert (Source: GitHub Actions) — Workflow läuft, wartet auf DNS
+- [x] Custom Domain `app.galabauleuschner.de` im Repo eingetragen
+- [x] **Cloudflare Pages Projekt `leuschner-stundenzettel` angelegt + erster Deploy live**
+- [x] API-Token nach Deploy revoked
+- [ ] **Squarespace-DNS: CNAME `app` → `cainesensi.github.io`** (User-Aktion, wenn Zugriff wieder da)
+- [ ] HTTPS scharfschalten via `gh api -X PUT repos/.../pages -f https_enforced=true`
+- [ ] Supabase URL Configuration: Site-URL `https://leuschner-stundenzettel.pages.dev`, Redirect `https://leuschner-stundenzettel.pages.dev/**` (später Custom-Domain ergänzen)
 - [ ] Magic-Link-Test mit Live-Domain
+- [ ] Alte Cloudflared-PWA vom Handy löschen, neu von Live-URL installieren
+- [ ] **Optional:** Cloudflare Pages Git-Integration (Dashboard → Pages-Projekt → Settings → Git) — dann wird jeder Push auto-deployt statt manuelles `wrangler pages deploy dist`
+
+## Manueller Re-Deploy auf Cloudflare Pages
+
+```powershell
+cd E:\Leuschner_Branding\app
+npm run build
+$env:CLOUDFLARE_API_TOKEN = "<neu erstellter Token>"
+npx wrangler pages deploy dist --project-name=leuschner-stundenzettel --branch=main --commit-dirty=true
+```
+
+Token erstellen: <https://dash.cloudflare.com/profile/api-tokens> → Create Token → Template "Edit Cloudflare Workers" → **Zone Resources auf "All zones"** umstellen (sonst Pflichtfeld-Fehler) → Continue → Create.
 
 ## ⚪ Phase 6 · Echte Push-Notifications (Background)
 
