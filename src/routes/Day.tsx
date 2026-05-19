@@ -110,12 +110,12 @@ export default function Day() {
           <Link to={`/entry?date=${date}`} className="h-mono text-copper text-[12px]">Bearbeiten →</Link>
         </header>
 
-        <section className={`px-6 pt-6 pb-8 ${meta.gradient} border-b border-ink/10`}>
+        <section className="surface-steel px-6 pt-6 pb-8 mt-3">
           <div className="text-5xl mb-3">{meta.emoji}</div>
-          <div className="h-mono text-copper text-[12px] uppercase">{dayLabel}</div>
-          <h1 className="h-display text-3xl mt-1">{meta.title}</h1>
+          <div className="dd-eyebrow text-copper-bright">{dayLabel}</div>
+          <h1 className="font-display font-black uppercase text-3xl text-white mt-1">{meta.title}</h1>
           {entry.endDate && entry.endDate !== entry.date && (
-            <p className="h-mono text-ink-2 text-[12px] mt-1">
+            <p className="font-sans text-steel text-[12px] mt-1">
               bis {shortDate(entry.endDate)}
             </p>
           )}
@@ -146,17 +146,17 @@ export default function Day() {
         <Link to={`/entry?date=${date}`} className="h-mono text-copper text-[12px]">Bearbeiten →</Link>
       </header>
 
-      <section className="px-6 pt-4 pb-6 bg-gradient-to-br from-copper/15 to-transparent border-b border-ink/10">
-        <div className="h-mono text-copper text-[12px] uppercase">{dayLabel}</div>
+      <section className="surface-steel px-6 pt-4 pb-6 mt-3">
+        <div className="dd-eyebrow text-copper-bright">{dayLabel}</div>
         {site?.projectNumber && (
-          <div className="h-mono text-ink-2 text-[11px] mt-1">Auftrag {site.projectNumber}</div>
+          <div className="font-mono text-steel text-[11px] mt-1">Auftrag {site.projectNumber}</div>
         )}
-        <h1 className="h-display text-3xl mt-1">{site?.name ?? "Baustelle (gelöscht)"}</h1>
+        <h1 className="font-display font-black uppercase text-3xl text-white mt-1 leading-tight">{site?.name ?? "Baustelle (gelöscht)"}</h1>
         {site && (
-          <p className="h-mono text-ink-2 text-[12px] mt-1">{site.street} · {site.city}</p>
+          <p className="font-sans text-steel text-[12px] mt-1">{site.street} · {site.city}</p>
         )}
-        <div className="h-display text-6xl mt-3">
-          {fmtHours(min)}<span className="text-copper text-3xl">h</span>
+        <div className="font-display font-black text-6xl text-white mt-3 tabular-nums">
+          {fmtHours(min)}<span className="text-copper-bright text-3xl">h</span>
         </div>
       </section>
 

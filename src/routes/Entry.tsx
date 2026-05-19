@@ -366,15 +366,12 @@ function TypePicker({ date, onPick }: { date: string; onPick: (t: EntryType) => 
           <button
             key={opt.id}
             onClick={() => onPick(opt.id)}
-            className={`aspect-square rounded-2xl flex flex-col items-center justify-center gap-3 active:scale-[0.98] transition-transform border ${
-              opt.tone === "primary"
-                ? "bg-bg-2 border-copper/40"
-                : opt.tone === "rust"
-                ? "bg-bg-2 border-rust/40"
-                : opt.tone === "moss"
-                ? "bg-bg-2 border-moss-bright/40"
-                : "bg-bg-2 border-ink/10"
-            }`}
+            className="dd-card is-click aspect-square flex flex-col items-center justify-center gap-3 active:scale-[0.98]"
+            style={{ ["--c" as any]:
+              opt.tone === "primary" ? "#DC6E2D"
+              : opt.tone === "rust" ? "#B91C1C"
+              : opt.tone === "moss" ? "#1F7A3D"
+              : "#A9AEB3" }}
           >
             <span className="text-4xl">{opt.emoji}</span>
             <div className="text-center">
@@ -480,7 +477,7 @@ function AbsencePicker({
             onChange={(e) => onNote(e.target.value)}
             placeholder={meta.note}
             rows={2}
-            className="w-full bg-bg-3 border border-ink/15 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-copper resize-none"
+            className="w-full bg-white border border-steel rounded-xl px-3 py-2.5 text-sm text-ink focus:outline-none focus:border-copper resize-none"
           />
         </div>
       </div>
@@ -538,7 +535,7 @@ function DateField({
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-bg-3 border border-ink/15 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-copper"
+        className="w-full bg-white border border-steel rounded-xl px-3 py-2.5 text-sm text-ink focus:outline-none focus:border-copper"
       />
     </div>
   );
@@ -630,27 +627,27 @@ function ActivityTime({
 
       <section className="mt-6">
         <div className="h-mono text-copper text-[12px] mb-2">Wann?</div>
-        <div className="bg-bg-3 rounded-xl p-4 text-center">
-          <div className="h-display text-3xl">
+        <div className="dd-card p-4 text-center" style={{ ["--c" as any]: "#DC6E2D" }}>
+          <div className="h-display text-3xl text-ink">
             {fmtTime(startMin)}<span className="text-copper mx-2">bis</span>{fmtTime(endMin)}
           </div>
           <div className="h-mono text-copper text-[11px] mt-2">
-            Σ Arbeitszeit · <span className="font-display text-paper text-sm">{fmtHours(totalMin)} h</span>
+            Σ Arbeitszeit · <span className="font-display text-ink text-sm">{fmtHours(totalMin)} h</span>
           </div>
         </div>
 
         <TimeSlider value={startMin} onChange={onStart} label="Anfang" />
         <TimeSlider value={endMin}   onChange={onEnd}   label="Ende" />
 
-        <div className="bg-bg-3 rounded-xl px-4 py-3 mt-3 flex items-center justify-between">
+        <div className="dd-card px-4 py-3 mt-3 flex items-center justify-between" style={{ ["--c" as any]: "#A9AEB3" }}>
           <div>
             <div className="h-mono text-ink-2 text-[12px]">Pause</div>
-            <div className="font-semibold">{pause} Minuten</div>
+            <div className="font-semibold text-ink">{pause} Minuten</div>
           </div>
           <div className="flex items-center gap-1.5">
-            <button onClick={() => onPause(Math.max(0, pause - 15))} className="w-8 h-8 rounded-full bg-bg-2 border border-ink/15 font-bold">−</button>
-            <span className="h-display text-xl w-9 text-center">{pause}</span>
-            <button onClick={() => onPause(pause + 15)} className="w-8 h-8 rounded-full bg-bg-2 border border-ink/15 font-bold">+</button>
+            <button onClick={() => onPause(Math.max(0, pause - 15))} className="w-8 h-8 rounded-full bg-white border border-steel font-bold text-ink">−</button>
+            <span className="h-display text-xl w-9 text-center text-ink">{pause}</span>
+            <button onClick={() => onPause(pause + 15)} className="w-8 h-8 rounded-full bg-white border border-steel font-bold text-ink">+</button>
           </div>
         </div>
       </section>

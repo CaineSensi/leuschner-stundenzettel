@@ -95,42 +95,42 @@ export default function Hours() {
 
   return (
     <div className="min-h-screen safe-bottom bg-bg-DEFAULT">
-      <header className="sticky top-0 z-30 bg-bg-DEFAULT border-b border-ink/10 px-5 lg:px-10 xl:px-14 pt-4 pb-3 safe-top">
+      <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
         <button
           onClick={() => navigate("/admin")}
-          className="h-mono text-ink-2 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
+          className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-3 flex items-center gap-2"
         >
-          <span>←</span><span>Zurück zum Dashboard</span>
+          <span aria-hidden>←</span><span>Zurück zum Dashboard</span>
         </button>
 
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 lg:gap-4 flex-wrap">
             <button
               onClick={() => setWeekOffset((o) => o - 1)}
-              className="w-9 h-9 rounded-full border border-ink/15 hover:border-copper hover:bg-bg-2 flex items-center justify-center text-lg leading-none"
+              className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
               title="Vorherige Woche"
             >‹</button>
             <div className="flex flex-col">
-              <span className="h-mono text-copper text-[11px]">Stunden · KW {week} / {year}</span>
-              <h1 className="h-display text-2xl lg:text-3xl leading-none mt-1">{monthRangeLabel}</h1>
-              <span className="text-[12px] text-ink-2 mt-1">
+              <span className="dd-eyebrow text-copper-bright">Stunden · KW {week} / {year}</span>
+              <h1 className="font-display font-black uppercase text-2xl lg:text-3xl text-white leading-none mt-1">{monthRangeLabel}</h1>
+              <span className="font-sans text-[12px] text-steel mt-1">
                 {weekOffset === 0 ? "Aktuelle Woche" : weekOffset < 0 ? "Vergangene Woche" : "Zukünftige Woche"}
                 {holidayCount > 0 && ` · ${holidayCount} Feiertag${holidayCount > 1 ? "e" : ""}`}
               </span>
             </div>
             <button
               onClick={() => setWeekOffset((o) => o + 1)}
-              className="w-9 h-9 rounded-full border border-ink/15 hover:border-copper hover:bg-bg-2 flex items-center justify-center text-lg leading-none"
+              className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
               title="Nächste Woche"
             >›</button>
             <button
               onClick={() => setWeekOffset(0)}
               disabled={weekOffset === 0}
-              className="h-mono text-[11px] px-3.5 py-1.5 rounded-full border border-copper text-copper hover:bg-copper hover:text-bg-DEFAULT disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-copper"
+              className="font-mono text-[11px] px-3.5 py-1.5 rounded-full border border-copper-bright text-copper-bright hover:bg-copper-bright hover:text-bg-deep disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-copper-bright transition-colors"
             >Heute</button>
           </div>
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 cursor-pointer text-[12px] text-ink-2">
+            <label className="flex items-center gap-2 cursor-pointer text-[12px] text-steel">
               <input
                 type="checkbox"
                 checked={showAdmins}
@@ -162,8 +162,8 @@ export default function Hours() {
               const total = totalForWorker(w.id);
               const diff = total - sollMin;
               return (
-                <article key={w.id} className="bg-bg-2 border border-ink/10 rounded-xl overflow-hidden">
-                  <header className="flex items-center justify-between px-4 py-3 bg-bg-3 border-b border-ink/10">
+                <article key={w.id} className="dd-card overflow-hidden" style={{ ["--c" as any]: total >= sollMin ? "#1F7A3D" : total === 0 ? "#A9AEB3" : "#DC6E2D" }}>
+                  <header className="flex items-center justify-between px-4 py-3 bg-bg-3 border-b border-steel-line/40">
                     <div className="min-w-0">
                       <div className="font-display text-base uppercase tracking-tight leading-tight truncate">
                         {w.firstName} {w.lastName}
@@ -211,7 +211,7 @@ export default function Hours() {
                 </article>
               );
             })}
-            <div className="bg-bg-3 border-2 border-ink/15 rounded-xl px-4 py-3.5 flex items-center justify-between">
+            <div className="dd-card px-4 py-3.5 flex items-center justify-between" style={{ ["--c" as any]: "#1A1C1E" }}>
               <div>
                 <div className="h-mono text-copper text-[11px]">Gesamt</div>
                 <div className="text-[12px] text-ink-2">{team.length} Mitarbeiter</div>
