@@ -91,7 +91,25 @@ export async function listCards(
     .order("created_at", { ascending: true });
   q = wantArchived ? q.not("archived_at", "is", null) : q.is("archived_at", null);
   const { data, error } = await q;
-  if (error) throw error;
+  if (error) {
+    // Migration 20260519140000 noch nicht auf der DB? Dann gibt es die Spalte
+    // archived_at nicht. Statt das Board komplett leer zu lassen, laden wir
+    // ohne sie: alle Vorgänge gelten als aktiv, das Archiv ist (noch) leer.
+    // Sobald die Spalte existiert, greift automatisch wieder der Filter oben.
+    if (/archived_at/.test(String(error?.message ?? ""))) {
+      if (wantArchived) return [];
+      const cols = COLS.replace("archived_at, ", "");
+      const { data: d2, error: e2 } = await sb
+        .from("pipeline_cards")
+        .select(cols)
+        .order("stage", { ascending: true })
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+      if (e2) throw e2;
+      return (d2 ?? []).map(rowToCard);
+    }
+    throw error;
+  }
   return (data ?? []).map(rowToCard);
 }
 
@@ -103,7 +121,11 @@ export async function archiveCard(id: string): Promise<void> {
     .from("pipeline_cards")
     .update({ archived_at: new Date().toISOString() })
     .eq("id", id);
-  if (error) throw error;
+  if (error) {
+    if (/archived_at/.test(String(error?.message ?? "")))
+      throw new Error("Archiv erst nach DB-Migration aktiv (Spalte archived_at fehlt noch).");
+    throw error;
+  }
 }
 
 /** Vorgang aus dem Archiv zurück ins aktive Board holen. */
