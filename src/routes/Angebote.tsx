@@ -3,10 +3,12 @@ import { useNavigate } from "react-router-dom";
 import {
   STAGES, listCards, createCard, updateCardStage, deleteCard,
   archiveCard, unarchiveCard, linkOrCreateSiteForCard, FOLLOWUP_DAYS,
-  type PipelineCard, type Stage
+  reviewPosition, releaseCard, revokeRelease,
+  type PipelineCard, type Stage, type ReviewStatus
 } from "../lib/pipeline";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { isBackendConnected } from "../lib/supabase";
+import { currentUser } from "../lib/auth";
 
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
@@ -46,6 +48,15 @@ function fmtDate(iso?: string): string {
   return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
 
+function fmtDateTime(iso?: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString("de-DE", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
+  }) + " Uhr";
+}
+
 export default function Angebote() {
   const navigate = useNavigate();
   const [cards, setCards] = useState<PipelineCard[]>([]);
@@ -57,6 +68,8 @@ export default function Angebote() {
   const [view, setView] = useState<"aktiv" | "archiv">("aktiv");
   const [detail, setDetail] = useState<PipelineCard | null>(null);
   const dragId = useRef<string | null>(null);
+  // Inhaber/Freigeber: darf reviewen/freigeben, aber nicht bearbeiten/löschen
+  const reviewerOnly = /inhaber|freigeber/i.test(currentUser()?.role ?? "");
 
   async function refresh() {
     setError(null);
@@ -88,6 +101,14 @@ export default function Angebote() {
 
   async function moveTo(card: PipelineCard, stage: Stage) {
     if (card.stage === stage) return;
+    // Weicher Versand-Gate: ohne Chef-Freigabe nur mit ausdrücklicher Bestätigung
+    if (stage === "Versendet" && !card.freigabe?.releasedAt) {
+      const ok = confirm(
+        `„${card.customerName}" ist noch nicht vom Chef freigegeben.\n\n` +
+        `Trotzdem auf „Versendet" setzen?`
+      );
+      if (!ok) return;
+    }
     setCards((prev) => prev.map((c) => c.id === card.id ? { ...c, stage } : c));
     setDetail((d) => d && d.id === card.id ? { ...d, stage } : d);
     try {
@@ -116,6 +137,11 @@ export default function Angebote() {
       setError(err?.message ?? "Verschieben fehlgeschlagen");
       refresh();
     }
+  }
+
+  function applyCardPatch(id: string, patch: Partial<PipelineCard>) {
+    setCards((prev) => prev.map((c) => c.id === id ? { ...c, ...patch } : c));
+    setDetail((d) => d && d.id === id ? { ...d, ...patch } : d);
   }
 
   async function remove(card: PipelineCard) {
@@ -338,6 +364,8 @@ export default function Angebote() {
           onArchive={() => archive(detail)}
           onUnarchive={() => unarchive(detail)}
           onDelete={() => remove(detail)}
+          onUpdate={(patch) => applyCardPatch(detail.id, patch)}
+          reviewerOnly={reviewerOnly}
         />
       )}
 
@@ -495,8 +523,15 @@ function CardView({
   );
 }
 
+const REVIEW_META: Record<ReviewStatus, { dot: string; label: string }> = {
+  offen:     { dot: "#A9AEB3", label: "offen" },
+  ok:        { dot: "#1F7A3D", label: "OK" },
+  kommentar: { dot: "#DC6E2D", label: "Kommentar" },
+  aenderung: { dot: "#B91C1C", label: "Änderung" }
+};
+
 function DetailDrawer({
-  card, onClose, onPrev, onNext, onArchive, onUnarchive, onDelete
+  card, onClose, onPrev, onNext, onArchive, onUnarchive, onDelete, onUpdate, reviewerOnly
 }: {
   card: PipelineCard;
   onClose: () => void;
@@ -505,13 +540,62 @@ function DetailDrawer({
   onArchive: () => void;
   onUnarchive: () => void;
   onDelete: () => void;
+  onUpdate: (patch: Partial<PipelineCard>) => void;
+  reviewerOnly: boolean;
 }) {
+  const [busy, setBusy] = useState(false);
+  const [revErr, setRevErr] = useState<string | null>(null);
+  const [showLog, setShowLog] = useState(false);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", onKey);
     document.body.style.overflow = "hidden";
     return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
   }, [onClose]);
+
+  const me = currentUser();
+  const reviewerName = me ? `${me.firstName} ${me.lastName}`.trim() : "Inhaber";
+  const released = !!card.freigabe?.releasedAt;
+  const history = card.freigabe?.history ?? [];
+
+  async function setReview(posNr: number, status: ReviewStatus) {
+    let comment: string | undefined;
+    if (status === "kommentar" || status === "aenderung") {
+      const t = window.prompt(
+        status === "kommentar" ? "Kommentar zu dieser Position:" : "Was soll geändert werden?"
+      );
+      if (t == null) return;
+      comment = t.trim() || undefined;
+    }
+    setBusy(true); setRevErr(null);
+    try {
+      const r = await reviewPosition(card, posNr, { status, comment }, reviewerName);
+      onUpdate({ positions: r.positions, freigabe: r.freigabe });
+    } catch (e: any) {
+      setRevErr(e?.message ?? "Speichern fehlgeschlagen");
+    } finally { setBusy(false); }
+  }
+
+  async function doRelease() {
+    setBusy(true); setRevErr(null);
+    try {
+      const f = await releaseCard(card, reviewerName);
+      onUpdate({ freigabe: f });
+    } catch (e: any) {
+      setRevErr(e?.message ?? "Freigabe fehlgeschlagen");
+    } finally { setBusy(false); }
+  }
+
+  async function doRevoke() {
+    setBusy(true); setRevErr(null);
+    try {
+      const f = await revokeRelease(card, reviewerName);
+      onUpdate({ freigabe: f });
+    } catch (e: any) {
+      setRevErr(e?.message ?? "Zurücknehmen fehlgeschlagen");
+    } finally { setBusy(false); }
+  }
 
   const i = STAGES.indexOf(card.stage);
   const klärungen = card.openPoints ? card.openPoints.split(" · ") : [];
@@ -611,15 +695,48 @@ function DetailDrawer({
                         </tr>
                       </thead>
                       <tbody>
-                        {card.positions.map((p) => (
+                        {card.positions.map((p) => {
+                          const rv = p.review;
+                          const rm = REVIEW_META[rv?.status ?? "offen"];
+                          return (
                           <tr key={p.pos} className="border-b border-[#E2E4E7] last:border-0 even:bg-[#F6F7F8]">
                             <td className="text-center font-mono text-ink-2 text-[12px] px-2 py-2.5 align-top">{p.pos}</td>
-                            <td className="text-ink text-[13.5px] leading-snug px-3 py-2.5 align-top">{p.name}</td>
+                            <td className="text-ink text-[13.5px] leading-snug px-3 py-2.5 align-top">
+                              <div className="flex items-start gap-2">
+                                <span className="mt-1.5 w-2 h-2 rounded-full flex-shrink-0"
+                                      style={{ background: rm.dot }} title={`Review: ${rm.label}`} />
+                                <span className="break-words">{p.name}</span>
+                              </div>
+                              {rv?.comment && (
+                                <div className="mt-1 ml-4 font-sans text-[12px] text-copper italic leading-snug">
+                                  „{rv.comment}"
+                                </div>
+                              )}
+                              {!released && (
+                                <div className="mt-1.5 ml-4 flex items-center gap-1">
+                                  <button onClick={() => setReview(p.pos, "ok")} disabled={busy}
+                                    className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "ok" ? "bg-good text-white border-good" : "border-steel text-ink-2 hover:border-good hover:text-good"}`}
+                                    title="Position freigeben">✓ OK</button>
+                                  <button onClick={() => setReview(p.pos, "kommentar")} disabled={busy}
+                                    className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "kommentar" ? "bg-copper text-white border-copper" : "border-steel text-ink-2 hover:border-copper hover:text-copper"}`}
+                                    title="Kommentar">💬</button>
+                                  <button onClick={() => setReview(p.pos, "aenderung")} disabled={busy}
+                                    className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "aenderung" ? "bg-rust text-white border-rust" : "border-steel text-ink-2 hover:border-rust hover:text-rust"}`}
+                                    title="Änderung erbeten">⚠</button>
+                                  {rv && rv.status !== "offen" && (
+                                    <button onClick={() => setReview(p.pos, "offen")} disabled={busy}
+                                      className="text-[11px] font-mono px-1.5 py-0.5 rounded text-ink-mute hover:text-ink"
+                                      title="Zurücksetzen">↺</button>
+                                  )}
+                                </div>
+                              )}
+                            </td>
                             <td className="text-right font-mono text-[12.5px] text-ink-2 px-2 py-2.5 align-top whitespace-nowrap">{p.quantity}</td>
                             <td className="text-right font-mono text-[12.5px] text-ink-2 px-2 py-2.5 align-top whitespace-nowrap">{p.unitPrice}</td>
                             <td className="text-right font-mono font-bold text-[12.5px] text-ink px-3 py-2.5 align-top whitespace-nowrap tabular-nums">{eur(p.sum)}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -628,6 +745,57 @@ function DetailDrawer({
                     <span className="font-display font-black text-[22px] text-white tabular-nums">
                       {eur(card.positions.reduce((t, p) => t + (p.sum || 0), 0))}
                     </span>
+                  </div>
+
+                  {/* Chef-Freigabe */}
+                  <div className="mt-5">
+                    <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
+                      Freigabe
+                    </div>
+                    {revErr && (
+                      <div className="mb-2 px-3 py-2 bg-rust/10 border border-rust/35 rounded text-[12px] text-rust">{revErr}</div>
+                    )}
+                    {released ? (
+                      <div className="rounded-lg border-2 border-good/50 bg-good/10 px-4 py-3.5 flex items-center justify-between gap-3 flex-wrap">
+                        <div>
+                          <div className="font-display font-extrabold uppercase text-[13px] text-good">✓ Freigegeben</div>
+                          <div className="font-sans text-[12.5px] text-ink-2 mt-0.5">
+                            durch {card.freigabe?.releasedBy} am {fmtDateTime(card.freigabe?.releasedAt)}
+                          </div>
+                        </div>
+                        <button onClick={doRevoke} disabled={busy}
+                          className="btn-ghost !min-h-[40px] !px-3 text-[11px] !text-rust !border-rust/40">
+                          Freigabe zurücknehmen
+                        </button>
+                      </div>
+                    ) : (
+                      <button onClick={doRelease} disabled={busy}
+                        className="btn-primary w-full !min-h-[52px] text-[13px] disabled:opacity-50"
+                        style={{ background: "linear-gradient(180deg,#2F8C4E,#1F7A3D)" }}>
+                        {busy ? "…" : "✓ Alles freigeben"}
+                      </button>
+                    )}
+
+                    {history.length > 0 && (
+                      <div className="mt-3">
+                        <button onClick={() => setShowLog((s) => !s)}
+                          className="font-mono text-[11px] text-ink-2 hover:text-ink uppercase tracking-wide">
+                          {showLog ? "▾" : "▸"} Verlauf ({history.length})
+                        </button>
+                        {showLog && (
+                          <ul className="mt-2 border border-steel rounded-lg bg-white divide-y divide-[#E2E4E7]">
+                            {[...history].reverse().map((h, idx) => (
+                              <li key={idx} className="px-3 py-2 flex items-baseline justify-between gap-3">
+                                <span className="font-sans text-[12.5px] text-ink">{h.action}</span>
+                                <span className="font-mono text-[11px] text-ink-2 whitespace-nowrap">
+                                  {h.by} · {fmtDateTime(h.at)}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </>
               ) : (
@@ -645,7 +813,11 @@ function DetailDrawer({
         </div>
 
         <div className="flex-shrink-0 px-5 lg:px-6 py-3.5 bg-[#E2E4E7] border-t border-steel flex gap-2.5 flex-wrap">
-          {card.archivedAt ? (
+          {reviewerOnly ? (
+            <button onClick={onClose} className="btn-primary flex-1 !min-h-[52px] text-[13px]">
+              Schließen
+            </button>
+          ) : card.archivedAt ? (
             <button onClick={onUnarchive} className="btn-primary flex-1 !min-h-[52px] text-[13px]">
               Zurück ins Board
             </button>
@@ -667,10 +839,12 @@ function DetailDrawer({
               )}
             </>
           )}
-          <button
-            onClick={onDelete}
-            className="btn-ghost !min-h-[52px] !px-4 text-[12px] !text-rust !border-rust/40"
-          >Löschen</button>
+          {!reviewerOnly && (
+            <button
+              onClick={onDelete}
+              className="btn-ghost !min-h-[52px] !px-4 text-[12px] !text-rust !border-rust/40"
+            >Löschen</button>
+          )}
         </div>
       </aside>
     </>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Logo from "../components/Logo";
-import { signInWithPassword } from "../lib/auth";
+import { signInWithPassword, signInWithEmail } from "../lib/auth";
 import { isBackendConnected } from "../lib/supabase";
 
 export default function AdminLogin() {
@@ -10,6 +10,17 @@ export default function AdminLogin() {
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "checking" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
+  const [magicSent, setMagicSent] = useState(false);
+  const [magicBusy, setMagicBusy] = useState(false);
+
+  async function sendMagic() {
+    if (!email.trim()) { setErrorMsg("Bitte zuerst die E-Mail eintragen"); setStatus("error"); return; }
+    setMagicBusy(true); setStatus("idle");
+    const res = await signInWithEmail(email.trim());
+    setMagicBusy(false);
+    if (res.error) { setErrorMsg(res.error); setStatus("error"); return; }
+    setMagicSent(true);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -83,9 +94,33 @@ export default function AdminLogin() {
           </button>
         </form>
 
-        <p className="h-mono text-ink-mute text-center text-[11px] leading-relaxed mt-8">
-          Passwort vergessen? Im Supabase-Dashboard zurücksetzen.<br />
-          Mitarbeiter-Anmeldung läuft über separate URL.
+        <div className="flex items-center gap-3 my-5">
+          <div className="flex-1 h-px bg-steel/50" />
+          <span className="font-mono text-[10px] uppercase tracking-widest text-ink-mute">oder</span>
+          <div className="flex-1 h-px bg-steel/50" />
+        </div>
+
+        {magicSent ? (
+          <div className="rounded-xl border-2 border-good/50 bg-good/10 px-4 py-3.5 text-center">
+            <div className="font-display font-extrabold uppercase text-[13px] text-good">✓ Link gesendet</div>
+            <p className="font-sans text-[13px] text-ink-2 mt-1 leading-snug">
+              Prüf dein Postfach ({email}) und tippe auf den Anmelde-Link. Kein Passwort nötig.
+            </p>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={sendMagic}
+            disabled={magicBusy || !email.trim()}
+            className="btn-ghost w-full disabled:opacity-50"
+          >
+            {magicBusy ? "Sende Link …" : "Anmelde-Link per E-Mail (ohne Passwort)"}
+          </button>
+        )}
+
+        <p className="font-sans text-ink-mute text-center text-[11px] leading-relaxed mt-6">
+          Der Link-Weg ist für den Inhaber gedacht (kein Passwort nötig).<br />
+          Passwort vergessen? Im Supabase-Dashboard zurücksetzen.
         </p>
       </section>
     </main>

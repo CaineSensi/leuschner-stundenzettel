@@ -35,9 +35,13 @@ export interface PipelineCard {
   archivedAt?: string; // ISO timestamp, gesetzt = aus aktivem Board raus
   /** Aus sevDesk gespiegelte Belegpositionen (Angebot AN-… bzw. Schlussrechnung RE-…). */
   positions?: PipelinePosition[];
+  /** Chef-Freigabe-Stand des Belegs (eigene jsonb-Spalte). */
+  freigabe?: Freigabe;
   sortOrder: number;
   createdAt: string;
 }
+
+export type ReviewStatus = "offen" | "ok" | "kommentar" | "aenderung";
 
 export interface PipelinePosition {
   pos: number;
@@ -45,6 +49,25 @@ export interface PipelinePosition {
   quantity: string;   // inkl. Einheit, z. B. "28 Std" / "13"
   unitPrice: string;  // formatiert, z. B. "65,00" oder "offen"
   sum: number;        // Zeilensumme netto
+  /** Chef-Review je Position (liegt im positions-jsonb, keine Migration). */
+  review?: {
+    status: ReviewStatus;
+    comment?: string;
+    by?: string;
+    at?: string;       // ISO
+  };
+}
+
+export interface FreigabeEvent {
+  at: string;          // ISO
+  by: string;
+  action: string;      // z. B. "Position 5 kommentiert", "Alles freigegeben"
+}
+
+export interface Freigabe {
+  releasedBy?: string;
+  releasedAt?: string; // ISO, gesetzt = Beleg freigegeben
+  history: FreigabeEvent[];
 }
 
 export interface PipelineCardInput {
@@ -76,6 +99,9 @@ function rowToCard(r: any): PipelineCard {
     sentAt: r.sent_at ?? undefined,
     archivedAt: r.archived_at ?? undefined,
     positions: Array.isArray(r.positions) ? r.positions : undefined,
+    freigabe: r.freigabe && typeof r.freigabe === "object"
+      ? { history: [], ...r.freigabe }
+      : undefined,
     sortOrder: r.sort_order ?? 0,
     createdAt: r.created_at
   };
@@ -84,10 +110,10 @@ function rowToCard(r: any): PipelineCard {
 const COLS =
   "id, stage, customer_name, place, description, value_eur, open_points, " +
   "doc_number, site_id, assigned_worker_id, plan_eur, actual_eur, valid_until, " +
-  "sent_at, archived_at, positions, sort_order, created_at";
+  "sent_at, archived_at, positions, freigabe, sort_order, created_at";
 
 /** COLS ohne die Spalten aus noch nicht eingespielten Migrationen. */
-const COLS_BASE = COLS.replace("sent_at, archived_at, positions, ", "");
+const COLS_BASE = COLS.replace("sent_at, archived_at, positions, freigabe, ", "");
 
 /**
  * Lädt Pipeline-Karten. `archived: false` (Standard) = aktives Board ohne
@@ -116,7 +142,7 @@ export async function listCards(
     // archived_at nicht. Statt das Board komplett leer zu lassen, laden wir
     // ohne sie: alle Vorgänge gelten als aktiv, das Archiv ist (noch) leer.
     // Sobald die Spalte existiert, greift automatisch wieder der Filter oben.
-    if (/archived_at|sent_at|positions/.test(String(error?.message ?? ""))) {
+    if (/archived_at|sent_at|positions|freigabe/.test(String(error?.message ?? ""))) {
       if (wantArchived) return [];
       const { data: d2, error: e2 } = await sb
         .from("pipeline_cards")
@@ -324,6 +350,88 @@ export async function deleteCard(id: string): Promise<void> {
   const sb: any = supabase;
   const { error } = await sb.from("pipeline_cards").delete().eq("id", id);
   if (error) throw error;
+}
+
+function mergeFreigabe(cur: Freigabe | undefined, ev: FreigabeEvent, extra?: Partial<Freigabe>): Freigabe {
+  const base: Freigabe = cur ? { ...cur, history: [...(cur.history ?? [])] } : { history: [] };
+  base.history.push(ev);
+  return { ...base, ...extra };
+}
+
+/**
+ * Chef-Review einer einzelnen Position setzen (OK / Kommentar / Änderung).
+ * Schreibt in positions-jsonb (immer) und protokolliert in freigabe-jsonb
+ * (best effort, falls Spalte noch fehlt wird das Protokoll übersprungen).
+ * Gibt die neuen positions + freigabe für optimistisches UI zurück.
+ */
+export async function reviewPosition(
+  card: PipelineCard,
+  posNr: number,
+  patch: { status: ReviewStatus; comment?: string },
+  by: string
+): Promise<{ positions: PipelinePosition[]; freigabe: Freigabe }> {
+  const now = new Date().toISOString();
+  const positions = (card.positions ?? []).map((p) =>
+    p.pos === posNr
+      ? { ...p, review: { status: patch.status, comment: patch.comment, by, at: now } }
+      : p
+  );
+  const label =
+    patch.status === "ok" ? "freigegeben"
+    : patch.status === "aenderung" ? "Änderung erbeten"
+    : patch.status === "kommentar" ? "kommentiert"
+    : "zurückgesetzt";
+  const freigabe = mergeFreigabe(card.freigabe, {
+    at: now, by, action: `Position ${posNr} ${label}`
+  });
+  if (!isBackendConnected() || !supabase) return { positions, freigabe };
+  const sb: any = supabase;
+  const { error } = await sb.from("pipeline_cards").update({ positions }).eq("id", card.id);
+  if (error) throw error;
+  // Protokoll best effort
+  await sb.from("pipeline_cards").update({ freigabe }).eq("id", card.id);
+  return { positions, freigabe };
+}
+
+/** Ganzen Beleg freigeben (Signatur-Stempel + Verlauf). Braucht freigabe-Spalte. */
+export async function releaseCard(
+  card: PipelineCard,
+  by: string
+): Promise<Freigabe> {
+  const now = new Date().toISOString();
+  const freigabe = mergeFreigabe(
+    card.freigabe,
+    { at: now, by, action: "Alles freigegeben" },
+    { releasedBy: by, releasedAt: now }
+  );
+  if (!isBackendConnected() || !supabase) return freigabe;
+  const sb: any = supabase;
+  const { error } = await sb.from("pipeline_cards").update({ freigabe }).eq("id", card.id);
+  if (error) {
+    if (/freigabe/.test(String(error?.message ?? "")))
+      throw new Error("Freigabe erst nach DB-Migration aktiv (Spalte freigabe fehlt noch).");
+    throw error;
+  }
+  return freigabe;
+}
+
+/** Freigabe zurücknehmen (z. B. nach Änderung). */
+export async function revokeRelease(
+  card: PipelineCard,
+  by: string
+): Promise<Freigabe> {
+  const now = new Date().toISOString();
+  const freigabe = mergeFreigabe(
+    card.freigabe,
+    { at: now, by, action: "Freigabe zurückgenommen" }
+  );
+  freigabe.releasedBy = undefined;
+  freigabe.releasedAt = undefined;
+  if (!isBackendConnected() || !supabase) return freigabe;
+  const sb: any = supabase;
+  const { error } = await sb.from("pipeline_cards").update({ freigabe }).eq("id", card.id);
+  if (error) throw error;
+  return freigabe;
 }
 
 // ---- Mock (Dev/Demo ohne Backend) ----
