@@ -397,11 +397,16 @@ function CardView({
         {card.docNumber
           ? <span className="font-mono font-bold text-[12px] bg-bg-deep text-bg-2 px-2 py-0.5 rounded">{card.docNumber}</span>
           : <span className="font-mono font-bold text-[12px] bg-copper text-white px-2 py-0.5 rounded">NEU</span>}
-        {expired && (
-          <span className="font-mono font-bold text-[10.5px] tracking-wider text-white bg-rust px-2 py-0.5 rounded">
-            ABGELAUFEN
+        <div className="flex items-center gap-2">
+          {expired && (
+            <span className="font-mono font-bold text-[10.5px] tracking-wider text-white bg-rust px-2 py-0.5 rounded">
+              ABGELAUFEN
+            </span>
+          )}
+          <span className="font-mono text-[11px] text-ink-2 whitespace-nowrap" title="Vorgang angelegt">
+            {fmtDate(card.createdAt)}
           </span>
-        )}
+        </div>
       </div>
 
       <div className="font-sans font-bold text-[16px] text-ink leading-tight">{card.customerName}</div>
@@ -580,11 +585,51 @@ function DetailDrawer({
             </div>
           )}
 
-          <p className="font-sans text-[12.5px] text-ink-mute mt-5 leading-relaxed">
-            Die vollständige Positionsliste liegt im sevDesk-Beleg
-            {card.docNumber ? ` ${card.docNumber}` : ""}. Anbindung folgt mit der
-            sevDesk-Integration.
-          </p>
+          {card.positions && card.positions.length > 0 ? (
+            <div className="mt-5">
+              <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
+                {card.docNumber?.startsWith("RE")
+                  ? "Schlussrechnung · Positionen"
+                  : "Angebot · Positionen"}
+              </div>
+              <div className="border border-steel rounded-lg overflow-hidden bg-white">
+                <table className="w-full border-collapse text-[13px]" style={{ tableLayout: "fixed" }}>
+                  <thead>
+                    <tr className="bg-bg-deep text-bg-2">
+                      <th className="w-7 text-center font-mono font-medium text-[10.5px] uppercase tracking-wide px-1.5 py-2">#</th>
+                      <th className="text-left font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2">Position</th>
+                      <th className="w-[58px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-1.5 py-2">Menge</th>
+                      <th className="w-[60px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-1.5 py-2">EP €</th>
+                      <th className="w-[72px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2">Summe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {card.positions.map((p) => (
+                      <tr key={p.pos} className="border-b border-[#E2E4E7] last:border-0 even:bg-[#F6F7F8]">
+                        <td className="text-center font-mono text-ink-2 text-[12px] px-1.5 py-2 align-top">{p.pos}</td>
+                        <td className="text-ink text-[13px] leading-snug px-2 py-2 align-top break-words">{p.name}</td>
+                        <td className="text-right font-mono text-[12px] text-ink-2 px-1.5 py-2 align-top whitespace-nowrap">{p.quantity}</td>
+                        <td className="text-right font-mono text-[12px] text-ink-2 px-1.5 py-2 align-top whitespace-nowrap">{p.unitPrice}</td>
+                        <td className="text-right font-mono font-bold text-[12px] text-ink px-2 py-2 align-top whitespace-nowrap tabular-nums">{eur(p.sum)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-center justify-between gap-3 mt-3 px-4 py-3.5 rounded-lg surface-steel">
+                <span className="font-sans text-[13px] text-steel">Netto-Gesamt · 0 % USt (§19)</span>
+                <span className="font-display font-black text-[20px] text-white tabular-nums">
+                  {eur(card.positions.reduce((t, p) => t + (p.sum || 0), 0))}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <p className="font-sans text-[12.5px] text-ink-mute mt-5 leading-relaxed">
+              {card.docNumber
+                ? `Positionen zu ${card.docNumber} werden aus sevDesk gespiegelt, sobald die DB-Spalte "positions" angelegt und der Abgleich gelaufen ist.`
+                : "Noch kein sevDesk-Beleg verknüpft."}
+            </p>
+          )}
         </div>
 
         <div className="flex-shrink-0 px-5 lg:px-6 py-3.5 bg-[#E2E4E7] border-t border-steel flex gap-2.5 flex-wrap">

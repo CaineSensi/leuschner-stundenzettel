@@ -33,8 +33,18 @@ export interface PipelineCard {
   validUntil?: string; // ISO date
   sentAt?: string;     // ISO timestamp, gesetzt beim Wechsel auf "Versendet"
   archivedAt?: string; // ISO timestamp, gesetzt = aus aktivem Board raus
+  /** Aus sevDesk gespiegelte Belegpositionen (Angebot AN-… bzw. Schlussrechnung RE-…). */
+  positions?: PipelinePosition[];
   sortOrder: number;
   createdAt: string;
+}
+
+export interface PipelinePosition {
+  pos: number;
+  name: string;
+  quantity: string;   // inkl. Einheit, z. B. "28 Std" / "13"
+  unitPrice: string;  // formatiert, z. B. "65,00" oder "offen"
+  sum: number;        // Zeilensumme netto
 }
 
 export interface PipelineCardInput {
@@ -65,6 +75,7 @@ function rowToCard(r: any): PipelineCard {
     validUntil: r.valid_until ?? undefined,
     sentAt: r.sent_at ?? undefined,
     archivedAt: r.archived_at ?? undefined,
+    positions: Array.isArray(r.positions) ? r.positions : undefined,
     sortOrder: r.sort_order ?? 0,
     createdAt: r.created_at
   };
@@ -73,10 +84,10 @@ function rowToCard(r: any): PipelineCard {
 const COLS =
   "id, stage, customer_name, place, description, value_eur, open_points, " +
   "doc_number, site_id, assigned_worker_id, plan_eur, actual_eur, valid_until, " +
-  "sent_at, archived_at, sort_order, created_at";
+  "sent_at, archived_at, positions, sort_order, created_at";
 
 /** COLS ohne die Spalten aus noch nicht eingespielten Migrationen. */
-const COLS_BASE = COLS.replace("sent_at, archived_at, ", "");
+const COLS_BASE = COLS.replace("sent_at, archived_at, positions, ", "");
 
 /**
  * Lädt Pipeline-Karten. `archived: false` (Standard) = aktives Board ohne
@@ -105,7 +116,7 @@ export async function listCards(
     // archived_at nicht. Statt das Board komplett leer zu lassen, laden wir
     // ohne sie: alle Vorgänge gelten als aktiv, das Archiv ist (noch) leer.
     // Sobald die Spalte existiert, greift automatisch wieder der Filter oben.
-    if (/archived_at|sent_at/.test(String(error?.message ?? ""))) {
+    if (/archived_at|sent_at|positions/.test(String(error?.message ?? ""))) {
       if (wantArchived) return [];
       const { data: d2, error: e2 } = await sb
         .from("pipeline_cards")
