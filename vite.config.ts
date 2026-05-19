@@ -33,6 +33,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,ico}"],
         navigateFallback: "/index.html",
+        // Statische Erklär-Seite NICHT in die SPA-Navigationsfalle ziehen,
+        // sonst zeigt der Service-Worker dort die Mitarbeiter-App.
+        navigateFallbackDenylist: [/^\/cheff-flow/],
         // Neue Service-Worker-Version sofort übernehmen — User sieht den
         // neuen Build beim ERSTEN Öffnen statt beim zweiten
         skipWaiting: true,
