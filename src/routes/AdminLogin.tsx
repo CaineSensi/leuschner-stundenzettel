@@ -53,7 +53,7 @@ export default function AdminLogin() {
               placeholder="rick@…"
               value={email}
               onChange={(e) => { setEmail(e.target.value); setStatus("idle"); }}
-              className="w-full bg-bg-2 border border-ink/15 rounded-xl px-4 py-3 text-paper focus:outline-none focus:border-copper text-sm"
+              className="w-full bg-white border border-steel rounded-xl px-4 py-3 text-ink focus:outline-none focus:border-copper text-sm"
             />
           </div>
 
@@ -66,7 +66,7 @@ export default function AdminLogin() {
               placeholder="••••••••"
               value={password}
               onChange={(e) => { setPassword(e.target.value); setStatus("idle"); }}
-              className="w-full bg-bg-2 border border-ink/15 rounded-xl px-4 py-3 text-paper focus:outline-none focus:border-copper text-sm tracking-wider"
+              className="w-full bg-white border border-steel rounded-xl px-4 py-3 text-ink focus:outline-none focus:border-copper text-sm tracking-wider"
             />
           </div>
 

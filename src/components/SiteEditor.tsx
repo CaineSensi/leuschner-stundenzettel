@@ -127,12 +127,12 @@ export default function SiteEditor({
       <style>{`
         .site-input {
           width: 100%;
-          background: var(--bg-2, #F4F4F5);
-          border: 2px solid rgba(0,0,0,0.15);
-          border-radius: 10px;
+          background: #FFFFFF;
+          border: 1px solid #A9AEB3;
+          border-radius: 8px;
           padding: 10px 12px;
           font-size: 14px;
-          color: #000;
+          color: #1A1C1E;
           outline: none;
         }
         .site-input:focus { border-color: #DC6E2D; }

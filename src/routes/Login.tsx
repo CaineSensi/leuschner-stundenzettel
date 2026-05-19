@@ -44,12 +44,12 @@ export default function Login() {
           {Array.from({ length: 6 }).map((_, i) => (
             <div
               key={i}
-              className={`h-14 rounded-lg flex items-center justify-center font-display font-extrabold text-2xl ${
+              className={`h-14 rounded-lg flex items-center justify-center font-display font-extrabold text-2xl border ${
                 i < code.length
-                  ? "bg-bg-4 text-paper"
+                  ? "bg-white border-steel text-ink"
                   : i === code.length
-                  ? "bg-bg-3 border border-copper text-copper animate-pulse"
-                  : "bg-bg-3 text-transparent"
+                  ? "bg-white border-copper text-copper animate-pulse"
+                  : "bg-white/60 border-steel/60 text-transparent"
               }`}
             >
               {code[i] ?? "_"}
@@ -67,7 +67,7 @@ export default function Login() {
             setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6));
             setStatus("idle");
           }}
-          className="mt-4 bg-bg-3 border border-ink/15 rounded-lg px-4 py-3 font-mono tracking-widest text-paper text-center text-xl focus:outline-none focus:border-copper"
+          className="mt-4 bg-white border border-steel rounded-lg px-4 py-3 font-mono tracking-widest text-ink text-center text-xl focus:outline-none focus:border-copper"
           placeholder="······"
           maxLength={6}
         />

@@ -135,12 +135,12 @@ function CodeStep({
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className={`h-14 rounded-lg flex items-center justify-center font-display font-extrabold text-2xl ${
+            className={`h-14 rounded-lg flex items-center justify-center font-display font-extrabold text-2xl border ${
               i < code.length
-                ? "bg-bg-4 text-paper"
+                ? "bg-white border-steel text-ink"
                 : i === code.length
-                ? "bg-bg-3 border border-copper text-copper animate-pulse"
-                : "bg-bg-3 text-transparent"
+                ? "bg-white border-copper text-copper animate-pulse"
+                : "bg-white/60 border-steel/60 text-transparent"
             }`}
           >
             {code[i] ?? "_"}
@@ -152,7 +152,7 @@ function CodeStep({
         autoFocus
         value={code}
         onChange={(e) => { setCode(e.target.value.toUpperCase().slice(0, 6)); setStatus("idle"); }}
-        className="mt-4 bg-bg-3 border border-ink/10 rounded-lg px-4 py-3 font-mono tracking-widest text-paper focus:outline-none focus:border-copper"
+        className="mt-4 bg-white border border-steel rounded-lg px-4 py-3 font-mono tracking-widest text-ink focus:outline-none focus:border-copper"
         placeholder="Code eingeben"
         maxLength={6}
       />
@@ -301,7 +301,7 @@ function InstallFirstScreen({ code }: { code: string }) {
 
       {/* IOS — Apple lässt programmatic install nicht zu, also klare Anleitung */}
       {isIOS && (
-        <div className="mt-5 bg-bg-2 border border-ink/15 rounded-xl p-4">
+        <div className="mt-5 dd-card p-4">
           <div className="h-mono text-copper text-[11px] mb-3">iPhone · 3 Schritte</div>
           <ol className="space-y-3 text-[13px] leading-snug">
             <li className="flex gap-3">
@@ -328,7 +328,7 @@ function InstallFirstScreen({ code }: { code: string }) {
 
       {/* DESKTOP / kein beforeinstallprompt verfügbar */}
       {!isIOS && !deferredPrompt && !installDone && (
-        <div className="mt-5 bg-bg-2 border border-ink/15 rounded-xl p-4">
+        <div className="mt-5 dd-card p-4">
           <div className="h-mono text-copper text-[11px] mb-2">App installieren</div>
           <p className="text-[13px] leading-snug">
             Im Browser-Menü (oben rechts „⋮") findest du <strong>„App installieren"</strong> bzw. <strong>„Zum Startbildschirm hinzufügen"</strong>.
@@ -417,7 +417,7 @@ function DoneStep({ worker, onNext }: { worker: Worker; onNext: () => void }) {
       </div>
 
       {!isStandalone && isIOS && (
-        <div className="mt-6 bg-bg-2 border border-copper/30 rounded-xl p-4">
+        <div className="mt-6 dd-card p-4">
           <div className="h-mono text-copper text-[11px] mb-3">So fügst du die App hinzu</div>
           <ol className="space-y-3 text-[13px] leading-snug">
             <li className="flex gap-3">
@@ -437,7 +437,7 @@ function DoneStep({ worker, onNext }: { worker: Worker; onNext: () => void }) {
       )}
 
       {!isStandalone && !isIOS && (
-        <div className="mt-6 bg-bg-2 border border-copper/30 rounded-xl p-4">
+        <div className="mt-6 dd-card p-4">
           <div className="h-mono text-copper text-[11px] mb-2">App installieren</div>
           <p className="text-[13px] leading-snug">
             Im Browser-Menü („⋮" oben rechts) findest du <strong>„App installieren"</strong> bzw. <strong>„Zum Startbildschirm hinzufügen"</strong>.
