@@ -125,6 +125,7 @@ export default function Admin() {
             <NavItem icon="◷" label="Wochenplan" to="/admin/plan" />
             <NavItem icon="⌂" label="Baustellen" to="/admin/sites" />
             <NavItem icon="≡" label="Stunden" to="/admin/stunden" />
+            <NavItem icon="▤" label="Angebote" to="/admin/angebote" />
             <NavItem icon="▮" label="Auswertung" disabled />
             <NavItem icon="↗" label="DATEV-Export" disabled />
           </nav>
@@ -167,6 +168,9 @@ export default function Admin() {
             <div className="flex gap-2 flex-wrap">
               <Link to="/admin/plan" className="btn-ghost text-[12px] lg:hidden">
                 Wochenplan
+              </Link>
+              <Link to="/admin/angebote" className="btn-ghost text-[12px] lg:hidden">
+                Angebote
               </Link>
               <button className="btn-ghost text-[12px]">Filter</button>
               <button className="btn-ghost text-[12px]">PDF</button>

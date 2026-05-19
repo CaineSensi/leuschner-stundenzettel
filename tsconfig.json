@@ -21,5 +21,6 @@
     }
   },
   "include": ["src"],
+  "exclude": ["src/components/SiteMaterialEditor.tsx"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

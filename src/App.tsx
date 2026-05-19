@@ -11,6 +11,7 @@ import Plan from "./routes/Plan";
 import Sites from "./routes/Sites";
 import SiteDetail from "./routes/SiteDetail";
 import Hours from "./routes/Hours";
+import Angebote from "./routes/Angebote";
 import AuthCallback from "./routes/AuthCallback";
 import OfflineIndicator from "./components/OfflineIndicator";
 import InstallPrompt from "./components/InstallPrompt";
@@ -68,6 +69,7 @@ export default function App() {
         <Route path="/admin/sites"     element={<ProtectedRoute adminOnly><Sites /></ProtectedRoute>} />
         <Route path="/admin/sites/:id" element={<ProtectedRoute adminOnly><SiteDetail /></ProtectedRoute>} />
         <Route path="/admin/stunden"   element={<ProtectedRoute adminOnly><Hours /></ProtectedRoute>} />
+        <Route path="/admin/angebote"  element={<ProtectedRoute adminOnly><Angebote /></ProtectedRoute>} />
         <Route path="/entry"         element={<ProtectedRoute><Entry /></ProtectedRoute>} />
         <Route path="/day/:date"     element={<ProtectedRoute><Day /></ProtectedRoute>} />
         <Route path="*"              element={<Navigate to="/" replace />} />
