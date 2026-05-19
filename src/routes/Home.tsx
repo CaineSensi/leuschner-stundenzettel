@@ -147,7 +147,7 @@ export default function Home() {
       {notificationsSupported() && !notifReady && (
         <button
           onClick={handleEnableNotif}
-          className="mx-6 mt-4 px-4 py-3 bg-bg-2 border border-copper/40 rounded-xl flex items-center gap-3 text-left"
+          className="dd-card mx-6 mt-4 px-4 py-3 flex items-center gap-3 text-left" style={{ ["--c" as any]: "#DC6E2D" }}
         >
           <span className="text-2xl">🔔</span>
           <div className="flex-1 min-w-0">
@@ -190,7 +190,7 @@ export default function Home() {
 
       {/* Heute keine Zuweisung, aber heute ist Werktag und noch kein Eintrag */}
       {!todayAssignment && !hasToday && todayInWeek && (
-        <div className="mx-6 mt-4 px-4 py-4 rounded-xl bg-bg-2 border border-ink/15">
+        <div className="dd-card mx-6 mt-4 px-4 py-4" style={{ ["--c" as any]: "#A9AEB3" }}>
           <div className="h-mono text-ink-2 text-[11px]">Heute · {fmtDateLong(today)}</div>
           <div className="font-semibold text-[14px] mt-1">Keine Baustelle vorgegeben</div>
           <div className="text-[12px] text-ink-body mt-1 leading-snug">
@@ -255,9 +255,9 @@ export default function Home() {
 
 function Stat({ label, value, sub, positive }: { label: string; value: string; sub?: string; positive?: boolean }) {
   return (
-    <div className="bg-bg-2 rounded-xl px-4 py-3">
+    <div className="dd-card px-4 py-3" style={{ ["--c" as any]: positive ? "#1F7A3D" : "#DC6E2D" }}>
       <div className="h-mono text-copper text-[11px]">{label}</div>
-      <div className="h-display text-2xl mt-0.5">{value}</div>
+      <div className="h-display text-2xl mt-0.5 text-ink tabular-nums">{value}</div>
       {sub && (
         <div className={`text-[12px] mt-0.5 ${positive ? "text-good" : "text-ink-2"}`}>
           {sub}
@@ -275,9 +275,10 @@ function DayRow({ date, entry, sites }: { date: string; entry: Entry; sites: imp
     return (
       <Link
         to={`/day/${date}`}
-        className={`rounded-xl px-4 py-3.5 grid grid-cols-[44px_1fr_auto] gap-3 items-center active:bg-bg-3 transition-colors ${
-          isToday ? "bg-copper/15 border-2 border-copper/50" : "bg-bg-2 border border-ink/10"
+        className={`px-4 py-3.5 grid grid-cols-[44px_1fr_auto] gap-3 items-center transition-transform active:scale-[0.99] ${
+          isToday ? "rounded-xl bg-copper/15 border-2 border-copper/50" : "dd-card"
         }`}
+        style={isToday ? undefined : { ["--c" as any]: "#DC6E2D" }}
       >
         <div className="text-center">
           <div className={`font-mono font-bold text-[12px] tracking-wider ${isToday ? "text-copper" : ""}`}>

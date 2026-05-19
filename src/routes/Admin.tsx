@@ -115,9 +115,9 @@ export default function Admin() {
   return (
     <div className="min-h-screen safe-top safe-bottom">
       <div className="lg:flex">
-        <aside className="hidden lg:flex flex-col w-64 bg-bg-2 border-r border-ink/10 px-5 py-6 sticky top-0 h-screen">
-          <Logo />
-          <p className="h-mono text-ink-mute text-[11px] mt-1.5">{adminLabel}</p>
+        <aside className="hidden lg:flex flex-col w-64 surface-steel px-5 py-6 sticky top-0 h-screen">
+          <Logo tone="light" />
+          <p className="h-mono text-steel text-[11px] mt-1.5">{adminLabel}</p>
 
           <nav className="mt-10 flex flex-col gap-1 text-[12px]">
             <NavItem icon="▦" label="Übersicht" active />
@@ -130,7 +130,7 @@ export default function Admin() {
             <NavItem icon="↗" label="DATEV-Export" disabled />
           </nav>
 
-          <button onClick={handleLogout} className="mt-auto h-mono text-ink-mute text-[12px] text-left hover:text-copper">
+          <button onClick={handleLogout} className="mt-auto h-mono text-steel text-[12px] text-left hover:text-copper-bright transition-colors">
             ← Abmelden
           </button>
         </aside>
@@ -320,7 +320,7 @@ export default function Admin() {
             <div>
               <h2 className="h-mono text-copper mb-3">Letzte Einträge · KW {week}</h2>
               {liveFeed.length === 0 ? (
-                <div className="bg-bg-2 border border-ink/10 rounded-xl px-4 py-6 text-center">
+                <div className="dd-card px-4 py-6 text-center" style={{ ["--c" as any]: "#A9AEB3" }}>
                   <div className="h-mono text-ink-2 text-[11px]">Noch keine Einträge</div>
                   <div className="text-[12px] text-ink-2 mt-1">Sobald jemand Stunden speichert, taucht hier eine Live-Meldung auf.</div>
                 </div>
@@ -745,16 +745,16 @@ function NavItem({
 }) {
   const className = `flex items-center gap-3 px-3 py-2.5 rounded-lg text-left h-mono transition-colors ${
     active
-      ? "bg-copper/15 text-copper"
+      ? "bg-copper/25 text-copper-bright"
       : disabled
-        ? "text-ink-mute cursor-not-allowed"
-        : "text-ink-2 hover:bg-ink/5 hover:text-paper"
+        ? "text-white/30 cursor-not-allowed"
+        : "text-steel hover:bg-white/5 hover:text-white"
   }`;
   const content = (
     <>
       <span className="w-4 text-center">{icon}</span>
       <span>{label}</span>
-      {disabled && <span className="ml-auto h-mono text-[9px] text-ink-mute">bald</span>}
+      {disabled && <span className="ml-auto h-mono text-[9px] text-white/30">bald</span>}
     </>
   );
   if (to && !disabled) {
@@ -775,16 +775,16 @@ function Stat({
   sub?: string;
   tone?: "primary" | "good" | "rust" | "neutral";
 }) {
-  const border =
-    tone === "primary" ? "border-l-copper" :
-    tone === "good"    ? "border-l-good" :
-    tone === "rust"    ? "border-l-rust" :
-    "border-l-ink/15";
+  const c =
+    tone === "primary" ? "#DC6E2D" :
+    tone === "good"    ? "#1F7A3D" :
+    tone === "rust"    ? "#B91C1C" :
+    "#A9AEB3";
   return (
-    <div className={`bg-bg-2 rounded-xl border-l-[3px] ${border} px-4 py-4 lg:px-5`}>
+    <div className="dd-card px-4 py-4 lg:px-5" style={{ ["--c" as any]: c }}>
       <div className="h-mono text-copper text-[11px]">{kicker}</div>
-      <div className="h-display text-3xl lg:text-4xl mt-1">{value}</div>
-      {sub && <div className="text-[11px] text-ink-2 mt-1">{sub}</div>}
+      <div className="h-display text-3xl lg:text-4xl mt-1 text-ink tabular-nums">{value}</div>
+      {sub && <div className="text-[12px] text-ink-2 mt-1">{sub}</div>}
     </div>
   );
 }
@@ -827,8 +827,11 @@ function TeamRow({
   ) as { type: "sick" | "vacation" | "holiday" } | undefined;
 
   return (
-    <li className="bg-bg-2 rounded-xl px-4 py-3 grid grid-cols-[44px_1fr_auto_auto] gap-3 lg:gap-4 items-center">
-      <div className="w-11 h-11 rounded-full bg-bg-4 text-copper-bright flex items-center justify-center font-display font-extrabold text-base">
+    <li
+      className="dd-card px-4 py-3 grid grid-cols-[44px_1fr_auto_auto] gap-3 lg:gap-4 items-center"
+      style={{ ["--c" as any]: summary.submitted ? "#1F7A3D" : isMissingToday ? "#B91C1C" : "#DC6E2D" }}
+    >
+      <div className="w-11 h-11 rounded-full bg-bg-deep text-copper-bright flex items-center justify-center font-display font-extrabold text-base">
         {worker.initials}
       </div>
       <div className="min-w-0">
@@ -880,7 +883,7 @@ function EntryFeedRow({ entry, worker }: { entry: Entry; worker?: Worker }) {
     const site = siteById(entry.siteId);
     const min = (entry.endMin - entry.startMin) - entry.pauseMin;
     return (
-      <li className="bg-bg-2 rounded-lg px-3 py-2.5 flex gap-3 items-start border border-ink/10">
+      <li className="dd-card px-3 py-2.5 flex gap-3 items-start" style={{ ["--c" as any]: "#DC6E2D" }}>
         <span className="w-2 h-2 rounded-full mt-1.5 bg-copper flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
@@ -897,8 +900,9 @@ function EntryFeedRow({ entry, worker }: { entry: Entry; worker?: Worker }) {
   }
 
   const meta = ABSENCE_LABEL[entry.type];
+  const ac = entry.type === "sick" ? "#B91C1C" : entry.type === "vacation" ? "#1F7A3D" : "#8C6E45";
   return (
-    <li className="bg-bg-2 rounded-lg px-3 py-2.5 flex gap-3 items-start border border-ink/10">
+    <li className="dd-card px-3 py-2.5 flex gap-3 items-start" style={{ ["--c" as any]: ac }}>
       <span className={`w-2 h-2 rounded-full mt-1.5 ${meta.dot} flex-shrink-0`} />
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-2">
