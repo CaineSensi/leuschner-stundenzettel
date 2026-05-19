@@ -283,7 +283,7 @@ export async function updateCardStage(id: string, stage: Stage): Promise<void> {
     // Check-Constraint kennt 'Versendet' noch nicht (Migration offen)
     if (/check|constraint|invalid input|violates/i.test(String(error.message ?? "")))
       throw new Error(
-        "Stufe „Versendet" erst nach DB-Migration aktiv (Constraint kennt sie noch nicht)."
+        "Stufe Versendet erst nach DB-Migration aktiv (Constraint kennt sie noch nicht)."
       );
     throw error;
   }
