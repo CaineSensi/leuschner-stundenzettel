@@ -1,0 +1,853 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Der Cheff-Flow · Angebote in der App · Rund um's Haus Leuschner</title>
+<link rel="canonical" href="https://leuschner-stundenzettel.pages.dev/cheff-flow">
+<meta name="theme-color" content="#1A1C1E">
+<meta name="description" content="Der Cheff-Flow: So gibst du Angebote in der App frei, in drei Schritten, ohne Passwort.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Rund ums Haus Leuschner">
+<meta property="og:title" content="Der Cheff-Flow">
+<meta property="og:description" content="Moin Chef, so gibst du Angebote in der App frei, in drei Schritten. 3 Minuten Lesezeit.">
+<meta property="og:url" content="https://leuschner-stundenzettel.pages.dev/cheff-flow">
+<meta property="og:image" content="https://leuschner-stundenzettel.pages.dev/cheff-flow/preview.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:locale" content="de_DE">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Der Cheff-Flow">
+<meta name="twitter:description" content="So gibst du Angebote in der App frei, in drei Schritten.">
+<meta name="twitter:image" content="https://leuschner-stundenzettel.pages.dev/cheff-flow/preview.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --steel:#A9AEB3; --line:#8B9197;
+    --ink:#1A1C1E; --ink2:#4A4F54; --body:#33373B;
+    --copper:#DC6E2D; --copper-b:#E8853F;
+    --good:#1F7A3D; --rust:#B91C1C; --bronze:#8C6E45;
+    --steel-grad:linear-gradient(180deg,#2B2E31,#1A1C1E);
+  }
+  html{scroll-behavior:smooth}
+  body{
+    font-family:"Atkinson Hyperlegible",system-ui,sans-serif;
+    color:var(--ink);
+    background:linear-gradient(180deg,#D9DCDF 0%,#C4C8CC 100%) fixed;
+    -webkit-font-smoothing:antialiased;
+    line-height:1.6;
+  }
+  .display{font-family:"Archivo",Impact,sans-serif}
+  .mono{font-family:"JetBrains Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+
+  .page{max-width:920px;margin:0 auto;padding:0 20px 60px}
+
+  /* ---- Stahl-Kopf ---- */
+  .hero{
+    background:var(--steel-grad);color:#fff;border-radius:0 0 14px 14px;
+    box-shadow:inset 0 -2px 0 var(--copper),inset 0 1px 0 rgba(255,255,255,.08),
+      0 18px 50px -22px rgba(0,0,0,.55);
+    padding:34px 34px 36px;margin-bottom:34px;
+  }
+  .hero-eyebrow{font-family:"JetBrains Mono",monospace;font-size:12px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--copper-b)}
+
+  /* ---- Wortmarke "Der Cheff-Flow" ---- */
+  .wordmark{display:inline-flex;align-items:center;gap:11px;margin-top:18px;
+    padding:9px 16px 9px 13px;border-radius:999px;
+    background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.16);
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+  .wordmark .wm-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0;
+    background:linear-gradient(180deg,#E8853F,#C95F22);
+    box-shadow:0 0 0 4px rgba(220,110,45,.18)}
+  .wordmark .wm-txt{font-family:"Archivo";font-weight:900;font-size:14px;
+    letter-spacing:.06em;text-transform:uppercase;color:#fff}
+  .wordmark .wm-txt i{font-style:normal;color:var(--copper-b)}
+
+  .hero h1{font-family:"Archivo";font-weight:900;font-size:38px;letter-spacing:-.01em;
+    text-transform:uppercase;line-height:1.05;margin:16px 0 0;color:#fff}
+  .hero h1 .hl{color:var(--copper-b)}
+  .hero-lead{font-size:17px;color:#D7DBDF;margin-top:16px;max-width:680px;line-height:1.62}
+  .hero-für{display:flex;flex-wrap:wrap;gap:8px 26px;margin-top:22px;
+    padding-top:20px;border-top:1px solid rgba(255,255,255,.13)}
+  .hero-für div{font-size:13.5px;color:#AFB4B9}
+  .hero-für b{color:#fff;font-weight:700;font-family:"JetBrains Mono",monospace}
+
+  /* ---- Abschnitt ---- */
+  section{margin-bottom:40px}
+  .s-num{font-family:"JetBrains Mono",monospace;font-size:13px;font-weight:700;
+    color:var(--copper);letter-spacing:.1em}
+  .s-h{font-family:"Archivo";font-weight:900;font-size:25px;text-transform:uppercase;
+    letter-spacing:-.01em;color:var(--ink);line-height:1.12;margin:6px 0 0}
+  .s-intro{font-size:16px;color:var(--body);margin-top:12px;max-width:720px;line-height:1.62}
+
+  /* ---- "Was heißt das für dich" ---- */
+  .fyi{
+    margin-top:18px;background:linear-gradient(180deg,#FFFFFF,#ECEEF0);
+    border:1px solid var(--steel);border-left:4px solid var(--bronze);
+    border-radius:7px;padding:15px 18px;
+    box-shadow:0 6px 16px -8px rgba(0,0,0,.25);
+  }
+  .fyi-h{font-family:"Archivo";font-weight:800;font-size:12px;letter-spacing:.09em;
+    text-transform:uppercase;color:#7A5E2E;margin-bottom:7px}
+  .fyi p{font-size:15px;color:#5A4521;line-height:1.58}
+
+  /* ---- Karte ---- */
+  .card{
+    background:linear-gradient(180deg,#FFFFFF,#ECEEF0);
+    border:1px solid var(--steel);border-radius:9px;
+    box-shadow:0 6px 16px -8px rgba(0,0,0,.35);
+    overflow:hidden;margin-top:20px;
+  }
+  .card-cap{
+    background:var(--steel-grad);color:#fff;padding:13px 20px;
+    box-shadow:inset 0 -2px 0 var(--copper);
+    font-family:"JetBrains Mono",monospace;font-size:11.5px;letter-spacing:.13em;
+    text-transform:uppercase;color:#C7CBCF;
+  }
+  .card-pad{padding:24px 22px}
+
+  /* ---- Stufen-Ablauf ---- */
+  .flow{display:flex;flex-direction:column;gap:0;margin-top:4px}
+  .step{
+    display:flex;gap:16px;align-items:flex-start;position:relative;
+    padding:0 0 22px 0;
+  }
+  .step:last-child{padding-bottom:0}
+  .step-rail{display:flex;flex-direction:column;align-items:center;flex-shrink:0}
+  .step-dot{
+    width:42px;height:42px;border-radius:50%;flex-shrink:0;
+    display:grid;place-items:center;color:#fff;
+    font-family:"Archivo";font-weight:900;font-size:17px;
+    box-shadow:0 0 0 4px rgba(255,255,255,.55),0 4px 10px -3px rgba(0,0,0,.4);
+  }
+  .step-line{flex:1;width:3px;background:var(--steel);margin:6px 0;border-radius:2px;min-height:14px}
+  .step:last-child .step-line{display:none}
+  .step-body{padding-top:6px;flex:1;min-width:0}
+  .step-name{font-family:"Archivo";font-weight:800;font-size:18px;text-transform:uppercase;
+    letter-spacing:.02em;color:var(--ink);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .step-tag{font-family:"JetBrains Mono",monospace;font-size:10.5px;font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase;color:#fff;padding:3px 9px;border-radius:20px}
+  .step-txt{font-size:15px;color:var(--body);margin-top:6px;line-height:1.55}
+  .step-note{font-size:13.5px;color:var(--copper);font-weight:700;margin-top:6px}
+
+  /* ---- Login-Visual ---- */
+  .login-demo{
+    max-width:420px;margin:6px auto 0;background:linear-gradient(180deg,#FFFFFF,#F1F3F5);
+    border:1px solid var(--steel);border-radius:12px;padding:26px 24px;
+    box-shadow:0 12px 30px -14px rgba(0,0,0,.4);
+  }
+  .ld-brand{font-family:"Archivo";font-weight:900;font-size:15px;text-transform:uppercase;
+    letter-spacing:.04em;color:var(--ink);text-align:center}
+  .ld-sub{font-size:12.5px;color:var(--ink2);text-align:center;margin-top:4px}
+  .ld-label{font-size:12.5px;font-weight:700;color:var(--ink2);margin:20px 0 7px}
+  .ld-input{
+    border:1.5px solid var(--steel);border-radius:8px;background:#fff;
+    padding:12px 14px;font-size:15px;color:var(--ink);
+    font-family:"Atkinson Hyperlegible",sans-serif;
+  }
+  .ld-input .cursor{color:#9AA0A6}
+  .ld-btn{
+    margin-top:14px;text-align:center;
+    font-family:"Archivo";font-weight:800;font-size:13.5px;letter-spacing:.04em;
+    text-transform:uppercase;color:#fff;border-radius:8px;padding:14px;
+    background:linear-gradient(180deg,#E8853F,#C95F22);
+    box-shadow:0 8px 20px -8px rgba(201,95,34,.7),inset 0 1px 0 rgba(255,255,255,.3);
+  }
+  .ld-hint{font-size:12px;color:var(--ink2);text-align:center;margin-top:14px;line-height:1.5}
+  .login-steps{display:flex;flex-wrap:wrap;gap:12px;margin-top:22px}
+  .login-steps .ls{
+    flex:1;min-width:170px;background:#fff;border:1px solid var(--steel);
+    border-radius:7px;padding:14px 16px;
+  }
+  .ls-n{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:12px;
+    color:var(--copper);letter-spacing:.06em}
+  .ls-t{font-size:14px;color:var(--body);margin-top:6px;line-height:1.5}
+
+  /* ---- Beleg / Drawer-Visual ---- */
+  .doc-head{
+    background:var(--steel-grad);color:#fff;padding:18px 20px;
+    box-shadow:inset 0 -2px 0 var(--copper);
+  }
+  .dh-nr{font-family:"JetBrains Mono",monospace;font-weight:700;font-size:12.5px;
+    background:rgba(255,255,255,.15);color:#fff;padding:4px 10px;border-radius:5px;
+    display:inline-block}
+  .dh-name{font-family:"Archivo";font-weight:900;font-size:22px;text-transform:uppercase;
+    color:#fff;margin-top:12px;line-height:1.1}
+  .dh-meta{display:flex;flex-wrap:wrap;gap:4px 22px;margin-top:11px}
+  .dh-meta div{font-size:13px;color:#AFB4B9}
+  .dh-meta b{color:#fff;font-weight:700}
+
+  .pos-wrap{border:1px solid var(--steel);border-radius:8px;overflow:hidden;
+    background:#fff;margin-top:4px}
+  table.pos{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixed}
+  table.pos thead th{background:#1A1C1E;color:#EDEFF1;
+    font-family:"JetBrains Mono",monospace;font-weight:500;font-size:10.5px;
+    letter-spacing:.05em;text-transform:uppercase;padding:9px 8px;text-align:right}
+  table.pos th:nth-child(1),table.pos td:nth-child(1){width:30px;text-align:center}
+  table.pos th:nth-child(2),table.pos td:nth-child(2){text-align:left}
+  table.pos th:nth-child(3),table.pos td:nth-child(3){width:64px}
+  table.pos th:nth-child(4),table.pos td:nth-child(4){width:66px}
+  table.pos th:nth-child(5),table.pos td:nth-child(5){width:84px}
+  table.pos tbody td{padding:10px 10px;border-bottom:1px solid #E2E4E7;
+    color:var(--ink);vertical-align:top}
+  table.pos tbody tr:last-child td{border-bottom:0}
+  table.pos tbody tr:nth-child(even){background:#F6F7F8}
+  .pn{text-align:center;font-family:"JetBrains Mono",monospace;color:#6A6E72;font-size:12px}
+  .pt{font-size:13.5px;line-height:1.42;word-break:break-word}
+  .pm,.pe,.ps{text-align:right;font-family:"JetBrains Mono",monospace;
+    font-variant-numeric:tabular-nums;white-space:nowrap;font-size:12.5px}
+  .ps{font-weight:700}
+  .pos-dot{display:inline-flex;align-items:flex-start;gap:8px}
+  .pos-dot .dot{width:9px;height:9px;border-radius:50%;flex-shrink:0;margin-top:5px}
+  .pos-line{display:none}
+  .pos-cmt{margin-top:5px;margin-left:17px;font-size:12.5px;color:var(--copper);
+    font-style:italic;line-height:1.4}
+  .pos-acts{margin-top:8px;margin-left:17px;display:flex;gap:6px;flex-wrap:wrap}
+  .pa{font-family:"JetBrains Mono",monospace;font-size:11px;font-weight:700;
+    padding:4px 9px;border-radius:5px;border:1px solid var(--steel);
+    color:var(--ink2);background:#fff;white-space:nowrap}
+  .pa.on-ok{background:var(--good);border-color:var(--good);color:#fff}
+  .pa.on-cmt{background:var(--copper);border-color:var(--copper);color:#fff}
+  .pa.on-chg{background:var(--rust);border-color:var(--rust);color:#fff}
+
+  .pos-sum{display:flex;align-items:center;justify-content:space-between;gap:12px;
+    margin-top:14px;padding:16px 18px;border-radius:8px;
+    background:var(--steel-grad);color:#fff;box-shadow:inset 0 -2px 0 var(--copper)}
+  .pos-sum span{font-size:13.5px;color:#C7CBCF}
+  .pos-sum b{font-family:"Archivo";font-weight:900;font-size:24px;color:#fff;
+    font-variant-numeric:tabular-nums}
+
+  .release-h{font-family:"Archivo";font-weight:800;font-size:13px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--ink);margin:24px 0 11px}
+  .stamp{
+    border-radius:8px;border:2px solid rgba(31,122,61,.45);
+    background:linear-gradient(180deg,rgba(47,140,78,.14),rgba(31,122,61,.10));
+    padding:16px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  }
+  .stamp-badge{
+    width:46px;height:46px;border-radius:50%;flex-shrink:0;
+    background:linear-gradient(180deg,#2F8C4E,#1F7A3D);
+    display:grid;place-items:center;color:#fff;font-size:22px;
+    box-shadow:0 4px 12px -3px rgba(31,122,61,.6)}
+  .stamp-txt b{font-family:"Archivo";font-weight:800;font-size:14px;
+    text-transform:uppercase;color:var(--good);display:block;letter-spacing:.03em}
+  .stamp-txt span{font-size:13.5px;color:var(--ink2);display:block;margin-top:3px}
+  .release-btn{
+    margin-top:13px;text-align:center;
+    font-family:"Archivo";font-weight:800;font-size:14px;letter-spacing:.04em;
+    text-transform:uppercase;color:#fff;border-radius:8px;padding:16px;
+    background:linear-gradient(180deg,#2F8C4E,#1F7A3D);
+    box-shadow:0 8px 20px -8px rgba(31,122,61,.65),inset 0 1px 0 rgba(255,255,255,.25)}
+  .opt-legend{display:flex;flex-wrap:wrap;gap:10px 20px;margin-top:18px}
+  .ol{display:flex;align-items:center;gap:9px;font-size:14px;color:var(--body)}
+  .ol .d{width:13px;height:13px;border-radius:50%;flex-shrink:0;
+    box-shadow:0 0 0 3px rgba(255,255,255,.5)}
+  .ol b{font-weight:700;color:var(--ink)}
+
+  /* ---- Sicherheits-Block ---- */
+  .safe-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}
+  .safe{
+    background:linear-gradient(180deg,#FFFFFF,#ECEEF0);
+    border:1px solid var(--steel);border-radius:9px;padding:20px 20px;
+    box-shadow:0 6px 16px -8px rgba(0,0,0,.3);
+  }
+  .safe.warn{border-left:4px solid var(--copper)}
+  .safe.log{border-left:4px solid var(--good)}
+  .safe-ic{font-size:22px;line-height:1}
+  .safe-h{font-family:"Archivo";font-weight:800;font-size:16px;text-transform:uppercase;
+    color:var(--ink);margin:12px 0 8px;letter-spacing:.01em}
+  .safe-p{font-size:14.5px;color:var(--body);line-height:1.56}
+  .log-list{margin-top:14px;border:1px solid var(--steel);border-radius:7px;
+    background:#fff;overflow:hidden}
+  .log-list .li{display:flex;justify-content:space-between;gap:12px;
+    padding:10px 13px;border-bottom:1px solid #E2E4E7;align-items:baseline}
+  .log-list .li:last-child{border-bottom:0}
+  .log-list .li:nth-child(even){background:#F6F7F8}
+  .log-act{font-size:13px;color:var(--ink)}
+  .log-by{font-family:"JetBrains Mono",monospace;font-size:11.5px;color:var(--ink2);
+    white-space:nowrap}
+
+  /* ---- 3-Schritte-Fazit ---- */
+  .fazit{
+    background:var(--steel-grad);color:#fff;border-radius:12px;
+    box-shadow:inset 0 -2px 0 var(--copper),0 18px 50px -22px rgba(0,0,0,.55);
+    padding:30px 30px 32px;
+  }
+  .fazit-h{font-family:"Archivo";font-weight:900;font-size:23px;text-transform:uppercase;
+    color:#fff;letter-spacing:-.01em}
+  .fazit-sub{font-size:15px;color:#C7CBCF;margin-top:8px}
+  .fazit-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:24px}
+  .fz{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);
+    border-radius:9px;padding:20px 18px}
+  .fz-n{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;
+    font-family:"Archivo";font-weight:900;font-size:16px;color:#fff;
+    background:linear-gradient(180deg,#E8853F,#C95F22)}
+  .fz-t{font-size:15px;color:#E6E8EA;margin-top:14px;line-height:1.5;font-weight:700}
+  .fazit-end{font-size:15px;color:#fff;margin-top:24px;padding-top:20px;
+    border-top:1px solid rgba(255,255,255,.13);font-weight:700}
+
+  /* ---- Fuß ---- */
+  .doc-foot{text-align:center;margin-top:38px;
+    font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.09em;
+    text-transform:uppercase;color:#5C6166;line-height:1.8}
+
+  /* ---- Animationen (nur transform/opacity) ---- */
+  .reveal{opacity:0;transform:translateY(26px);
+    transition:opacity .5s ease,transform .5s cubic-bezier(.22,.61,.36,1)}
+  .reveal.in{opacity:1;transform:none}
+
+  .step{opacity:0;transform:translateY(18px);
+    transition:opacity .42s ease,transform .42s cubic-bezier(.22,.61,.36,1)}
+  .flow.in .step{opacity:1;transform:none}
+  .flow.in .step:nth-child(1){transition-delay:.00s}
+  .flow.in .step:nth-child(2){transition-delay:.10s}
+  .flow.in .step:nth-child(3){transition-delay:.20s}
+  .flow.in .step:nth-child(4){transition-delay:.30s}
+  .flow.in .step:nth-child(5){transition-delay:.40s}
+  .flow.in .step:nth-child(6){transition-delay:.50s}
+
+  @keyframes stampIn{
+    0%{opacity:0;transform:scale(1.5) rotate(-11deg)}
+    60%{opacity:1;transform:scale(.93) rotate(2.5deg)}
+    100%{opacity:1;transform:scale(1) rotate(0)}
+  }
+  .stamp{opacity:0}
+  .stamp.in{animation:stampIn .46s cubic-bezier(.34,1.42,.64,1) forwards}
+
+  @keyframes btnPulse{
+    0%,100%{box-shadow:0 8px 20px -8px rgba(31,122,61,.65),
+      inset 0 1px 0 rgba(255,255,255,.25),0 0 0 0 rgba(31,122,61,.35)}
+    50%{box-shadow:0 8px 22px -8px rgba(31,122,61,.7),
+      inset 0 1px 0 rgba(255,255,255,.25),0 0 0 9px rgba(31,122,61,0)}
+  }
+  .release-btn{animation:btnPulse 2.6s ease-in-out infinite}
+
+  /* ---- Responsive ---- */
+  @media (max-width:720px){
+    .page{padding:0 14px 44px}
+    .hero{padding:26px 20px 28px;border-radius:0 0 12px 12px}
+    .hero h1{font-size:28px}
+    .hero-lead{font-size:15.5px}
+    .s-h{font-size:21px}
+    .card-pad{padding:18px 15px}
+    .safe-grid{grid-template-columns:1fr}
+    .fazit{padding:24px 18px 26px}
+    .fazit-grid{grid-template-columns:1fr}
+    .fazit-h{font-size:20px}
+    .step{gap:12px}
+    .step-dot{width:36px;height:36px;font-size:15px}
+    .login-steps .ls{min-width:100%}
+  }
+
+  /* ---- Schmal: Beleg als Karten statt Tabelle ---- */
+  @media (max-width:560px){
+    .page{padding:0 11px 40px}
+    .hero{padding:24px 17px 26px}
+    .hero h1{font-size:25px}
+    .hero-eyebrow{font-size:11px;letter-spacing:.13em}
+    .hero-für{gap:7px 18px}
+    .s-h{font-size:20px}
+    .s-intro,.step-txt,.safe-p,.fazit-sub{font-size:15px}
+    .card-pad{padding:16px 13px}
+    .login-demo{padding:22px 17px}
+
+    table.pos thead{display:none}
+    table.pos,table.pos tbody,table.pos tr,table.pos td{display:block;width:100%}
+    table.pos{table-layout:auto}
+    table.pos tbody tr{padding:13px 13px;border-bottom:1px solid #E2E4E7}
+    table.pos tbody tr:nth-child(even){background:#F6F7F8}
+    table.pos tbody tr:last-child{border-bottom:0}
+    table.pos tbody td{border:0;padding:0}
+    table.pos td.pm,table.pos td.pe,table.pos td.ps{display:none}
+    .pt{font-size:14.5px;line-height:1.45}
+    .pos-dot .dot{width:11px;height:11px;margin-top:6px}
+    table.pos td.pn{display:inline-block;width:auto;text-align:left;
+      font-weight:700;color:var(--copper);font-size:13px;margin-bottom:5px}
+    table.pos td.pn::before{content:"Pos. "}
+    .pos-line{display:flex!important}
+    .pos-line{display:flex;justify-content:space-between;gap:10px;
+      margin-top:9px;padding-top:9px;border-top:1px dashed #D2D5D8;
+      font-family:"JetBrains Mono",monospace;font-size:13px}
+    .pos-line .lbl{color:var(--ink2)}
+    .pos-line .val{font-weight:700;color:var(--ink);font-variant-numeric:tabular-nums}
+    .pos-cmt,.pos-acts{margin-left:0}
+    .pos-acts{margin-top:10px}
+    .pa{font-size:12px;padding:6px 11px}
+    .pos-sum{flex-direction:column;align-items:flex-start;gap:5px;padding:15px 16px}
+    .pos-sum b{font-size:26px}
+    .opt-legend{gap:9px 16px}
+    .stamp{flex-wrap:nowrap}
+    .release-btn,.ld-btn{font-size:14px;padding:17px 14px}
+  }
+
+  /* ---- Reduced Motion: alle Animationen aus, Endzustand ---- */
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    .reveal,.step{opacity:1;transform:none;transition:none}
+    .stamp{opacity:1;animation:none}
+    .release-btn{animation:none}
+  }
+
+  /* ---- Druck (A4): Animationen aus, Endzustand ---- */
+  @media print{
+    .reveal,.step{opacity:1!important;transform:none!important;transition:none!important}
+    .stamp{opacity:1!important;animation:none!important}
+    .release-btn{animation:none!important}
+    body{background:#fff}
+    .page{max-width:100%;padding:0}
+    .hero,.fazit{box-shadow:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .card,.safe,.stamp,.pos-sum,.doc-head,.card-cap,.step-dot,.fz-n,
+    .login-demo,.ld-btn,.release-btn{
+      -webkit-print-color-adjust:exact;print-color-adjust:exact}
+    section{break-inside:avoid;margin-bottom:26px}
+    .card,.fazit,.safe{break-inside:avoid}
+    .hero{border-radius:0}
+    .doc-foot{margin-top:20px}
+    a{color:inherit;text-decoration:none}
+  }
+</style>
+</head>
+<body>
+
+<div class="page">
+
+  <!-- ===== KOPF ===== -->
+  <header class="hero">
+    <span class="hero-eyebrow">Rund um's Haus Leuschner e.K. · Stundenzettel-App</span>
+    <div class="wordmark">
+      <span class="wm-dot"></span>
+      <span class="wm-txt">Der <i>Cheff</i>-Flow</span>
+    </div>
+    <h1>Der <span class="hl">Cheff-Flow</span>:<br>Angebote freigeben in der App.</h1>
+    <p class="hero-lead">
+      Moin. Alle Angebote laufen jetzt geordnet in der App, von der Anfrage bis zur
+      Rechnung. Du siehst jederzeit, wo jedes Angebot steht. Bevor ein Angebot zum
+      Kunden geht, gibst du es frei. So geht nichts Ungeprüftes raus, und jeder
+      Schritt bleibt nachvollziehbar. Das ist der Cheff-Flow.
+    </p>
+    <div class="hero-für">
+      <div>Für <b>den Chef</b></div>
+      <div>Lesezeit <b>3 Minuten</b></div>
+      <div>Dein Aufwand <b>wenige Klicks</b></div>
+      <div>Stand <b>19.05.2026</b></div>
+    </div>
+  </header>
+
+  <!-- ===== 1 · WEG EINES ANGEBOTS ===== -->
+  <section class="reveal">
+    <span class="s-num">01</span>
+    <h2 class="s-h">Der Weg eines Angebots</h2>
+    <p class="s-intro">
+      Jedes Angebot durchläuft sechs feste Stufen. So sehen alle im Betrieb auf einen
+      Blick, was als Nächstes dran ist.
+    </p>
+
+    <div class="card">
+      <div class="card-cap">So läuft jeder Vorgang durch die App</div>
+      <div class="card-pad">
+        <div class="flow">
+
+          <div class="step">
+            <div class="step-rail">
+              <div class="step-dot" style="background:#6A6E72">1</div>
+              <div class="step-line"></div>
+            </div>
+            <div class="step-body">
+              <div class="step-name">Anfrage
+                <span class="step-tag" style="background:#6A6E72">Schritt 1</span></div>
+              <p class="step-txt">Ein Kunde fragt eine Leistung an, der Vorgang wird in der App angelegt.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-rail">
+              <div class="step-dot" style="background:#DC6E2D">2</div>
+              <div class="step-line"></div>
+            </div>
+            <div class="step-body">
+              <div class="step-name">Angebot
+                <span class="step-tag" style="background:#DC6E2D">Schritt 2</span></div>
+              <p class="step-txt">Das Angebot wird mit allen Positionen und Preisen kalkuliert.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-rail">
+              <div class="step-dot" style="background:#C9852F">3</div>
+              <div class="step-line"></div>
+            </div>
+            <div class="step-body">
+              <div class="step-name">Versendet
+                <span class="step-tag" style="background:#C9852F">Schritt 3</span></div>
+              <p class="step-txt">Das Angebot ist beim Kunden. Hat er nach 7 Tagen nicht reagiert, erinnert die App ans Nachfassen.</p>
+              <p class="step-note">Erst nach deiner Freigabe (siehe Punkt 03)</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-rail">
+              <div class="step-dot" style="background:#E8853F">4</div>
+              <div class="step-line"></div>
+            </div>
+            <div class="step-body">
+              <div class="step-name">Auftrag
+                <span class="step-tag" style="background:#E8853F">Schritt 4</span></div>
+              <p class="step-txt">Der Kunde sagt zu. Die App legt die Baustelle automatisch an.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-rail">
+              <div class="step-dot" style="background:#8C6E45">5</div>
+              <div class="step-line"></div>
+            </div>
+            <div class="step-body">
+              <div class="step-name">In Arbeit
+                <span class="step-tag" style="background:#8C6E45">Schritt 5</span></div>
+              <p class="step-txt">Die Arbeiten laufen, die Stunden werden auf die Baustelle gebucht.</p>
+            </div>
+          </div>
+
+          <div class="step">
+            <div class="step-rail">
+              <div class="step-dot" style="background:#1F7A3D">6</div>
+              <div class="step-line"></div>
+            </div>
+            <div class="step-body">
+              <div class="step-name">Abgerechnet
+                <span class="step-tag" style="background:#1F7A3D">Schritt 6</span></div>
+              <p class="step-txt">Die Rechnung ist geschrieben und bezahlt, der Vorgang ist erledigt.</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div class="fyi">
+      <div class="fyi-h">Was heißt das für dich?</div>
+      <p>Du musst dir keine Stufen merken. Wichtig ist nur: Zwischen „Angebot" und
+      „Versendet" liegt deine Freigabe. Den Rest macht das Büro.</p>
+    </div>
+  </section>
+
+  <!-- ===== 2 · LOGIN ===== -->
+  <section class="reveal">
+    <span class="s-num">02</span>
+    <h2 class="s-h">Dein Login, ganz einfach</h2>
+    <p class="s-intro">
+      Du bekommst einen eigenen Zugang. Ohne Passwort, das du dir merken müsstest.
+    </p>
+
+    <div class="card">
+      <div class="card-cap">So meldest du dich an</div>
+      <div class="card-pad">
+
+        <div class="login-demo">
+          <div class="ld-brand">Rund um's Haus Leuschner</div>
+          <div class="ld-sub">Büro-Anmeldung</div>
+          <div class="ld-label">Deine E-Mail-Adresse</div>
+          <div class="ld-input">chef@leuschner-galabau.de<span class="cursor"> |</span></div>
+          <div class="ld-btn">Anmelde-Link per E-Mail anfordern</div>
+          <p class="ld-hint">Du bekommst sofort eine E-Mail. Den Link darin einmal
+          antippen, fertig. Kein Passwort nötig.</p>
+        </div>
+
+        <div class="login-steps">
+          <div class="ls">
+            <div class="ls-n">1.</div>
+            <div class="ls-t">Auf der Büro-Seite deine E-Mail eingeben.</div>
+          </div>
+          <div class="ls">
+            <div class="ls-n">2.</div>
+            <div class="ls-t">„Anmelde-Link per E-Mail" antippen.</div>
+          </div>
+          <div class="ls">
+            <div class="ls-n">3.</div>
+            <div class="ls-t">Den Link aus der E-Mail einmal antippen, du bist drin.</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="fyi">
+      <div class="fyi-h">Was heißt das für dich?</div>
+      <p>Kein Passwort zum Merken oder Verlegen. Du tippst auf den Link in deiner
+      E-Mail und bist angemeldet, am Handy genauso wie am Computer.</p>
+    </div>
+  </section>
+
+  <!-- ===== 3 · FREIGABE (KERN) ===== -->
+  <section class="reveal">
+    <span class="s-num">03</span>
+    <h2 class="s-h">So gibst du ein Angebot frei</h2>
+    <p class="s-intro">
+      Das ist dein eigentlicher Teil. Du öffnest ein Angebot und siehst den kompletten
+      Beleg mit allen Positionen, Mengen, Preisen und der Netto-Gesamtsumme. Genau so,
+      wie der Kunde es bekommen würde.
+    </p>
+
+    <div class="card">
+      <div class="doc-head">
+        <span class="dh-nr">AN-1253</span>
+        <div class="dh-name">Josef Borgmann</div>
+        <div class="dh-meta">
+          <div>Tunxdorferstraße 46, 26871 Papenburg</div>
+          <div>Stufe <b>Angebot</b></div>
+          <div>USt <b>0 %</b></div>
+        </div>
+      </div>
+      <div class="card-pad">
+
+        <div class="pos-wrap">
+          <table class="pos">
+            <thead>
+              <tr><th>#</th><th>Position</th><th>Menge</th><th>EP&nbsp;€</th><th>Summe&nbsp;€</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="pn">1</td>
+                <td class="pt">
+                  <span class="pos-dot"><span class="dot" style="background:#1F7A3D"></span>
+                  <span>Doppelstabmatte Schwer 183&times;250&nbsp;cm anthrazit</span></span>
+                  <div class="pos-acts">
+                    <span class="pa on-ok">&#10003; OK</span>
+                    <span class="pa">Kommentar</span>
+                    <span class="pa">Änderung</span>
+                  </div>
+                  <div class="pos-line">
+                    <span class="lbl">Menge 13 &middot; EP 65,00&nbsp;&euro;</span>
+                    <span class="val">845,00&nbsp;&euro;</span>
+                  </div>
+                </td>
+                <td class="pm">13</td><td class="pe">65,00</td><td class="ps">845,00</td>
+              </tr>
+              <tr>
+                <td class="pn">2</td>
+                <td class="pt">
+                  <span class="pos-dot"><span class="dot" style="background:#DC6E2D"></span>
+                  <span>Doppelstabmatte Schwer 163&times;250&nbsp;cm anthrazit</span></span>
+                  <div class="pos-cmt">„Preis prüfen, Hesse hatte zuletzt günstiger angeboten."</div>
+                  <div class="pos-acts">
+                    <span class="pa">OK</span>
+                    <span class="pa on-cmt">&#128172; Kommentar</span>
+                    <span class="pa">Änderung</span>
+                  </div>
+                  <div class="pos-line">
+                    <span class="lbl">Menge 36 &middot; EP 61,58&nbsp;&euro;</span>
+                    <span class="val">2.216,88&nbsp;&euro;</span>
+                  </div>
+                </td>
+                <td class="pm">36</td><td class="pe">61,58</td><td class="ps">2.216,88</td>
+              </tr>
+              <tr>
+                <td class="pn">3</td>
+                <td class="pt">
+                  <span class="pos-dot"><span class="dot" style="background:#A9AEB3"></span>
+                  <span>Pfosten 60&times;40&times;2400&nbsp;mm anthrazit</span></span>
+                  <div class="pos-line">
+                    <span class="lbl">Menge 14 &middot; EP 23,15&nbsp;&euro;</span>
+                    <span class="val">324,10&nbsp;&euro;</span>
+                  </div>
+                </td>
+                <td class="pm">14</td><td class="pe">23,15</td><td class="ps">324,10</td>
+              </tr>
+              <tr>
+                <td class="pn">4</td>
+                <td class="pt">
+                  <span class="pos-dot"><span class="dot" style="background:#A9AEB3"></span>
+                  <span>Zaunfundamente herstellen (Festpreis je Pfosten)</span></span>
+                  <div class="pos-line">
+                    <span class="lbl">Menge 56 &middot; EP 40,00&nbsp;&euro;</span>
+                    <span class="val">2.240,00&nbsp;&euro;</span>
+                  </div>
+                </td>
+                <td class="pm">56</td><td class="pe">40,00</td><td class="ps">2.240,00</td>
+              </tr>
+              <tr>
+                <td class="pn">5</td>
+                <td class="pt">
+                  <span class="pos-dot"><span class="dot" style="background:#A9AEB3"></span>
+                  <span>Doppelstabmattenzaun aufbauen</span></span>
+                  <div class="pos-line">
+                    <span class="lbl">Menge 28&nbsp;Std &middot; EP 60,00&nbsp;&euro;</span>
+                    <span class="val">1.680,00&nbsp;&euro;</span>
+                  </div>
+                </td>
+                <td class="pm">28&nbsp;Std</td><td class="pe">60,00</td><td class="ps">1.680,00</td>
+              </tr>
+              <tr>
+                <td class="pn">6</td>
+                <td class="pt">
+                  <span class="pos-dot"><span class="dot" style="background:#A9AEB3"></span>
+                  <span>Drehflügeltor 1,50&times;1,20&nbsp;m anthrazit</span></span>
+                  <div class="pos-line">
+                    <span class="lbl">Menge 1 &middot; EP 528,36&nbsp;&euro;</span>
+                    <span class="val">528,36&nbsp;&euro;</span>
+                  </div>
+                </td>
+                <td class="pm">1</td><td class="pe">528,36</td><td class="ps">528,36</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pos-sum">
+          <span>Netto-Gesamt&nbsp;&middot;&nbsp;0&nbsp;% USt</span>
+          <b>10.885,08&nbsp;&euro;</b>
+        </div>
+
+        <div class="opt-legend">
+          <div class="ol"><span class="d" style="background:#1F7A3D"></span><span><b>Grün:</b> Position ist OK</span></div>
+          <div class="ol"><span class="d" style="background:#DC6E2D"></span><span><b>Kupfer:</b> du hast kommentiert</span></div>
+          <div class="ol"><span class="d" style="background:#B91C1C"></span><span><b>Rot:</b> Änderung angefordert</span></div>
+          <div class="ol"><span class="d" style="background:#A9AEB3"></span><span><b>Grau:</b> noch nicht angesehen</span></div>
+        </div>
+
+        <div class="release-h">Was du tun kannst</div>
+        <p class="s-intro" style="margin-top:0">
+          Pro Position kannst du <b>OK</b> geben (grün), einen <b>Kommentar</b>
+          hinterlassen (z.&nbsp;B. „Preis prüfen") oder eine <b>Änderung</b> anfordern
+          (rot). Oder du machst es in einem Rutsch:
+        </p>
+
+        <div class="release-btn">&#10003;&nbsp;&nbsp;Alles freigeben</div>
+
+        <p class="s-intro" style="margin:14px 0 0">
+          Mit „Alles freigeben" setzt die App einen Stempel mit deinem Namen und der
+          genauen Uhrzeit:
+        </p>
+
+        <div class="stamp" style="margin-top:13px">
+          <div class="stamp-badge">&#10003;</div>
+          <div class="stamp-txt">
+            <b>Freigegeben</b>
+            <span>durch Chef Leuschner am 19.05.2026, 14:30 Uhr</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="fyi">
+      <div class="fyi-h">Was heißt das für dich?</div>
+      <p>Du behältst die letzte Kontrolle über jeden Preis, ohne selbst rechnen zu
+      müssen. Ein Klick auf „Alles freigeben" reicht. Wenn du irgendwo unsicher bist,
+      hinterlässt du einfach einen Kommentar, das Büro sieht ihn sofort.</p>
+    </div>
+  </section>
+
+  <!-- ===== 4 · SICHERHEIT ===== -->
+  <section class="reveal">
+    <span class="s-num">04</span>
+    <h2 class="s-h">Nichts geht ungeprüft raus</h2>
+    <p class="s-intro">
+      Zwei Dinge sorgen dafür, dass du dich darauf verlassen kannst.
+    </p>
+
+    <div class="safe-grid">
+      <div class="safe warn">
+        <div class="safe-ic">&#9888;</div>
+        <div class="safe-h">Warnung vor dem Versand</div>
+        <p class="safe-p">
+          Solange du ein Angebot nicht freigegeben hast, warnt die App ausdrücklich,
+          bevor es zum Kunden geht. Niemand kann ein ungeprüftes Angebot aus Versehen
+          rausschicken.
+        </p>
+      </div>
+      <div class="safe log">
+        <div class="safe-ic">&#128203;</div>
+        <div class="safe-h">Lückenloser Verlauf</div>
+        <p class="safe-p">
+          Jede Freigabe und jeder Kommentar wird mit Name und Uhrzeit festgehalten.
+          Du kannst jederzeit nachsehen, wer wann was entschieden hat.
+        </p>
+        <div class="log-list">
+          <div class="li">
+            <span class="log-act">Alles freigegeben</span>
+            <span class="log-by">Chef Leuschner &middot; 19.05. 14:30</span>
+          </div>
+          <div class="li">
+            <span class="log-act">Position 2 kommentiert</span>
+            <span class="log-by">Chef Leuschner &middot; 19.05. 14:28</span>
+          </div>
+          <div class="li">
+            <span class="log-act">Position 1 als OK markiert</span>
+            <span class="log-by">Chef Leuschner &middot; 19.05. 14:27</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="fyi">
+      <div class="fyi-h">Was heißt das für dich?</div>
+      <p>Du hast die Sicherheit, dass kein Angebot ohne dein Okay beim Kunden landet,
+      und du kannst später jederzeit belegen, was wann freigegeben wurde.</p>
+    </div>
+  </section>
+
+  <!-- ===== 5 · FAZIT ===== -->
+  <section class="reveal">
+    <span class="s-num">05</span>
+    <h2 class="s-h">Der Cheff-Flow in drei Schritten</h2>
+
+    <div class="fazit">
+      <div class="fazit-h">Mehr musst du nicht tun</div>
+      <p class="fazit-sub">Dein kompletter Teil als Chef, auf das Wesentliche gebracht.</p>
+
+      <div class="fazit-grid">
+        <div class="fz">
+          <div class="fz-n">1</div>
+          <div class="fz-t">Den Link aus der E-Mail antippen.</div>
+        </div>
+        <div class="fz">
+          <div class="fz-n">2</div>
+          <div class="fz-t">Das Angebot ansehen.</div>
+        </div>
+        <div class="fz">
+          <div class="fz-n">3</div>
+          <div class="fz-t">Position-OK geben oder „Alles freigeben".</div>
+        </div>
+      </div>
+
+      <p class="fazit-end">
+        Den Rest, kalkulieren, versenden, nachfassen, abrechnen, erledigt das Büro
+        über die App.
+      </p>
+    </div>
+  </section>
+
+  <div class="doc-foot">
+    Rund um's Haus Leuschner e.K. &middot; Der Cheff-Flow &middot;
+    Angebote &amp; Freigabe &middot; Stand 19.05.2026<br>
+    Erklärung für den Inhaber &middot; bereits in Betrieb
+  </div>
+
+</div>
+
+<script>
+(function(){
+  var reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion:reduce)").matches;
+  if(reduce||!("IntersectionObserver"in window)){
+    document.querySelectorAll(".reveal").forEach(function(el){el.classList.add("in")});
+    document.querySelectorAll(".flow").forEach(function(el){el.classList.add("in")});
+    document.querySelectorAll(".stamp").forEach(function(el){el.classList.add("in")});
+    return;
+  }
+  var io=new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){ e.target.classList.add("in"); io.unobserve(e.target); }
+    });
+  },{threshold:.16,rootMargin:"0px 0px -8% 0px"});
+  document.querySelectorAll(".reveal, .flow, .stamp").forEach(function(el){io.observe(el)});
+})();
+</script>
+
+</body>
+</html>
