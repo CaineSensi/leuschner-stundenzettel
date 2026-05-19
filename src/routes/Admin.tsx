@@ -117,7 +117,7 @@ export default function Admin() {
       <div className="lg:flex">
         <aside className="hidden lg:flex flex-col w-64 bg-bg-2 border-r border-ink/10 px-5 py-6 sticky top-0 h-screen">
           <Logo />
-          <p className="h-mono text-paper/45 text-[11px] mt-1.5">{adminLabel}</p>
+          <p className="h-mono text-ink-mute text-[11px] mt-1.5">{adminLabel}</p>
 
           <nav className="mt-10 flex flex-col gap-1 text-[12px]">
             <NavItem icon="▦" label="Übersicht" active />
@@ -130,7 +130,7 @@ export default function Admin() {
             <NavItem icon="↗" label="DATEV-Export" disabled />
           </nav>
 
-          <button onClick={handleLogout} className="mt-auto h-mono text-paper/40 text-[12px] text-left hover:text-copper">
+          <button onClick={handleLogout} className="mt-auto h-mono text-ink-mute text-[12px] text-left hover:text-copper">
             ← Abmelden
           </button>
         </aside>
@@ -139,9 +139,9 @@ export default function Admin() {
           <header className="lg:hidden mb-6 flex items-center justify-between">
             <div>
               <Logo />
-              <p className="h-mono text-paper/45 text-[11px] mt-1">{adminLabel}</p>
+              <p className="h-mono text-ink-mute text-[11px] mt-1">{adminLabel}</p>
             </div>
-            <button onClick={handleLogout} className="h-mono text-paper/40 text-[12px]">
+            <button onClick={handleLogout} className="h-mono text-ink-mute text-[12px]">
               Abmelden
             </button>
           </header>
@@ -150,7 +150,7 @@ export default function Admin() {
             <div>
               <p className="h-mono text-copper">
                 KW {week} / {year} · Mitarbeiter
-                {todayInWeek && <span className="text-paper/45"> · Heute {fmtDateLong(today)}</span>}
+                {todayInWeek && <span className="text-ink-mute"> · Heute {fmtDateLong(today)}</span>}
               </p>
               <h1 className="h-display text-3xl lg:text-4xl mt-1">
                 {new Date(days[0]).toLocaleDateString("de-DE", { day: "2-digit", month: "long" })}
@@ -158,7 +158,7 @@ export default function Admin() {
                 {new Date(days[days.length - 1]).toLocaleDateString("de-DE", { day: "2-digit", month: "long" })}
               </h1>
               {!loading && (
-                <p className={`h-mono text-[11px] mt-1.5 ${isBackendConnected() ? "text-good" : "text-paper/40"}`}>
+                <p className={`h-mono text-[11px] mt-1.5 ${isBackendConnected() ? "text-good" : "text-ink-mute"}`}>
                   {isBackendConnected()
                     ? `● Live · ${team.length} Mitarbeiter · ${allEntries.length} Einträge aus Frankfurt`
                     : "○ Mock-Modus"}
@@ -183,7 +183,7 @@ export default function Admin() {
             <div className="mb-5 bg-rust/15 border border-rust/40 rounded-xl p-4">
               <div className="h-mono text-rust text-[12px]">Fehler beim Laden</div>
               <p className="text-sm text-paper mt-1">{loadError}</p>
-              <p className="h-mono text-paper/55 text-[11px] mt-2">
+              <p className="h-mono text-ink-2 text-[11px] mt-2">
                 Öffne Browser-Console (F12) für Details.
               </p>
             </div>
@@ -196,7 +196,7 @@ export default function Admin() {
               <p className="text-sm text-paper mt-1">
                 Keine Mitarbeiter aus der DB geladen. Mögliche Ursachen:
               </p>
-              <ul className="text-[12px] text-paper/70 mt-2 list-disc list-inside space-y-1">
+              <ul className="text-[12px] text-ink-body mt-2 list-disc list-inside space-y-1">
                 <li>RLS blockiert Zugriff (Demo-Policies nicht aktiv?)</li>
                 <li>Alle Workers sind als Admin markiert</li>
                 <li>Workers-Tabelle ist leer</li>
@@ -216,7 +216,7 @@ export default function Admin() {
               <div className="flex-1 min-w-0">
                 <div className="h-mono text-copper text-[11px]">Mein Wochenzettel</div>
                 <div className="font-semibold text-sm mt-0.5">{me.firstName} {me.lastName}</div>
-                <div className="h-mono text-paper/55 text-[11px] mt-0.5">
+                <div className="h-mono text-ink-2 text-[11px] mt-0.5">
                   Eigene Stunden eintragen, wie ein Mitarbeiter
                 </div>
               </div>
@@ -235,7 +235,7 @@ export default function Admin() {
                   <div className="font-semibold text-sm">
                     {missingToday.length} {missingToday.length === 1 ? "Mitarbeiter" : "Mitarbeiter"} ohne Eintrag heute
                   </div>
-                  <div className="h-mono text-paper/65 text-[12px] mt-0.5">
+                  <div className="h-mono text-ink-2 text-[12px] mt-0.5">
                     {missingToday.map((w) => `${w.firstName} ${w.lastName.charAt(0)}.`).join(" · ")}
                   </div>
                 </div>
@@ -311,7 +311,7 @@ export default function Admin() {
                 <span className="text-2xl">＋</span>
                 <div className="flex-1">
                   <div className="font-semibold text-sm">Mitarbeiter einladen</div>
-                  <div className="h-mono text-paper/55 text-[11px] mt-0.5">Code per WhatsApp senden · 24 h gültig</div>
+                  <div className="h-mono text-ink-2 text-[11px] mt-0.5">Code per WhatsApp senden · 24 h gültig</div>
                 </div>
                 <span className="text-copper text-xl">→</span>
               </button>
@@ -321,8 +321,8 @@ export default function Admin() {
               <h2 className="h-mono text-copper mb-3">Letzte Einträge · KW {week}</h2>
               {liveFeed.length === 0 ? (
                 <div className="bg-bg-2 border border-ink/10 rounded-xl px-4 py-6 text-center">
-                  <div className="h-mono text-paper/55 text-[11px]">Noch keine Einträge</div>
-                  <div className="text-[12px] text-paper/65 mt-1">Sobald jemand Stunden speichert, taucht hier eine Live-Meldung auf.</div>
+                  <div className="h-mono text-ink-2 text-[11px]">Noch keine Einträge</div>
+                  <div className="text-[12px] text-ink-2 mt-1">Sobald jemand Stunden speichert, taucht hier eine Live-Meldung auf.</div>
                 </div>
               ) : (
                 <ul className="space-y-2">
@@ -379,7 +379,7 @@ function WorkersModal({
       >
         <div className="flex items-baseline justify-between mb-4">
           <span className="h-mono text-copper text-[12px]">Mitarbeiter · {workers.length}</span>
-          <button onClick={onClose} className="h-mono text-paper/55 text-[12px]">Schließen</button>
+          <button onClick={onClose} className="h-mono text-ink-2 text-[12px]">Schließen</button>
         </div>
 
         <h2 className="h-display text-2xl mb-5">Stamm-Daten</h2>
@@ -390,7 +390,7 @@ function WorkersModal({
           ))}
         </ul>
 
-        <p className="h-mono text-paper/45 text-[11px] mt-5 text-center leading-relaxed">
+        <p className="h-mono text-ink-mute text-[11px] mt-5 text-center leading-relaxed">
           Telefonnummer wird für den WhatsApp-Code-Versand verwendet.<br />
           Verknüpft = Mitarbeiter hat Code eingelöst und ist auf einem Gerät angemeldet.
         </p>
@@ -460,9 +460,9 @@ function WorkerRow({
             {worker.isAdmin && <span className="h-mono text-copper text-[10px]">ADMIN</span>}
             {worker.linked
               ? <span className="h-mono text-good text-[10px]">● VERKNÜPFT</span>
-              : !worker.isAdmin && <span className="h-mono text-paper/45 text-[10px]">○ OFFEN</span>}
+              : !worker.isAdmin && <span className="h-mono text-ink-mute text-[10px]">○ OFFEN</span>}
           </div>
-          <div className="h-mono text-paper/55 text-[11px] mt-0.5">{worker.role}</div>
+          <div className="h-mono text-ink-2 text-[11px] mt-0.5">{worker.role}</div>
         </div>
         {!worker.isAdmin && !worker.linked && (
           <button
@@ -506,15 +506,15 @@ function WorkerRow({
               </button>
               <button
                 onClick={() => { setPhone(worker.phone ?? ""); setEditing(false); setError(null); }}
-                className="h-mono text-[10px] text-paper/55 px-2 py-1"
+                className="h-mono text-[10px] text-ink-2 px-2 py-1"
               >
                 ✕
               </button>
             </>
           ) : (
             <>
-              <span className="flex-1 text-[13px] font-mono text-paper/85">
-                {worker.phone || <span className="text-paper/40 italic">nicht hinterlegt</span>}
+              <span className="flex-1 text-[13px] font-mono text-ink-body">
+                {worker.phone || <span className="text-ink-mute italic">nicht hinterlegt</span>}
               </span>
               <button
                 onClick={() => setEditing(true)}
@@ -622,15 +622,15 @@ function InviteModal({
       >
         <div className="flex items-baseline justify-between mb-4">
           <span className="h-mono text-copper text-[12px]">Mitarbeiter einladen</span>
-          <button onClick={onClose} className="h-mono text-paper/55 text-[12px]">Schließen</button>
+          <button onClick={onClose} className="h-mono text-ink-2 text-[12px]">Schließen</button>
         </div>
 
         <h2 className="h-display text-2xl mb-4">Wer wird eingeladen?</h2>
 
         {team.length === 0 ? (
           <div className="bg-bg-3 rounded-xl p-5 text-center">
-            <p className="h-mono text-paper/55 text-[12px]">Mitarbeiter wird geladen …</p>
-            <p className="text-sm text-paper/65 mt-2">Falls die Liste leer bleibt, ist die DB-Verbindung nicht aktiv.</p>
+            <p className="h-mono text-ink-2 text-[12px]">Mitarbeiter wird geladen …</p>
+            <p className="text-sm text-ink-2 mt-2">Falls die Liste leer bleibt, ist die DB-Verbindung nicht aktiv.</p>
           </div>
         ) : (
           <div className="space-y-1.5 mb-5 max-h-48 overflow-y-auto">
@@ -649,7 +649,7 @@ function InviteModal({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="font-semibold text-sm">{w.firstName} {w.lastName}</div>
-                  <div className="h-mono text-paper/55 text-[11px]">{w.role}</div>
+                  <div className="h-mono text-ink-2 text-[11px]">{w.role}</div>
                 </div>
               </button>
             ))}
@@ -675,13 +675,13 @@ function InviteModal({
                   className="mx-auto w-64 h-64 rounded-lg"
                 />
               ) : (
-                <div className="w-64 h-64 mx-auto bg-bg-2 rounded-lg flex items-center justify-center text-paper/55 text-[12px]">
+                <div className="w-64 h-64 mx-auto bg-bg-2 rounded-lg flex items-center justify-center text-ink-2 text-[12px]">
                   QR wird erzeugt …
                 </div>
               )}
-              <div className="h-mono text-paper/65 text-[11px] mt-3">oder Code manuell eingeben</div>
+              <div className="h-mono text-ink-2 text-[11px] mt-3">oder Code manuell eingeben</div>
               <div className="font-mono font-bold text-2xl tracking-widest mt-1.5">{code}</div>
-              <div className="h-mono text-paper/45 text-[11px] mt-2">24 Stunden gültig</div>
+              <div className="h-mono text-ink-mute text-[11px] mt-2">24 Stunden gültig</div>
             </div>
 
             <div className="grid grid-cols-2 gap-2">
@@ -747,14 +747,14 @@ function NavItem({
     active
       ? "bg-copper/15 text-copper"
       : disabled
-        ? "text-paper/30 cursor-not-allowed"
-        : "text-paper/65 hover:bg-ink/5 hover:text-paper"
+        ? "text-ink-mute cursor-not-allowed"
+        : "text-ink-2 hover:bg-ink/5 hover:text-paper"
   }`;
   const content = (
     <>
       <span className="w-4 text-center">{icon}</span>
       <span>{label}</span>
-      {disabled && <span className="ml-auto h-mono text-[9px] text-paper/30">bald</span>}
+      {disabled && <span className="ml-auto h-mono text-[9px] text-ink-mute">bald</span>}
     </>
   );
   if (to && !disabled) {
@@ -784,7 +784,7 @@ function Stat({
     <div className={`bg-bg-2 rounded-xl border-l-[3px] ${border} px-4 py-4 lg:px-5`}>
       <div className="h-mono text-copper text-[11px]">{kicker}</div>
       <div className="h-display text-3xl lg:text-4xl mt-1">{value}</div>
-      {sub && <div className="text-[11px] text-paper/55 mt-1">{sub}</div>}
+      {sub && <div className="text-[11px] text-ink-2 mt-1">{sub}</div>}
     </div>
   );
 }
@@ -800,7 +800,7 @@ function FilterChip({
     <button
       onClick={onClick}
       className={`h-mono px-2.5 py-1 rounded-md transition-colors ${
-        active ? "bg-copper text-bg-deep font-bold" : "text-paper/55 hover:text-paper"
+        active ? "bg-copper text-bg-deep font-bold" : "text-ink-2 hover:text-paper"
       }`}
     >
       {children}
@@ -833,7 +833,7 @@ function TeamRow({
       </div>
       <div className="min-w-0">
         <div className="font-semibold text-sm">{worker.firstName} {worker.lastName}</div>
-        <div className="h-mono text-paper/55 text-[11px] mt-0.5">
+        <div className="h-mono text-ink-2 text-[11px] mt-0.5">
           {todayEntry
             ? <span className="text-rust">{ABSENCE_LABEL[todayEntry.type].label}</span>
             : site
@@ -849,7 +849,7 @@ function TeamRow({
       </div>
       <div className="text-right">
         <div className="h-display text-2xl">{fmtHours(summary.minutes)}</div>
-        <div className="h-mono text-paper/40 text-[11px]">Std.</div>
+        <div className="h-mono text-ink-mute text-[11px]">Std.</div>
       </div>
       <div className="flex flex-col items-end gap-1">
         <span className={`h-mono text-[11px] px-2 py-1 rounded-md font-bold ${
@@ -885,10 +885,10 @@ function EntryFeedRow({ entry, worker }: { entry: Entry; worker?: Worker }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline justify-between gap-2">
             <span className="font-semibold text-[13px]">{worker.firstName} {worker.lastName.charAt(0)}.</span>
-            <span className="h-mono text-paper/55 text-[11px] flex-shrink-0">{dateLabel}</span>
+            <span className="h-mono text-ink-2 text-[11px] flex-shrink-0">{dateLabel}</span>
           </div>
           <div className="h-mono text-copper text-[11px] mt-0.5">{entry.discipline} · {fmtHours(Math.max(0, min))} h</div>
-          <div className="text-[12px] text-paper/75 mt-1 leading-snug truncate">
+          <div className="text-[12px] text-ink-body mt-1 leading-snug truncate">
             {site?.name ?? "Baustelle"}
           </div>
         </div>
@@ -903,11 +903,11 @@ function EntryFeedRow({ entry, worker }: { entry: Entry; worker?: Worker }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline justify-between gap-2">
           <span className="font-semibold text-[13px]">{worker.firstName} {worker.lastName.charAt(0)}.</span>
-          <span className="h-mono text-paper/55 text-[11px] flex-shrink-0">{dateLabel}</span>
+          <span className="h-mono text-ink-2 text-[11px] flex-shrink-0">{dateLabel}</span>
         </div>
         <div className={`h-mono text-[11px] mt-0.5 ${meta.fg}`}>{meta.label}</div>
         {entry.note && (
-          <div className="text-[12px] text-paper/75 mt-1 leading-snug truncate">„{entry.note}"</div>
+          <div className="text-[12px] text-ink-body mt-1 leading-snug truncate">„{entry.note}"</div>
         )}
       </div>
     </li>

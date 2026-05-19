@@ -46,7 +46,7 @@ export default function OfflineIndicator() {
     cls = "bg-rust/15 border-rust/40 text-rust";
   } else if (!online) {
     label = "○ Offline · App im Cache";
-    cls = "bg-bg-3 border-ink/15 text-paper/60";
+    cls = "bg-bg-3 border-ink/15 text-ink-2";
   } else if (syncing) {
     label = `↻ Synchronisiere · ${pending} ${pending === 1 ? "Eintrag" : "Einträge"}`;
     cls = "bg-copper/15 border-copper/40 text-copper";

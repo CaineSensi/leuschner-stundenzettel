@@ -22,7 +22,9 @@
 @layer components {
   /* Archivo Black, Blockschrift wie auf einem Baustellenschild */
   .h-display { @apply font-display font-black uppercase tracking-tight; }
-  .h-mono    { @apply font-mono uppercase tracking-wide-x text-xs; }
+  /* Mono-Label: Sperrung deutlich reduziert (0.18em war Lesbarkeits-Killer
+     bei kleinen Versalien), nur noch dezent gespreizt. App-weit. */
+  .h-mono    { @apply font-mono uppercase text-xs; letter-spacing: .06em; }
 
   /* Stahl-orange Schweißnaht-Button mit Stahl-Glanzkante, Handschuh-Target */
   .btn-primary {
@@ -58,6 +60,76 @@
 
   /* Orange Schweißnaht als Trennkante (z. B. unter Karten-Titeln) */
   .seam { box-shadow: inset 0 -2px 0 #DC6E2D; }
+
+  /* ===================================================================
+     Design-System "Stahl & Beton v2" — freigegeben 19.05.2026.
+     Lesbarkeit + Kontrast: Atkinson für Inhalte, solide Tinten statt
+     Opacity, Mono nur für Codes. App-weit wiederverwendbar.
+     =================================================================== */
+
+  /* Premium-Karte mit farbigem Stufen-Linksrand (var(--c) setzen) */
+  .dd-card {
+    @apply font-sans rounded-md text-left w-full;
+    background: linear-gradient(180deg, #FFFFFF, #ECEEF0);
+    border: 1px solid #A9AEB3;
+    border-left: 4px solid var(--c, #A9AEB3);
+    box-shadow: 0 6px 16px -8px rgba(0,0,0,.35);
+    transition: transform .14s ease, box-shadow .14s ease;
+  }
+  .dd-card.is-click { @apply cursor-pointer; }
+  .dd-card.is-click:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 24px -10px rgba(0,0,0,.42);
+  }
+  .dd-card:focus-visible { outline: 3px solid #DC6E2D; outline-offset: 2px; }
+  .dd-card.dd-alert {
+    border-color: #B91C1C;
+    background: linear-gradient(180deg, #FFF6F5, #F3E2E0);
+  }
+
+  /* Status-Chips — solide, hoher Kontrast, nie Opacity-Text */
+  .dd-chip {
+    @apply font-sans text-[12.5px] leading-tight px-2.5 py-1 rounded-full;
+    color: #3A3E42; background: #E4E7EA; border: 1px solid #C4C8CC;
+  }
+  .dd-chip-ok   { color: #155F2E; background: #E2F0E6; border-color: #A9D4B6; }
+  .dd-chip-warn { color: #A21B1B; background: #FBE6E4; border-color: #E6ADA8;
+                  @apply font-bold; }
+
+  /* Eyebrow / Code-Label — hier (und nur hier) Mono erlaubt */
+  .dd-eyebrow {
+    @apply font-mono uppercase text-[11px];
+    letter-spacing: .16em;
+  }
+
+  /* Slide-in Drawer von rechts + Scrim (Detail-Einblick, app-weit) */
+  .dd-scrim {
+    @apply fixed inset-0 z-[60] opacity-0 invisible;
+    background: rgba(15,16,17,.62);
+    backdrop-filter: blur(3px);
+    transition: opacity .28s ease, visibility .28s;
+  }
+  .dd-scrim.on { @apply opacity-100 visible; }
+  .dd-drawer {
+    @apply fixed top-0 right-0 h-full z-[61] flex flex-col;
+    width: min(560px, 100%);
+    background: linear-gradient(180deg, #EEF0F2, #E2E4E7);
+    box-shadow: -22px 0 60px -20px rgba(0,0,0,.55);
+    transform: translateX(102%);
+    transition: transform .32s cubic-bezier(.22,1,.36,1);
+  }
+  .dd-drawer.on { transform: translateX(0); }
+
+  /* Dezente Scrollbar für Board-Spalten / Drawer */
+  .board-scroll { scrollbar-width: thin; scrollbar-color: rgba(107,111,114,.45) transparent; }
+  .board-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+  .board-scroll::-webkit-scrollbar-thumb {
+    background: rgba(107,111,114,.45); border-radius: 4px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dd-card, .dd-drawer, .dd-scrim { transition: none !important; }
 }
 
 /* Grain disabled — Sonnen-Lesbarkeit hat Vorrang vor Textur */

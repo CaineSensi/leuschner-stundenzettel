@@ -354,12 +354,12 @@ function TypePicker({ date, onPick }: { date: string; onPick: (t: EntryType) => 
   return (
     <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
       <header className="pt-3 flex items-center justify-between">
-        <Link to="/" className="h-mono text-paper/55 text-[12px]">← Zurück</Link>
+        <Link to="/" className="h-mono text-ink-2 text-[12px]">← Zurück</Link>
         <span className="h-mono text-copper text-[11px]">{isToday ? "Heute" : "Nachtrag"}</span>
       </header>
 
       <h1 className="h-display text-3xl mt-6">Was war {isToday ? "heute" : "an diesem Tag"}?</h1>
-      <p className="h-mono text-paper/55 text-[12px] mt-1.5">{dateLabel}</p>
+      <p className="h-mono text-ink-2 text-[12px] mt-1.5">{dateLabel}</p>
 
       <div className="grid grid-cols-2 gap-3 mt-8 flex-1 content-start">
         {TYPE_OPTIONS.map((opt) => (
@@ -379,7 +379,7 @@ function TypePicker({ date, onPick }: { date: string; onPick: (t: EntryType) => 
             <span className="text-4xl">{opt.emoji}</span>
             <div className="text-center">
               <div className="h-display text-xl">{opt.label}</div>
-              <div className="h-mono text-paper/55 text-[12px] mt-1 px-2">{opt.sub}</div>
+              <div className="h-mono text-ink-2 text-[12px] mt-1 px-2">{opt.sub}</div>
             </div>
           </button>
         ))}
@@ -398,19 +398,19 @@ function NoWorkScreen({ date, onBack }: { date: string; onBack: () => void }) {
   return (
     <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
       <header className="pt-3 flex items-center justify-between">
-        <button onClick={onBack} className="h-mono text-paper/55 text-[12px]">← Zurück</button>
+        <button onClick={onBack} className="h-mono text-ink-2 text-[12px]">← Zurück</button>
       </header>
 
       <div className="flex-1 flex flex-col items-center justify-center text-center">
         <div className="text-6xl mb-4">🤔</div>
         <h1 className="h-display text-3xl">Keine Baustelle hinterlegt</h1>
         <p className="mt-2 h-mono text-copper text-[11px]">{dateLabel}</p>
-        <p className="mt-4 text-paper/75 text-sm leading-relaxed max-w-xs">
+        <p className="mt-4 text-ink-body text-sm leading-relaxed max-w-xs">
           {isToday
             ? "Für heute wurde dir vom Büro noch keine Baustelle zugewiesen."
             : "Für diesen Tag wurde dir keine Baustelle zugewiesen, Rick muss das im Wochenplan nachtragen."}
         </p>
-        <p className="mt-4 text-paper/65 text-[13px] leading-relaxed max-w-xs">
+        <p className="mt-4 text-ink-2 text-[13px] leading-relaxed max-w-xs">
           Frag kurz im Büro, sobald die Zuweisung steht, taucht hier die Baustelle automatisch auf.
         </p>
       </div>
@@ -458,14 +458,14 @@ function AbsencePicker({
   return (
     <main className="min-h-screen flex flex-col px-6 safe-top max-w-md mx-auto pb-32">
       <header className="pt-3 flex items-center justify-between">
-        <button onClick={onBack} className="h-mono text-paper/55 text-[12px]">← Zurück</button>
+        <button onClick={onBack} className="h-mono text-ink-2 text-[12px]">← Zurück</button>
       </header>
 
       <div className="mt-6 flex items-center gap-4">
         <div className="text-5xl">{meta.emoji}</div>
         <div>
           <h1 className="h-display text-3xl">{meta.title}</h1>
-          <p className="h-mono text-paper/55 text-[12px] mt-1">{days} {days === 1 ? "Tag" : "Tage"}</p>
+          <p className="h-mono text-ink-2 text-[12px] mt-1">{days} {days === 1 ? "Tag" : "Tage"}</p>
         </div>
       </div>
 
@@ -584,19 +584,19 @@ function ActivityTime({
   return (
     <main className="min-h-screen flex flex-col px-6 safe-top max-w-md mx-auto pb-32">
       <header className="pt-3 flex items-center justify-between">
-        <button onClick={onBack} className="h-mono text-paper/55 text-[12px]">← Zurück</button>
+        <button onClick={onBack} className="h-mono text-ink-2 text-[12px]">← Zurück</button>
         <span className="h-mono text-copper">{isPast ? "Nachtrag" : "Heute · vom Büro geplant"}</span>
       </header>
 
-      <div className="mt-3 h-mono text-paper/65 text-[11px]">{dateLabel}</div>
+      <div className="mt-3 h-mono text-ink-2 text-[11px]">{dateLabel}</div>
 
       <div className="mt-3">
         {site?.projectNumber && (
-          <div className="h-mono text-paper/55 text-[11px]">Auftrag {site.projectNumber}</div>
+          <div className="h-mono text-ink-2 text-[11px]">Auftrag {site.projectNumber}</div>
         )}
         <h1 className="h-display text-2xl mt-1">{site?.name ?? "Baustelle"}</h1>
         {site && (
-          <div className="h-mono text-paper/55 text-[11px] mt-0.5">{site.street} · {site.city}</div>
+          <div className="h-mono text-ink-2 text-[11px] mt-0.5">{site.street} · {site.city}</div>
         )}
         {assignment.note && (
           <div className="mt-2 px-3 py-2 bg-bg-2 border border-copper/30 rounded-lg text-[12px] italic leading-snug">
@@ -644,7 +644,7 @@ function ActivityTime({
 
         <div className="bg-bg-3 rounded-xl px-4 py-3 mt-3 flex items-center justify-between">
           <div>
-            <div className="h-mono text-paper/65 text-[12px]">Pause</div>
+            <div className="h-mono text-ink-2 text-[12px]">Pause</div>
             <div className="font-semibold">{pause} Minuten</div>
           </div>
           <div className="flex items-center gap-1.5">
@@ -696,7 +696,7 @@ function TimeSlider({ value, onChange, label }: { value: number; onChange: (v: n
   const min = 6 * 60, max = 18 * 60, step = 15;
   return (
     <div className="mt-3">
-      <div className="flex justify-between h-mono text-paper/55 text-[11px] mb-1">
+      <div className="flex justify-between h-mono text-ink-2 text-[11px] mb-1">
         <span>{label}</span>
         <span>{fmtTime(value)}</span>
       </div>

@@ -42,8 +42,8 @@ export default function PhotoStrip({
   return (
     <section className="mt-6">
       <div className="h-mono text-copper text-[12px] mb-2 flex items-center justify-between">
-        <span>Fotos {totalCount > 0 && <span className="text-paper/55">· {totalCount}</span>}</span>
-        {busy && <span className="text-paper/55 text-[11px]">lädt hoch …</span>}
+        <span>Fotos {totalCount > 0 && <span className="text-ink-2">· {totalCount}</span>}</span>
+        {busy && <span className="text-ink-2 text-[11px]">lädt hoch …</span>}
       </div>
 
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-6 px-6 snap-x">
@@ -71,7 +71,7 @@ export default function PhotoStrip({
           <label
             className={`flex-shrink-0 w-24 h-24 rounded-xl border-2 border-dashed flex flex-col items-center justify-center gap-1 cursor-pointer active:scale-[0.97] transition-transform snap-start ${
               disabled
-                ? "border-ink/10 text-paper/30 cursor-not-allowed"
+                ? "border-ink/10 text-ink-mute cursor-not-allowed"
                 : "border-copper/40 text-copper hover:bg-copper/5"
             }`}
           >
@@ -90,7 +90,7 @@ export default function PhotoStrip({
       </div>
 
       {totalCount === 0 && !readOnly && (
-        <p className="h-mono text-paper/45 text-[11px] mt-1">
+        <p className="h-mono text-ink-mute text-[11px] mt-1">
           Optional · Wetterschaden, Vorher/Nachher, Material …
         </p>
       )}
@@ -129,7 +129,7 @@ function ExistingThumb({ photo, onTap }: { photo: EntryPhoto; onTap: () => void 
       {url ? (
         <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
       ) : (
-        <div className="w-full h-full flex items-center justify-center text-paper/30 text-xl">⋯</div>
+        <div className="w-full h-full flex items-center justify-center text-ink-mute text-xl">⋯</div>
       )}
     </button>
   );

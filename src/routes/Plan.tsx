@@ -247,7 +247,7 @@ export default function Plan() {
       <header className="sticky top-0 z-30 bg-bg-DEFAULT border-b border-ink/10 px-5 lg:px-10 xl:px-14 pt-4 pb-3 safe-top">
         <button
           onClick={() => navigate("/admin")}
-          className="h-mono text-paper/55 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
+          className="h-mono text-ink-2 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
         >
           <span>←</span>
           <span>Zurück zum Dashboard</span>
@@ -263,7 +263,7 @@ export default function Plan() {
             <div className="flex flex-col">
               <span className="h-mono text-copper text-[11px]">KW {week} / {year}</span>
               <h1 className="h-display text-2xl lg:text-3xl leading-none mt-1">{monthRangeLabel}</h1>
-              <span className="text-[12px] text-paper/55 mt-1">
+              <span className="text-[12px] text-ink-2 mt-1">
                 {weekOffset === 0 ? "Aktuelle Woche" : weekOffset < 0 ? "Vergangene Woche" : "Zukünftige Woche"}
               </span>
             </div>
@@ -284,7 +284,7 @@ export default function Plan() {
             className={`px-5 py-2.5 rounded-xl font-display font-extrabold uppercase tracking-wide text-[13px] transition-colors ${
               draftCount > 0
                 ? "bg-copper text-bg-deep hover:bg-copper-bright"
-                : "bg-bg-3 text-paper/40 cursor-not-allowed"
+                : "bg-bg-3 text-ink-mute cursor-not-allowed"
             } disabled:opacity-60`}
             title={draftCount === 0 ? "Alles bereits an Mitarbeiter übertragen" : "Pläne dieser Woche an die Mitarbeiter übertragen"}
           >
@@ -298,7 +298,7 @@ export default function Plan() {
           </div>
         )}
 
-        <p className="text-[13px] text-paper/65 mt-4 leading-snug max-w-4xl">
+        <p className="text-[13px] text-ink-2 mt-4 leading-snug max-w-4xl">
           Mitarbeiter aus dem Pool unten in eine Baustelle ziehen. Änderungen sind <strong className="text-copper">Entwurf</strong>, bis du auf <strong className="text-copper">„Übertragen"</strong> klickst, erst dann sehen die Mitarbeiter-Handys den Plan.
         </p>
 
@@ -315,7 +315,7 @@ export default function Plan() {
               />
             ))}
             {team.length === 0 && !loading && (
-              <span className="h-mono text-paper/40 text-[11px] italic">keine Mitarbeiter</span>
+              <span className="h-mono text-ink-mute text-[11px] italic">keine Mitarbeiter</span>
             )}
           </div>
         </div>
@@ -330,9 +330,9 @@ export default function Plan() {
       {/* TAGE — Heavy-Duty Stencil Layout, 5 Spalten Mo-Fr */}
       <main className="px-6 lg:px-12 xl:px-16 py-8">
         {loading ? (
-          <div className="text-center py-16 h-mono text-paper/55 text-[12px]">Wird geladen …</div>
+          <div className="text-center py-16 h-mono text-ink-2 text-[12px]">Wird geladen …</div>
         ) : team.length === 0 ? (
-          <div className="text-center py-16 h-mono text-paper/55 text-[12px]">
+          <div className="text-center py-16 h-mono text-ink-2 text-[12px]">
             Keine Mitarbeiter vorhanden
           </div>
         ) : (
@@ -365,7 +365,7 @@ export default function Plan() {
                         {DAY_LONG[dt.getDay()]}
                       </div>
                       {totalAssigned > 0 && (
-                        <div className="h-mono text-paper/55 text-[10px] mt-1.5">
+                        <div className="h-mono text-ink-2 text-[10px] mt-1.5">
                           {totalAssigned} {totalAssigned === 1 ? "Zuweisung" : "Zuweisungen"}
                         </div>
                       )}
@@ -387,7 +387,7 @@ export default function Plan() {
                   {/* ABWESEND-Liste */}
                   {dayAbsences.length > 0 && (
                     <div className="px-4 py-3 bg-bg-3/40 border-b border-ink/10">
-                      <div className="h-mono text-paper/55 text-[10px] tracking-widest mb-2">Abwesend</div>
+                      <div className="h-mono text-ink-2 text-[10px] tracking-widest mb-2">Abwesend</div>
                       <div className="flex flex-wrap gap-1.5">
                         {dayAbsences.map(({ worker, absence }) => {
                           const meta = ABSENCE_META[absence!.type as keyof typeof ABSENCE_META];
@@ -414,7 +414,7 @@ export default function Plan() {
                     {siteIds.length === 0 && dayAbsences.length === 0 && (
                       <button
                         onClick={() => setPicker({ date: iso })}
-                        className="w-full h-full min-h-[180px] rounded-lg border-2 border-dashed border-ink/15 hover:border-copper hover:bg-copper/5 hover:text-copper text-paper/45 h-mono text-[11px] tracking-widest transition-colors flex flex-col items-center justify-center gap-2"
+                        className="w-full h-full min-h-[180px] rounded-lg border-2 border-dashed border-ink/15 hover:border-copper hover:bg-copper/5 hover:text-copper text-ink-mute h-mono text-[11px] tracking-widest transition-colors flex flex-col items-center justify-center gap-2"
                       >
                         <span className="text-3xl">＋</span>
                         <span>Baustelle</span>
@@ -453,7 +453,7 @@ export default function Plan() {
                     {siteIds.length > 0 && (
                       <button
                         onClick={() => setPicker({ date: iso })}
-                        className="w-full rounded-lg border border-dashed border-ink/15 hover:border-copper hover:text-copper text-paper/45 h-mono text-[11px] tracking-widest py-2.5 transition-colors"
+                        className="w-full rounded-lg border border-dashed border-ink/15 hover:border-copper hover:text-copper text-ink-mute h-mono text-[11px] tracking-widest py-2.5 transition-colors"
                       >
                         ＋ Baustelle
                       </button>
@@ -481,7 +481,7 @@ export default function Plan() {
                 <h3 className="h-display text-2xl">Welche Baustelle?</h3>
                 <button
                   onClick={() => { setPicker(null); setPickerSearch(""); }}
-                  className="w-8 h-8 rounded-lg text-paper/70 hover:bg-bg-3 hover:text-paper flex items-center justify-center text-2xl leading-none"
+                  className="w-8 h-8 rounded-lg text-ink-body hover:bg-bg-3 hover:text-paper flex items-center justify-center text-2xl leading-none"
                 >
                   ×
                 </button>
@@ -492,7 +492,7 @@ export default function Plan() {
                 value={pickerSearch}
                 onChange={(e) => setPickerSearch(e.target.value)}
                 placeholder="Suchen: Name, Straße, Ort …"
-                className="w-full mt-3 px-3.5 py-2.5 bg-bg-2 border-2 border-ink/20 rounded-lg text-sm text-paper placeholder:text-paper/50 focus:outline-none focus:border-copper"
+                className="w-full mt-3 px-3.5 py-2.5 bg-bg-2 border-2 border-ink/20 rounded-lg text-sm text-paper placeholder:text-ink-2 focus:outline-none focus:border-copper"
               />
             </div>
             <ul className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5">
@@ -507,7 +507,7 @@ export default function Plan() {
                         <div className="h-mono text-copper text-[10px]">Auftrag {s.projectNumber}</div>
                       )}
                       <div className="font-bold text-[15px] text-paper truncate">{s.name}</div>
-                      <div className="h-mono text-paper/75 text-[11px] mt-0.5 truncate">
+                      <div className="h-mono text-ink-body text-[11px] mt-0.5 truncate">
                         {s.street}{s.city ? ` · ${s.city}` : ""}
                       </div>
                     </div>
@@ -516,7 +516,7 @@ export default function Plan() {
                 </li>
               ))}
               {filteredSites.length === 0 && (
-                <li className="text-center text-paper/60 text-[13px] italic py-6">
+                <li className="text-center text-ink-2 text-[13px] italic py-6">
                   Keine Baustelle gefunden
                 </li>
               )}
@@ -555,7 +555,7 @@ function PoolPill({
         {worker.initials}
       </span>
       <span className="text-[13px] font-semibold whitespace-nowrap">{worker.firstName}</span>
-      <span className="h-mono text-paper/45 text-[9px] whitespace-nowrap">
+      <span className="h-mono text-ink-mute text-[9px] whitespace-nowrap">
         {worker.role.split(" · ")[0]}
       </span>
     </div>
@@ -601,20 +601,20 @@ function SiteCard({
           <div className="font-display font-extrabold text-[16px] uppercase tracking-tight leading-tight mt-1 break-words">
             {site.name}
           </div>
-          <div className="h-mono text-paper/55 text-[10px] mt-0.5 truncate">
+          <div className="h-mono text-ink-2 text-[10px] mt-0.5 truncate">
             {site.city || site.street}
           </div>
         </div>
         <button
           onClick={onRemoveSite}
-          className="w-6 h-6 rounded text-paper/40 hover:text-rust hover:bg-rust/10 flex items-center justify-center text-base leading-none flex-shrink-0"
+          className="w-6 h-6 rounded text-ink-mute hover:text-rust hover:bg-rust/10 flex items-center justify-center text-base leading-none flex-shrink-0"
           title="Baustelle entfernen"
         >×</button>
       </div>
 
       <div className="px-2 pb-2 flex flex-wrap gap-1 flex-1 content-start min-h-[36px]">
         {assignments.length === 0 && (
-          <span className="self-center w-full text-center h-mono text-paper/40 text-[10px] tracking-widest py-2 italic">
+          <span className="self-center w-full text-center h-mono text-ink-mute text-[10px] tracking-widest py-2 italic">
             Mitarbeiter hier rein ziehen
           </span>
         )}
@@ -641,7 +641,7 @@ function SiteCard({
               <span className="text-[11px] font-semibold whitespace-nowrap pr-1">{worker.firstName}</span>
               <button
                 onClick={(e) => { e.stopPropagation(); onRemoveWorker(a.workerId); }}
-                className="w-4 h-4 rounded-full text-paper/55 hover:bg-rust hover:text-white flex items-center justify-center text-[11px] leading-none opacity-60 group-hover:opacity-100 transition-opacity"
+                className="w-4 h-4 rounded-full text-ink-2 hover:bg-rust hover:text-white flex items-center justify-center text-[11px] leading-none opacity-60 group-hover:opacity-100 transition-opacity"
                 title="Entfernen"
               >×</button>
             </div>

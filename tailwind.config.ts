@@ -22,7 +22,9 @@ export default {
         ink: {
           DEFAULT: "#15171A",  // Kanten, starke Linien
           soft:    "#2B2E31",
-          mute:    "#6A6E72"
+          mute:    "#6A6E72",  // Tertiär/gedämpft, solide (nie als Opacity)
+          2:       "#4A4F54",  // Sekundärtext solide (ersetzt text-paper/XX)
+          body:    "#33373B"   // Fließtext auf hellen Karten, solide
         },
         moss: {
           DEFAULT: "#1F7A3D",

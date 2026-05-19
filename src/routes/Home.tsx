@@ -152,7 +152,7 @@ export default function Home() {
           <span className="text-2xl">🔔</span>
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-sm">Erinnerung aktivieren</div>
-            <div className="h-mono text-paper/55 text-[11px] mt-0.5">Wir melden uns abends, wenn ein Tag noch offen ist.</div>
+            <div className="h-mono text-ink-2 text-[11px] mt-0.5">Wir melden uns abends, wenn ein Tag noch offen ist.</div>
           </div>
           <span className="text-copper text-xl">→</span>
         </button>
@@ -166,18 +166,18 @@ export default function Home() {
         >
           <div className="h-mono text-copper text-[11px]">Heute · vom Büro geplant</div>
           {assignmentSite?.projectNumber && (
-            <div className="h-mono text-paper/65 text-[11px] mt-0.5">Auftrag {assignmentSite.projectNumber}</div>
+            <div className="h-mono text-ink-2 text-[11px] mt-0.5">Auftrag {assignmentSite.projectNumber}</div>
           )}
           <div className="font-display text-xl mt-1 leading-tight">
             {assignmentSite?.name ?? "Baustelle"}
           </div>
-          <div className="h-mono text-paper/65 text-[11px] mt-0.5">
+          <div className="h-mono text-ink-2 text-[11px] mt-0.5">
             {DISCIPLINE_LABEL[todayAssignment.discipline]}
             {assignmentSite?.street ? ` · ${assignmentSite.street}` : ""}
             {assignmentSite?.city ? `, ${assignmentSite.city}` : ""}
           </div>
           {todayAssignment.note && (
-            <div className="text-[12px] text-paper/75 mt-2 italic leading-snug">
+            <div className="text-[12px] text-ink-body mt-2 italic leading-snug">
               „{todayAssignment.note}"
             </div>
           )}
@@ -191,9 +191,9 @@ export default function Home() {
       {/* Heute keine Zuweisung, aber heute ist Werktag und noch kein Eintrag */}
       {!todayAssignment && !hasToday && todayInWeek && (
         <div className="mx-6 mt-4 px-4 py-4 rounded-xl bg-bg-2 border border-ink/15">
-          <div className="h-mono text-paper/55 text-[11px]">Heute · {fmtDateLong(today)}</div>
+          <div className="h-mono text-ink-2 text-[11px]">Heute · {fmtDateLong(today)}</div>
           <div className="font-semibold text-[14px] mt-1">Keine Baustelle vorgegeben</div>
-          <div className="text-[12px] text-paper/70 mt-1 leading-snug">
+          <div className="text-[12px] text-ink-body mt-1 leading-snug">
             Frag im Büro, sobald die Zuweisung da ist, taucht sie hier auf.
           </div>
         </div>
@@ -208,7 +208,7 @@ export default function Home() {
           <span className="text-2xl">⚠</span>
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-sm">{offen.length} {offen.length === 1 ? "Tag" : "Tage"} offen</div>
-            <div className="h-mono text-paper/55 text-[11px] mt-0.5">
+            <div className="h-mono text-ink-2 text-[11px] mt-0.5">
               {offen.map((iso) => `${dayName(iso)} ${shortDate(iso)}`).join(" · ")}
             </div>
           </div>
@@ -219,7 +219,7 @@ export default function Home() {
       <section className="flex-1 px-6 mt-6 overflow-y-auto pb-28">
         <div className="flex items-baseline justify-between mb-3">
           <span className="h-mono text-copper">Tage</span>
-          <span className="h-mono text-paper/45 text-[12px]">
+          <span className="h-mono text-ink-mute text-[12px]">
             {myEntries.length} von {days.length} erfasst
           </span>
         </div>
@@ -259,7 +259,7 @@ function Stat({ label, value, sub, positive }: { label: string; value: string; s
       <div className="h-mono text-copper text-[11px]">{label}</div>
       <div className="h-display text-2xl mt-0.5">{value}</div>
       {sub && (
-        <div className={`text-[12px] mt-0.5 ${positive ? "text-good" : "text-paper/50"}`}>
+        <div className={`text-[12px] mt-0.5 ${positive ? "text-good" : "text-ink-2"}`}>
           {sub}
         </div>
       )}
@@ -285,7 +285,7 @@ function DayRow({ date, entry, sites }: { date: string; entry: Entry; sites: imp
           </div>
           {isToday
             ? <div className="font-mono text-[10px] text-copper mt-0.5">HEUTE</div>
-            : <div className="font-mono text-[11px] text-paper/55 mt-0.5">{shortDate(date)}</div>}
+            : <div className="font-mono text-[11px] text-ink-2 mt-0.5">{shortDate(date)}</div>}
         </div>
         <div className="min-w-0">
           {site?.projectNumber && (
@@ -294,13 +294,13 @@ function DayRow({ date, entry, sites }: { date: string; entry: Entry; sites: imp
           <div className="font-display font-extrabold text-base uppercase tracking-tight leading-tight truncate">
             {site?.name ?? "Baustelle (gelöscht)"}
           </div>
-          <div className="h-mono text-paper/65 text-[11px] mt-0.5">
+          <div className="h-mono text-ink-2 text-[11px] mt-0.5">
             {entry.discipline} · {fmtTime(entry.startMin)} bis {fmtTime(entry.endMin)}
           </div>
         </div>
         <div className="text-right">
           <div className="h-display text-2xl leading-none">{fmtHours(min)}</div>
-          <div className="h-mono text-paper/45 text-[10px] mt-0.5">h</div>
+          <div className="h-mono text-ink-mute text-[10px] mt-0.5">h</div>
         </div>
       </Link>
     );
@@ -314,14 +314,14 @@ function DayRow({ date, entry, sites }: { date: string; entry: Entry; sites: imp
     >
       <div className="text-center">
         <div className="font-mono font-bold text-[12px] tracking-wider">{dayName(date).toUpperCase()}</div>
-        <div className="font-mono text-[11px] text-paper/55 mt-0.5">{shortDate(date)}</div>
+        <div className="font-mono text-[11px] text-ink-2 mt-0.5">{shortDate(date)}</div>
       </div>
       <div className="min-w-0">
         <div className="font-display font-extrabold text-base uppercase tracking-tight leading-tight flex items-center gap-2">
           <span>{meta.emoji}</span>
           <span>{meta.label}</span>
         </div>
-        <div className="h-mono text-paper/65 text-[11px] mt-0.5">
+        <div className="h-mono text-ink-2 text-[11px] mt-0.5">
           {entry.endDate && entry.endDate !== entry.date
             ? `bis ${shortDate(entry.endDate)}`
             : "ganzer Tag"}
@@ -374,14 +374,14 @@ function EmptyRow({ date, assignment, site }: { date: string; assignment?: Assig
           </>
         )}
       </div>
-      <div className="h-display text-2xl text-paper/30">{hasPlan ? "→" : "·"}</div>
+      <div className="h-display text-2xl text-ink-mute">{hasPlan ? "→" : "·"}</div>
     </>
   );
 
   // Zukunfts-Tage nicht antippbar
   if (isFuture) {
     return (
-      <div className="rounded-xl px-4 py-3.5 grid grid-cols-[44px_1fr_auto] gap-3 items-center bg-transparent border border-dashed border-ink/10 text-paper/30">
+      <div className="rounded-xl px-4 py-3.5 grid grid-cols-[44px_1fr_auto] gap-3 items-center bg-transparent border border-dashed border-ink/10 text-ink-mute">
         {content}
       </div>
     );
@@ -398,7 +398,7 @@ function EmptyRow({ date, assignment, site }: { date: string; assignment?: Assig
           ? "bg-copper/10 border-2 border-copper/50 text-paper"
           : hasPlan
           ? "bg-bg-2 border border-copper/40 text-paper"
-          : "bg-transparent border border-dashed border-ink/20 text-paper/75"
+          : "bg-transparent border border-dashed border-ink/20 text-ink-body"
       }`}
     >
       {content}
@@ -414,13 +414,13 @@ function HolidayRow({ date, name }: { date: string; name: string }) {
     >
       <div className="text-center">
         <div className="font-mono font-bold text-[12px] tracking-wider">{dayName(date).toUpperCase()}</div>
-        <div className="font-mono text-[11px] text-paper/55 mt-0.5">{shortDate(date)}</div>
+        <div className="font-mono text-[11px] text-ink-2 mt-0.5">{shortDate(date)}</div>
       </div>
       <div className="min-w-0">
         <div className="font-display font-extrabold text-base uppercase tracking-tight leading-tight flex items-center gap-2">
           <span>🎉</span><span>{name}</span>
         </div>
-        <div className="h-mono text-paper/65 text-[11px] mt-0.5">Gesetzlicher Feiertag · automatisch frei</div>
+        <div className="h-mono text-ink-2 text-[11px] mt-0.5">Gesetzlicher Feiertag · automatisch frei</div>
       </div>
       <div className="h-mono text-[11px] px-2.5 py-1 rounded-md font-bold bg-bronze/30 text-bronze">FREI</div>
     </div>
@@ -430,5 +430,5 @@ function HolidayRow({ date, name }: { date: string; name: string }) {
 const ABSENCE_META = {
   sick:     { emoji: "🏥", label: "Krankheit",  code: "KRANK",  bg: "bg-rust/12 border border-rust/30",     badge: "bg-rust/30 text-rust" },
   vacation: { emoji: "🏖", label: "Urlaub",     code: "URLAUB", bg: "bg-moss/15 border border-moss-bright/30", badge: "bg-moss/30 text-moss-bright" },
-  holiday:  { emoji: "🎉", label: "Feiertag",   code: "FREI",   bg: "bg-bg-3 border border-ink/10",       badge: "bg-bg-4 text-paper/70" }
+  holiday:  { emoji: "🎉", label: "Feiertag",   code: "FREI",   bg: "bg-bg-3 border border-ink/10",       badge: "bg-bg-4 text-ink-body" }
 } as const;

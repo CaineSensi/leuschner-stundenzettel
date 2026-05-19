@@ -79,7 +79,7 @@ export default function SiteMaterialEditor({
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="h-display text-2xl">{initial ? "Material bearbeiten" : "Material hinzufügen"}</h2>
-          <button type="button" onClick={onClose} className="text-paper/55 hover:text-paper text-2xl leading-none px-2">×</button>
+          <button type="button" onClick={onClose} className="text-ink-2 hover:text-paper text-2xl leading-none px-2">×</button>
         </div>
 
         {err && (

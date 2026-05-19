@@ -127,7 +127,7 @@ function CodeStep({
   return (
     <>
       <h1 className="h-display text-3xl">Einladungs-Code</h1>
-      <p className="mt-2 text-paper/70 text-sm leading-relaxed">
+      <p className="mt-2 text-ink-body text-sm leading-relaxed">
         Sechs Stellen, die du per WhatsApp bekommen hast, auf Zettel, per SMS oder im Hof zugerufen.
       </p>
 
@@ -191,18 +191,18 @@ function ProfileStep({ worker, onNext }: { worker: Worker; onNext: () => void })
         </div>
         <div className="text-center">
           <h2 className="h-display text-2xl">{worker.firstName} {worker.lastName}</h2>
-          <p className="h-mono text-paper/55 mt-1">{worker.role}</p>
+          <p className="h-mono text-ink-2 mt-1">{worker.role}</p>
         </div>
       </div>
 
       <div className="mt-10 pt-6 border-t border-ink/10 text-center">
-        <p className="h-mono text-paper/55">
+        <p className="h-mono text-ink-2">
           {worker.isAdmin ? "Inhaber-Account" : "Eingeladen von"}
         </p>
         <p className="font-semibold text-paper mt-1">
           {worker.isAdmin ? "Rund um's Haus Leuschner e.K." : "Rick Kohlberg"}
         </p>
-        <p className="h-mono text-paper/40 mt-1">Weener · Ostfriesland</p>
+        <p className="h-mono text-ink-mute mt-1">Weener · Ostfriesland</p>
       </div>
 
       <div className="mt-auto pt-8 space-y-2">
@@ -261,7 +261,7 @@ function InstallFirstScreen({ code }: { code: string }) {
       <div className="mt-6">
         <div className="h-mono text-copper text-[11px]">Letzter Schritt · App installieren</div>
         <h1 className="h-display text-3xl mt-1">Fast fertig</h1>
-        <p className="mt-2 text-paper/75 text-[14px] leading-snug">
+        <p className="mt-2 text-ink-body text-[14px] leading-snug">
           Damit du die App jeden Morgen schnell findest, leg sie auf deinen Home-Bildschirm.
         </p>
       </div>
@@ -336,7 +336,7 @@ function InstallFirstScreen({ code }: { code: string }) {
         </div>
       )}
 
-      <p className="mt-auto pt-4 text-[12px] text-paper/55 leading-snug text-center">
+      <p className="mt-auto pt-4 text-[12px] text-ink-2 leading-snug text-center">
         Warum erst installieren? Auf iOS wird dein Login zwischen Safari und der App-Kachel getrennt, also lieber gleich in der App.
       </p>
     </main>
@@ -376,12 +376,12 @@ function BrowserWarning() {
   return (
     <div className="mt-4 bg-rust/10 border-2 border-rust/40 rounded-xl p-4">
       <div className="font-bold text-[14px] text-rust mb-1">⚠️ Bitte in Safari öffnen</div>
-      <p className="text-[13px] leading-snug text-paper/85">
+      <p className="text-[13px] leading-snug text-ink-body">
         Du bist gerade in <strong>{browserName}</strong>. Damit du die App nachher zum
         Home-Bildschirm hinzufügen kannst, brauchst du <strong>Safari</strong>, das geht in
         anderen iOS-Browsern leider nicht.
       </p>
-      <ol className="mt-3 space-y-2 text-[12px] leading-snug text-paper/90">
+      <ol className="mt-3 space-y-2 text-[12px] leading-snug text-ink-body">
         <li>1. Auf <strong>„Link kopieren"</strong> unten tippen</li>
         <li>2. Safari-App auf dem iPhone öffnen</li>
         <li>3. Adressleiste antippen → einfügen → öffnen</li>
@@ -411,7 +411,7 @@ function DoneStep({ worker, onNext }: { worker: Worker; onNext: () => void }) {
           ✓
         </div>
         <h1 className="h-display text-3xl mt-5">Geschafft, {worker.firstName}!</h1>
-        <p className="mt-2 text-paper/75 text-sm leading-relaxed max-w-xs">
+        <p className="mt-2 text-ink-body text-sm leading-relaxed max-w-xs">
           Dein Konto ist eingerichtet. Damit du die App jeden Morgen schnell findest, leg dir ein Icon auf den Startbildschirm.
         </p>
       </div>

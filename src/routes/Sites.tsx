@@ -63,7 +63,7 @@ export default function Sites() {
       <header className="sticky top-0 z-30 bg-bg-DEFAULT border-b border-ink/10 px-5 lg:px-10 xl:px-14 pt-4 pb-3 safe-top">
         <button
           onClick={() => navigate("/admin")}
-          className="h-mono text-paper/55 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
+          className="h-mono text-ink-2 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
         >
           <span>←</span><span>Zurück zum Dashboard</span>
         </button>
@@ -72,7 +72,7 @@ export default function Sites() {
           <div>
             <span className="h-mono text-copper text-[11px]">Stammdaten</span>
             <h1 className="h-display text-2xl lg:text-3xl mt-1">Baustellen</h1>
-            <span className="text-[12px] text-paper/65 mt-1 block">
+            <span className="text-[12px] text-ink-2 mt-1 block">
               {activeCount} aktiv{archivedCount > 0 ? ` · ${archivedCount} archiviert` : ""}
             </span>
           </div>
@@ -95,13 +95,13 @@ export default function Sites() {
           <div className="flex gap-1.5 text-[11px]">
             <button
               onClick={() => setShowArchived(false)}
-              className={`px-3 py-1.5 rounded-full h-mono ${!showArchived ? "bg-copper text-bg-DEFAULT" : "border border-ink/15 text-paper/65"}`}
+              className={`px-3 py-1.5 rounded-full h-mono ${!showArchived ? "bg-copper text-bg-DEFAULT" : "border border-ink/15 text-ink-2"}`}
             >
               Aktiv
             </button>
             <button
               onClick={() => setShowArchived(true)}
-              className={`px-3 py-1.5 rounded-full h-mono ${showArchived ? "bg-copper text-bg-DEFAULT" : "border border-ink/15 text-paper/65"}`}
+              className={`px-3 py-1.5 rounded-full h-mono ${showArchived ? "bg-copper text-bg-DEFAULT" : "border border-ink/15 text-ink-2"}`}
               disabled={archivedCount === 0}
             >
               Archiv ({archivedCount})
@@ -118,10 +118,10 @@ export default function Sites() {
 
       <main className="px-5 lg:px-10 xl:px-14 py-6">
         {loading ? (
-          <div className="text-center py-16 h-mono text-paper/55 text-[12px]">Wird geladen …</div>
+          <div className="text-center py-16 h-mono text-ink-2 text-[12px]">Wird geladen …</div>
         ) : filtered.length === 0 ? (
           <div className="text-center py-16">
-            <div className="h-mono text-paper/55 text-[12px]">
+            <div className="h-mono text-ink-2 text-[12px]">
               {showArchived ? "Keine archivierten Baustellen" : "Keine Baustelle gefunden"}
             </div>
             {!showArchived && search === "" && (
@@ -207,12 +207,12 @@ function SiteCard({
           )}
           <div className="font-display text-lg uppercase tracking-tight leading-tight">{site.name}</div>
           {(site.street || site.city) && (
-            <div className="h-mono text-paper/65 text-[11px] mt-1">
+            <div className="h-mono text-ink-2 text-[11px] mt-1">
               {site.street}{site.city ? ` · ${site.city}` : ""}
             </div>
           )}
           {site.geo && (
-            <div className="h-mono text-paper/45 text-[10px] mt-1">
+            <div className="h-mono text-ink-mute text-[10px] mt-1">
               GPS · {site.geo.lat.toFixed(4)}, {site.geo.lng.toFixed(4)}
             </div>
           )}
@@ -220,7 +220,7 @@ function SiteCard({
         {!site.archived && (
           <button
             onClick={(e) => { e.stopPropagation(); onToggleStar(); }}
-            className={`flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center text-lg ${site.starred ? "text-copper" : "text-paper/30 hover:text-paper/55"}`}
+            className={`flex-shrink-0 w-8 h-8 rounded-md flex items-center justify-center text-lg ${site.starred ? "text-copper" : "text-ink-mute hover:text-ink-2"}`}
             title={site.starred ? "Stern entfernen" : "Als Favorit markieren"}
           >
             {site.starred ? "★" : "☆"}

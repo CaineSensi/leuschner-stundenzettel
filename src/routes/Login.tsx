@@ -29,14 +29,14 @@ export default function Login() {
     <main className="min-h-screen flex flex-col px-6 py-8 safe-top safe-bottom max-w-md mx-auto">
       <header>
         <Logo />
-        <p className="h-mono text-paper/55 mt-1 text-[12px]">
+        <p className="h-mono text-ink-2 mt-1 text-[12px]">
           Rund um's Haus · Stundenzettel
         </p>
       </header>
 
       <section className="flex-1 flex flex-col mt-10">
         <h1 className="h-display text-3xl">Anmelden</h1>
-        <p className="mt-2 text-paper/75 text-[14px] leading-relaxed">
+        <p className="mt-2 text-ink-body text-[14px] leading-relaxed">
           Gib den 6-stelligen Code ein, den du vom Büro per QR oder auf Papier bekommen hast.
         </p>
 
@@ -86,7 +86,7 @@ export default function Login() {
       </section>
 
       <div className="text-center mt-6">
-        <Link to="/buero" className="h-mono text-paper/55 text-[11px] hover:text-copper">
+        <Link to="/buero" className="h-mono text-ink-2 text-[11px] hover:text-copper">
           Bist du Admin? → Büro-Login
         </Link>
       </div>

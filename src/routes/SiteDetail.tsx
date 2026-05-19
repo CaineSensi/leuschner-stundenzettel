@@ -112,7 +112,7 @@ export default function SiteDetail() {
 
   if (loading && !site) {
     return (
-      <main className="min-h-screen flex items-center justify-center text-paper/55 h-mono text-[12px]">
+      <main className="min-h-screen flex items-center justify-center text-ink-2 h-mono text-[12px]">
         Wird geladen …
       </main>
     );
@@ -132,7 +132,7 @@ export default function SiteDetail() {
       <header className="sticky top-0 z-30 bg-bg-DEFAULT border-b border-ink/10 px-5 lg:px-10 xl:px-14 pt-4 pb-3 safe-top">
         <button
           onClick={() => navigate("/admin/sites")}
-          className="h-mono text-paper/55 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
+          className="h-mono text-ink-2 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
         >
           <span>←</span><span>Zurück zur Baustellen-Liste</span>
         </button>
@@ -144,12 +144,12 @@ export default function SiteDetail() {
             )}
             <h1 className="h-display text-2xl lg:text-3xl mt-1 uppercase tracking-tight">{site.name}</h1>
             {(site.street || site.city) && (
-              <p className="h-mono text-paper/65 text-[12px] mt-1">
+              <p className="h-mono text-ink-2 text-[12px] mt-1">
                 {site.street}{site.city ? ` · ${site.city}` : ""}
               </p>
             )}
             {site.geo && (
-              <p className="h-mono text-paper/45 text-[10px] mt-0.5">
+              <p className="h-mono text-ink-mute text-[10px] mt-0.5">
                 GPS · {site.geo.lat.toFixed(4)}, {site.geo.lng.toFixed(4)}
               </p>
             )}
@@ -218,7 +218,7 @@ export default function SiteDetail() {
               {(filterWorker || filterFrom || filterTo) && (
                 <button
                   onClick={() => { setFilterWorker(""); setFilterFrom(""); setFilterTo(""); }}
-                  className="h-mono text-paper/55 hover:text-copper text-[11px]"
+                  className="h-mono text-ink-2 hover:text-copper text-[11px]"
                 >
                   Filter zurücksetzen
                 </button>
@@ -227,7 +227,7 @@ export default function SiteDetail() {
           </div>
 
           {photos.length === 0 ? (
-            <div className="text-center py-16 h-mono text-paper/55 text-[12px]">
+            <div className="text-center py-16 h-mono text-ink-2 text-[12px]">
               {(filterWorker || filterFrom || filterTo)
                 ? "Keine Fotos im gewählten Filter"
                 : "Noch keine Fotos für diese Baustelle"}
@@ -306,7 +306,7 @@ function PhotoTile({
       {url ? (
         <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
       ) : (
-        <div className="w-full h-full flex items-center justify-center text-paper/30 text-xl">⋯</div>
+        <div className="w-full h-full flex items-center justify-center text-ink-mute text-xl">⋯</div>
       )}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/60 to-transparent px-2 py-1.5">
         <div className="font-mono font-bold text-white text-[10px] tracking-wide flex items-center justify-between gap-1">

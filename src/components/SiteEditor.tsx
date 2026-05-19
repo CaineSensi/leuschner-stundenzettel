@@ -59,7 +59,7 @@ export default function SiteEditor({
       >
         <div className="flex items-center justify-between mb-4">
           <h2 className="h-display text-2xl">{title}</h2>
-          <button type="button" onClick={onClose} className="text-paper/55 hover:text-paper text-2xl leading-none px-2">×</button>
+          <button type="button" onClick={onClose} className="text-ink-2 hover:text-paper text-2xl leading-none px-2">×</button>
         </div>
 
         {err && (
@@ -104,7 +104,7 @@ export default function SiteEditor({
                   <input value={geoLng} onChange={(e) => setGeoLng(e.target.value)} placeholder="7.4577" className="site-input font-mono" />
                 </Field>
               </div>
-              <p className="h-mono text-paper/45 text-[10px]">
+              <p className="h-mono text-ink-mute text-[10px]">
                 Optional, wird später für GPS-Verifizierung der Mitarbeiter-Einträge genutzt
               </p>
             </div>

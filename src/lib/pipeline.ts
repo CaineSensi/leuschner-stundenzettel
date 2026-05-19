@@ -27,6 +27,7 @@ export interface PipelineCard {
   planEur?: number;
   actualEur?: number;
   validUntil?: string; // ISO date
+  archivedAt?: string; // ISO timestamp, gesetzt = aus aktivem Board raus
   sortOrder: number;
   createdAt: string;
 }
@@ -57,6 +58,7 @@ function rowToCard(r: any): PipelineCard {
     planEur: r.plan_eur != null ? Number(r.plan_eur) : undefined,
     actualEur: r.actual_eur != null ? Number(r.actual_eur) : undefined,
     validUntil: r.valid_until ?? undefined,
+    archivedAt: r.archived_at ?? undefined,
     sortOrder: r.sort_order ?? 0,
     createdAt: r.created_at
   };
@@ -65,19 +67,54 @@ function rowToCard(r: any): PipelineCard {
 const COLS =
   "id, stage, customer_name, place, description, value_eur, open_points, " +
   "doc_number, site_id, assigned_worker_id, plan_eur, actual_eur, valid_until, " +
-  "sort_order, created_at";
+  "archived_at, sort_order, created_at";
 
-export async function listCards(): Promise<PipelineCard[]> {
-  if (!isBackendConnected() || !supabase) return MOCK_CARDS;
+/**
+ * Lädt Pipeline-Karten. `archived: false` (Standard) = aktives Board ohne
+ * archivierte Vorgänge; `archived: true` = nur das Archiv.
+ */
+export async function listCards(
+  opts: { archived?: boolean } = {}
+): Promise<PipelineCard[]> {
+  const wantArchived = opts.archived === true;
+  if (!isBackendConnected() || !supabase) {
+    return MOCK_CARDS.filter((c) =>
+      wantArchived ? c.archivedAt != null : c.archivedAt == null
+    );
+  }
   const sb: any = supabase;
-  const { data, error } = await sb
+  let q = sb
     .from("pipeline_cards")
     .select(COLS)
     .order("stage", { ascending: true })
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
+  q = wantArchived ? q.not("archived_at", "is", null) : q.is("archived_at", null);
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []).map(rowToCard);
+}
+
+/** Bezahlten Vorgang aus dem aktiven Board ins Archiv legen. */
+export async function archiveCard(id: string): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb
+    .from("pipeline_cards")
+    .update({ archived_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+/** Vorgang aus dem Archiv zurück ins aktive Board holen. */
+export async function unarchiveCard(id: string): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb
+    .from("pipeline_cards")
+    .update({ archived_at: null })
+    .eq("id", id);
+  if (error) throw error;
 }
 
 async function adminCompanyId(sb: any): Promise<string> {

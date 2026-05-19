@@ -98,7 +98,7 @@ export default function Hours() {
       <header className="sticky top-0 z-30 bg-bg-DEFAULT border-b border-ink/10 px-5 lg:px-10 xl:px-14 pt-4 pb-3 safe-top">
         <button
           onClick={() => navigate("/admin")}
-          className="h-mono text-paper/55 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
+          className="h-mono text-ink-2 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
         >
           <span>←</span><span>Zurück zum Dashboard</span>
         </button>
@@ -113,7 +113,7 @@ export default function Hours() {
             <div className="flex flex-col">
               <span className="h-mono text-copper text-[11px]">Stunden · KW {week} / {year}</span>
               <h1 className="h-display text-2xl lg:text-3xl leading-none mt-1">{monthRangeLabel}</h1>
-              <span className="text-[12px] text-paper/55 mt-1">
+              <span className="text-[12px] text-ink-2 mt-1">
                 {weekOffset === 0 ? "Aktuelle Woche" : weekOffset < 0 ? "Vergangene Woche" : "Zukünftige Woche"}
                 {holidayCount > 0 && ` · ${holidayCount} Feiertag${holidayCount > 1 ? "e" : ""}`}
               </span>
@@ -130,7 +130,7 @@ export default function Hours() {
             >Heute</button>
           </div>
           <div className="flex items-center gap-2">
-            <label className="flex items-center gap-2 cursor-pointer text-[12px] text-paper/65">
+            <label className="flex items-center gap-2 cursor-pointer text-[12px] text-ink-2">
               <input
                 type="checkbox"
                 checked={showAdmins}
@@ -151,9 +151,9 @@ export default function Hours() {
 
       <main className="px-3 lg:px-10 xl:px-14 py-6">
         {loading ? (
-          <div className="text-center py-16 h-mono text-paper/55 text-[12px]">Wird geladen …</div>
+          <div className="text-center py-16 h-mono text-ink-2 text-[12px]">Wird geladen …</div>
         ) : team.length === 0 ? (
-          <div className="text-center py-16 h-mono text-paper/55 text-[12px]">Keine Mitarbeiter</div>
+          <div className="text-center py-16 h-mono text-ink-2 text-[12px]">Keine Mitarbeiter</div>
         ) : (
           <>
           {/* MOBILE: pro Mitarbeiter eine Karte mit Tag-Liste */}
@@ -169,12 +169,12 @@ export default function Hours() {
                         {w.firstName} {w.lastName}
                         {w.isAdmin && <span className="ml-2 h-mono text-copper text-[9px]">ADMIN</span>}
                       </div>
-                      <div className="h-mono text-paper/55 text-[10px] truncate">{w.role}</div>
+                      <div className="h-mono text-ink-2 text-[10px] truncate">{w.role}</div>
                     </div>
                     <div className="text-right flex-shrink-0">
                       <div className="h-display text-2xl leading-none">{fmtHours(total)}</div>
                       <div className={`h-mono text-[10px] mt-0.5 ${
-                        total >= sollMin ? "text-good" : total === 0 ? "text-paper/40" : "text-rust"
+                        total >= sollMin ? "text-good" : total === 0 ? "text-ink-mute" : "text-rust"
                       }`}>
                         {total === 0 ? "·" : diff >= 0 ? `+${fmtHours(diff)}h zu Soll` : `${fmtHours(diff)}h zu Soll`}
                       </div>
@@ -197,7 +197,7 @@ export default function Hours() {
                             <div className={`h-mono font-bold text-[12px] ${isToday ? "text-copper" : holiday ? "text-bronze" : ""}`}>
                               {DAY_SHORT[dt.getDay()].toUpperCase()}
                             </div>
-                            <div className="h-mono text-paper/55 text-[10px]">
+                            <div className="h-mono text-ink-2 text-[10px]">
                               {String(dt.getDate()).padStart(2,"0")}.{String(dt.getMonth()+1).padStart(2,"0")}.
                             </div>
                           </div>
@@ -214,11 +214,11 @@ export default function Hours() {
             <div className="bg-bg-3 border-2 border-ink/15 rounded-xl px-4 py-3.5 flex items-center justify-between">
               <div>
                 <div className="h-mono text-copper text-[11px]">Gesamt</div>
-                <div className="text-[12px] text-paper/65">{team.length} Mitarbeiter</div>
+                <div className="text-[12px] text-ink-2">{team.length} Mitarbeiter</div>
               </div>
               <div className="text-right">
                 <div className="h-display text-2xl leading-none">{fmtHours(totalAll)}</div>
-                <div className="h-mono text-paper/55 text-[10px] mt-0.5">erfasst · Soll {fmtHours(sollMin * team.length)}</div>
+                <div className="h-mono text-ink-2 text-[10px] mt-0.5">erfasst · Soll {fmtHours(sollMin * team.length)}</div>
               </div>
             </div>
           </div>
@@ -239,7 +239,7 @@ export default function Hours() {
                       <th
                         key={iso}
                         className={`text-left h-mono py-4 px-3 ${
-                          isToday ? "text-copper bg-copper/8" : holiday ? "text-bronze bg-bronze/8" : "text-paper/75"
+                          isToday ? "text-copper bg-copper/8" : holiday ? "text-bronze bg-bronze/8" : "text-ink-body"
                         }`}
                       >
                         <div className="text-[13px] font-bold">{DAY_SHORT[dt.getDay()]} {String(dt.getDate()).padStart(2,"0")}.{String(dt.getMonth()+1).padStart(2,"0")}.</div>
@@ -268,7 +268,7 @@ export default function Hours() {
                           {w.firstName} {w.lastName}
                         </div>
                         {w.isAdmin && <span className="inline-block mt-1 h-mono text-copper text-[10px] px-1.5 py-0.5 bg-copper/10 rounded">ADMIN</span>}
-                        <div className="h-mono text-paper/55 text-[11px] mt-1 truncate">{w.role}</div>
+                        <div className="h-mono text-ink-2 text-[11px] mt-1 truncate">{w.role}</div>
                       </td>
                       {days.map((iso) => (
                         <td
@@ -281,9 +281,9 @@ export default function Hours() {
                         </td>
                       ))}
                       <td className="py-4 px-4 text-right align-top">
-                        <div className="h-display text-3xl leading-none">{fmtHours(total)}<span className="text-base text-paper/55 ml-1">h</span></div>
+                        <div className="h-display text-3xl leading-none">{fmtHours(total)}<span className="text-base text-ink-2 ml-1">h</span></div>
                         <div className={`h-mono text-[11px] mt-1.5 ${
-                          total >= sollMin ? "text-good" : total === 0 ? "text-paper/40" : "text-rust"
+                          total >= sollMin ? "text-good" : total === 0 ? "text-ink-mute" : "text-rust"
                         }`}>
                           {total === 0 ? "·" : diff >= 0 ? `+${fmtHours(diff)} zu Soll` : `${fmtHours(diff)} zu Soll`}
                         </div>
@@ -297,12 +297,12 @@ export default function Hours() {
                   <td className="py-4 px-4">
                     <div className="h-mono text-copper text-[12px]">Gesamt</div>
                     <div className="font-display text-base uppercase tracking-tight mt-1">{team.length} Mitarbeiter</div>
-                    <div className="h-mono text-paper/55 text-[11px] mt-1">Soll {fmtHours(sollMin * team.length)} h</div>
+                    <div className="h-mono text-ink-2 text-[11px] mt-1">Soll {fmtHours(sollMin * team.length)} h</div>
                   </td>
                   <td colSpan={days.length} />
                   <td className="py-4 px-4 text-right">
-                    <div className="h-display text-4xl leading-none">{fmtHours(totalAll)}<span className="text-lg text-paper/55 ml-1">h</span></div>
-                    <div className="h-mono text-paper/55 text-[11px] mt-1.5">erfasst</div>
+                    <div className="h-display text-4xl leading-none">{fmtHours(totalAll)}<span className="text-lg text-ink-2 ml-1">h</span></div>
+                    <div className="h-mono text-ink-2 text-[11px] mt-1.5">erfasst</div>
                   </td>
                 </tr>
               </tfoot>
@@ -347,7 +347,7 @@ function Cell({
   }
 
   return (
-    <div className={`text-center ${large ? "text-2xl" : "text-base"} ${isPast ? "text-rust/55" : "text-paper/30"}`}>·</div>
+    <div className={`text-center ${large ? "text-2xl" : "text-base"} ${isPast ? "text-rust/55" : "text-ink-mute"}`}>·</div>
   );
 }
 
@@ -358,7 +358,7 @@ function CellEntry({ entry, site, large }: { entry: Entry; site?: Site; large?: 
       <div className={`bg-copper/10 border border-copper/40 rounded-lg ${large ? "px-3 py-2" : "px-1.5 py-1"}`}>
         <div className="flex items-baseline justify-between gap-2">
           <span className={`font-display leading-none ${large ? "text-xl" : "text-sm"}`}>
-            {fmtHours(min)} <span className={`text-paper/55 ${large ? "text-xs" : "text-[10px]"}`}>h</span>
+            {fmtHours(min)} <span className={`text-ink-2 ${large ? "text-xs" : "text-[10px]"}`}>h</span>
           </span>
           <span className={`h-mono text-copper font-bold ${large ? "text-[10px]" : "text-[9px]"}`}>{entry.discipline}</span>
         </div>
@@ -383,7 +383,7 @@ function CellEntry({ entry, site, large }: { entry: Entry; site?: Site; large?: 
         <span className={`h-mono font-bold ${meta.fg} ${large ? "text-[11px]" : "text-[9px]"}`}>{meta.code}</span>
       </div>
       {entry.endDate && entry.endDate !== entry.date && (
-        <div className={`text-paper/55 ${large ? "text-[11px] mt-1" : "text-[9px] mt-0.5"}`}>
+        <div className={`text-ink-2 ${large ? "text-[11px] mt-1" : "text-[9px] mt-0.5"}`}>
           bis {entry.endDate.slice(8, 10)}.{entry.endDate.slice(5, 7)}.
         </div>
       )}

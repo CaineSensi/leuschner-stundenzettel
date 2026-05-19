@@ -68,11 +68,11 @@ export default function InstallPrompt() {
             Schneller starten
           </h3>
           {isIOS ? (
-            <p className="text-[12px] text-paper/70 mt-1.5 leading-snug">
+            <p className="text-[12px] text-ink-body mt-1.5 leading-snug">
               Safari unten: <strong>Teilen-Symbol</strong> (Quadrat mit Pfeil) → <strong>„Zum Home-Bildschirm"</strong> → Hinzufügen
             </p>
           ) : (
-            <p className="text-[12px] text-paper/70 mt-1.5 leading-snug">
+            <p className="text-[12px] text-ink-body mt-1.5 leading-snug">
               Mit einem Tap auf den Home-Bildschirm, sieht aus wie eine native App, läuft offline.
             </p>
           )}

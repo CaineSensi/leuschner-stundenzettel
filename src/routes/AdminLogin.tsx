@@ -32,13 +32,13 @@ export default function AdminLogin() {
         {isBackendConnected() ? (
           <p className="h-mono text-good mt-1 text-[11px]">● Live · Frankfurt</p>
         ) : (
-          <p className="h-mono text-paper/40 mt-1 text-[11px]">○ Mock-Modus</p>
+          <p className="h-mono text-ink-mute mt-1 text-[11px]">○ Mock-Modus</p>
         )}
       </header>
 
       <section className="flex-1 flex flex-col justify-center -mt-8">
         <h1 className="h-display text-3xl">Anmelden</h1>
-        <p className="text-paper/70 text-sm mt-2 leading-relaxed">
+        <p className="text-ink-body text-sm mt-2 leading-relaxed">
           Mit Email und Passwort einloggen.
         </p>
 
@@ -83,7 +83,7 @@ export default function AdminLogin() {
           </button>
         </form>
 
-        <p className="h-mono text-paper/40 text-center text-[11px] leading-relaxed mt-8">
+        <p className="h-mono text-ink-mute text-center text-[11px] leading-relaxed mt-8">
           Passwort vergessen? Im Supabase-Dashboard zurücksetzen.<br />
           Mitarbeiter-Anmeldung läuft über separate URL.
         </p>
