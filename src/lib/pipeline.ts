@@ -7,11 +7,15 @@ import { supabase, isBackendConnected } from "./supabase";
 export const STAGES = [
   "Anfrage",
   "Angebot",
+  "Versendet",
   "Auftrag",
   "In Arbeit",
   "Abgerechnet"
 ] as const;
 export type Stage = (typeof STAGES)[number];
+
+/** Best-Practice-Frist: nach so vielen Tagen ohne Reaktion nachfassen. */
+export const FOLLOWUP_DAYS = 7;
 
 export interface PipelineCard {
   id: string;
@@ -27,6 +31,7 @@ export interface PipelineCard {
   planEur?: number;
   actualEur?: number;
   validUntil?: string; // ISO date
+  sentAt?: string;     // ISO timestamp, gesetzt beim Wechsel auf "Versendet"
   archivedAt?: string; // ISO timestamp, gesetzt = aus aktivem Board raus
   sortOrder: number;
   createdAt: string;
@@ -58,6 +63,7 @@ function rowToCard(r: any): PipelineCard {
     planEur: r.plan_eur != null ? Number(r.plan_eur) : undefined,
     actualEur: r.actual_eur != null ? Number(r.actual_eur) : undefined,
     validUntil: r.valid_until ?? undefined,
+    sentAt: r.sent_at ?? undefined,
     archivedAt: r.archived_at ?? undefined,
     sortOrder: r.sort_order ?? 0,
     createdAt: r.created_at
@@ -67,7 +73,10 @@ function rowToCard(r: any): PipelineCard {
 const COLS =
   "id, stage, customer_name, place, description, value_eur, open_points, " +
   "doc_number, site_id, assigned_worker_id, plan_eur, actual_eur, valid_until, " +
-  "archived_at, sort_order, created_at";
+  "sent_at, archived_at, sort_order, created_at";
+
+/** COLS ohne die Spalten aus noch nicht eingespielten Migrationen. */
+const COLS_BASE = COLS.replace("sent_at, archived_at, ", "");
 
 /**
  * Lädt Pipeline-Karten. `archived: false` (Standard) = aktives Board ohne
@@ -96,12 +105,11 @@ export async function listCards(
     // archived_at nicht. Statt das Board komplett leer zu lassen, laden wir
     // ohne sie: alle Vorgänge gelten als aktiv, das Archiv ist (noch) leer.
     // Sobald die Spalte existiert, greift automatisch wieder der Filter oben.
-    if (/archived_at/.test(String(error?.message ?? ""))) {
+    if (/archived_at|sent_at/.test(String(error?.message ?? ""))) {
       if (wantArchived) return [];
-      const cols = COLS.replace("archived_at, ", "");
       const { data: d2, error: e2 } = await sb
         .from("pipeline_cards")
-        .select(cols)
+        .select(COLS_BASE)
         .order("stage", { ascending: true })
         .order("sort_order", { ascending: true })
         .order("created_at", { ascending: true });
@@ -258,11 +266,27 @@ export async function createCard(input: PipelineCardInput): Promise<PipelineCard
 export async function updateCardStage(id: string, stage: Stage): Promise<void> {
   if (!isBackendConnected() || !supabase) return;
   const sb: any = supabase;
-  const { error } = await sb
-    .from("pipeline_cards")
-    .update({ stage })
-    .eq("id", id);
-  if (error) throw error;
+  // Beim Wechsel auf "Versendet" das Versanddatum setzen (Basis fürs Nachfassen)
+  const patch: Record<string, unknown> =
+    stage === "Versendet"
+      ? { stage, sent_at: new Date().toISOString() }
+      : { stage };
+  let { error } = await sb.from("pipeline_cards").update(patch).eq("id", id);
+  if (error && /sent_at/.test(String(error.message ?? ""))) {
+    // sent_at-Spalte noch nicht migriert: Stufe trotzdem setzen
+    ({ error } = await sb
+      .from("pipeline_cards")
+      .update({ stage })
+      .eq("id", id));
+  }
+  if (error) {
+    // Check-Constraint kennt 'Versendet' noch nicht (Migration offen)
+    if (/check|constraint|invalid input|violates/i.test(String(error.message ?? "")))
+      throw new Error(
+        "Stufe „Versendet" erst nach DB-Migration aktiv (Constraint kennt sie noch nicht)."
+      );
+    throw error;
+  }
 }
 
 export async function updateCard(

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   STAGES, listCards, createCard, updateCardStage, deleteCard,
-  archiveCard, unarchiveCard, linkOrCreateSiteForCard,
+  archiveCard, unarchiveCard, linkOrCreateSiteForCard, FOLLOWUP_DAYS,
   type PipelineCard, type Stage
 } from "../lib/pipeline";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
@@ -11,11 +11,20 @@ import { isBackendConnected } from "../lib/supabase";
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
   "Anfrage":     { color: "#6A6E72", hint: "app-eigen, noch nicht beziffert" },
-  "Angebot":     { color: "#DC6E2D", hint: "sevDesk-Order" },
+  "Angebot":     { color: "#DC6E2D", hint: "sevDesk-Order, in Arbeit" },
+  "Versendet":   { color: "#C9852F", hint: "raus beim Kunden, nach 7 Tagen nachfassen" },
   "Auftrag":     { color: "#E8853F", hint: "Baustelle angelegt" },
   "In Arbeit":   { color: "#8C6E45", hint: "Stunden laufen" },
   "Abgerechnet": { color: "#1F7A3D", hint: "Rechnung bezahlt" }
 };
+
+/** Tage seit Versand; >= FOLLOWUP_DAYS und noch in „Versendet" = nachfassen. */
+function daysSince(iso?: string): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return Math.floor((Date.now() - d.getTime()) / 86_400_000);
+}
 
 function eur(n?: number): string {
   if (n == null) return "—";
@@ -442,6 +451,29 @@ function CardView({
           {expired ? "Gültigkeit abgelaufen" : `gültig bis ${fmtDate(card.validUntil)}`}
         </div>
       )}
+
+      {card.stage === "Versendet" && (() => {
+        const since = daysSince(card.sentAt);
+        const due = since != null && since >= FOLLOWUP_DAYS;
+        return (
+          <div className={`font-sans text-[12.5px] mt-3 pt-2.5 border-t border-[#D5D8DB] flex items-center justify-between gap-2 ${
+            due ? "text-rust font-bold" : "text-ink-2"
+          }`}>
+            <span>
+              {since == null
+                ? "versendet"
+                : since === 0
+                ? "heute versendet"
+                : `vor ${since} ${since === 1 ? "Tag" : "Tagen"} versendet`}
+            </span>
+            {due && (
+              <span className="font-mono font-bold text-[10.5px] tracking-wide text-white bg-rust px-2 py-0.5 rounded">
+                NACHFASSEN
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {card.stage === "Abgerechnet" && (
         <div className="mt-3 pt-2.5 border-t border-[#D5D8DB]">
