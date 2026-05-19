@@ -129,33 +129,33 @@ export default function SiteDetail() {
 
   return (
     <div className="min-h-screen safe-bottom bg-bg-DEFAULT">
-      <header className="sticky top-0 z-30 bg-bg-DEFAULT border-b border-ink/10 px-5 lg:px-10 xl:px-14 pt-4 pb-3 safe-top">
+      <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
         <button
           onClick={() => navigate("/admin/sites")}
-          className="h-mono text-ink-2 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
+          className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-3 flex items-center gap-2"
         >
-          <span>←</span><span>Zurück zur Baustellen-Liste</span>
+          <span aria-hidden>←</span><span>Zurück zur Baustellen-Liste</span>
         </button>
 
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex-1 min-w-0">
             {site.projectNumber && (
-              <div className="h-mono text-copper text-[11px]">Auftrag {site.projectNumber}</div>
+              <div className="dd-eyebrow text-copper-bright">Auftrag {site.projectNumber}</div>
             )}
-            <h1 className="h-display text-2xl lg:text-3xl mt-1 uppercase tracking-tight">{site.name}</h1>
+            <h1 className="font-display font-black text-2xl lg:text-3xl text-white mt-1 uppercase tracking-tight">{site.name}</h1>
             {(site.street || site.city) && (
-              <p className="h-mono text-ink-2 text-[12px] mt-1">
+              <p className="font-sans text-steel text-[12px] mt-1">
                 {site.street}{site.city ? ` · ${site.city}` : ""}
               </p>
             )}
             {site.geo && (
-              <p className="h-mono text-ink-mute text-[10px] mt-0.5">
+              <p className="font-mono text-steel text-[10px] mt-0.5">
                 GPS · {site.geo.lat.toFixed(4)}, {site.geo.lng.toFixed(4)}
               </p>
             )}
           </div>
           <div className="flex gap-2 flex-shrink-0 items-center">
-            <label className={`btn-primary text-[12px] cursor-pointer ${uploading ? "opacity-60" : ""}`}>
+            <label className={`btn-primary !min-h-[44px] text-[12px] cursor-pointer ${uploading ? "opacity-60" : ""}`}>
               {uploading ? "Lädt hoch …" : "+ Fotos"}
               <input
                 type="file"
@@ -166,7 +166,7 @@ export default function SiteDetail() {
                 className="sr-only"
               />
             </label>
-            <button onClick={() => setEditing(true)} className="btn-ghost text-[12px]">Bearbeiten</button>
+            <button onClick={() => setEditing(true)} className="btn-ghost !min-h-[44px] text-[12px]">Bearbeiten</button>
           </div>
         </div>
       </header>
@@ -192,7 +192,7 @@ export default function SiteDetail() {
               <select
                 value={filterWorker}
                 onChange={(e) => setFilterWorker(e.target.value)}
-                className="px-2.5 py-1.5 bg-bg-2 border border-ink/15 rounded-md text-[12px] focus:outline-none focus:border-copper"
+                className="px-2.5 py-1.5 bg-white border border-steel rounded-md text-[12px] text-ink focus:outline-none focus:border-copper"
               >
                 <option value="">Alle Mitarbeiter</option>
                 {workers.map((w) => (
@@ -205,14 +205,14 @@ export default function SiteDetail() {
                 type="date"
                 value={filterFrom}
                 onChange={(e) => setFilterFrom(e.target.value)}
-                className="px-2.5 py-1.5 bg-bg-2 border border-ink/15 rounded-md text-[12px] focus:outline-none focus:border-copper"
+                className="px-2.5 py-1.5 bg-white border border-steel rounded-md text-[12px] text-ink focus:outline-none focus:border-copper"
                 title="Von"
               />
               <input
                 type="date"
                 value={filterTo}
                 onChange={(e) => setFilterTo(e.target.value)}
-                className="px-2.5 py-1.5 bg-bg-2 border border-ink/15 rounded-md text-[12px] focus:outline-none focus:border-copper"
+                className="px-2.5 py-1.5 bg-white border border-steel rounded-md text-[12px] text-ink focus:outline-none focus:border-copper"
                 title="Bis"
               />
               {(filterWorker || filterFrom || filterTo) && (

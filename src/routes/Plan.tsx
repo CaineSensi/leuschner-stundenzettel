@@ -244,12 +244,12 @@ export default function Plan() {
   return (
     <div className="min-h-screen safe-bottom bg-bg-DEFAULT">
       {/* HEADER — wie Sites/Hours */}
-      <header className="sticky top-0 z-30 bg-bg-DEFAULT border-b border-ink/10 px-5 lg:px-10 xl:px-14 pt-4 pb-3 safe-top">
+      <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
         <button
           onClick={() => navigate("/admin")}
-          className="h-mono text-ink-2 text-[11px] hover:text-copper transition-colors mb-3 flex items-center gap-2"
+          className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-3 flex items-center gap-2"
         >
-          <span>←</span>
+          <span aria-hidden>←</span>
           <span>Zurück zum Dashboard</span>
         </button>
 
@@ -257,25 +257,25 @@ export default function Plan() {
           <div className="flex items-center gap-3 lg:gap-4 flex-wrap">
             <button
               onClick={() => setWeekOffset((o) => o - 1)}
-              className="w-9 h-9 rounded-full border border-ink/15 hover:border-copper hover:bg-bg-2 flex items-center justify-center text-lg leading-none transition-colors"
+              className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
               title="Vorherige Woche"
             >‹</button>
             <div className="flex flex-col">
-              <span className="h-mono text-copper text-[11px]">KW {week} / {year}</span>
-              <h1 className="h-display text-2xl lg:text-3xl leading-none mt-1">{monthRangeLabel}</h1>
-              <span className="text-[12px] text-ink-2 mt-1">
+              <span className="dd-eyebrow text-copper-bright">KW {week} / {year}</span>
+              <h1 className="font-display font-black uppercase text-2xl lg:text-3xl text-white leading-none mt-1">{monthRangeLabel}</h1>
+              <span className="font-sans text-[12px] text-steel mt-1">
                 {weekOffset === 0 ? "Aktuelle Woche" : weekOffset < 0 ? "Vergangene Woche" : "Zukünftige Woche"}
               </span>
             </div>
             <button
               onClick={() => setWeekOffset((o) => o + 1)}
-              className="w-9 h-9 rounded-full border border-ink/15 hover:border-copper hover:bg-bg-2 flex items-center justify-center text-lg leading-none transition-colors"
+              className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
               title="Nächste Woche"
             >›</button>
             <button
               onClick={() => setWeekOffset(0)}
               disabled={weekOffset === 0}
-              className="h-mono text-[11px] px-3.5 py-1.5 rounded-full border border-copper text-copper hover:bg-copper hover:text-bg-DEFAULT disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-copper transition-colors"
+              className="font-mono text-[11px] px-3.5 py-1.5 rounded-full border border-copper-bright text-copper-bright hover:bg-copper-bright hover:text-bg-deep disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-copper-bright transition-colors"
             >Heute</button>
           </div>
           <button
@@ -283,8 +283,8 @@ export default function Plan() {
             disabled={publishing || draftCount === 0}
             className={`px-5 py-2.5 rounded-xl font-display font-extrabold uppercase tracking-wide text-[13px] transition-colors ${
               draftCount > 0
-                ? "bg-copper text-bg-deep hover:bg-copper-bright"
-                : "bg-bg-3 text-ink-mute cursor-not-allowed"
+                ? "bg-copper-bright text-bg-deep hover:brightness-110"
+                : "bg-white/10 text-steel cursor-not-allowed"
             } disabled:opacity-60`}
             title={draftCount === 0 ? "Alles bereits an Mitarbeiter übertragen" : "Pläne dieser Woche an die Mitarbeiter übertragen"}
           >
@@ -293,18 +293,18 @@ export default function Plan() {
         </div>
 
         {publishMsg && (
-          <div className="mt-3 px-4 py-2.5 bg-good/10 border border-good/40 rounded-lg text-[13px] text-good">
+          <div className="mt-3 px-4 py-2.5 bg-good/20 border border-good/50 rounded-lg text-[13px] text-moss-bright">
             {publishMsg}
           </div>
         )}
 
-        <p className="text-[13px] text-ink-2 mt-4 leading-snug max-w-4xl">
-          Mitarbeiter aus dem Pool unten in eine Baustelle ziehen. Änderungen sind <strong className="text-copper">Entwurf</strong>, bis du auf <strong className="text-copper">„Übertragen"</strong> klickst, erst dann sehen die Mitarbeiter-Handys den Plan.
+        <p className="font-sans text-[13px] text-steel mt-4 leading-snug max-w-4xl">
+          Mitarbeiter aus dem Pool unten in eine Baustelle ziehen. Änderungen sind <strong className="text-copper-bright">Entwurf</strong>, bis du auf <strong className="text-copper-bright">„Übertragen"</strong> klickst, erst dann sehen die Mitarbeiter-Handys den Plan.
         </p>
 
-        {/* MITARBEITER-POOL — größer, dunkler */}
-        <div className="flex items-center gap-4 mt-4 pb-1 overflow-x-auto">
-          <span className="h-mono text-copper text-[12px] tracking-widest flex-shrink-0">MITARBEITER</span>
+        {/* MITARBEITER-POOL */}
+        <div className="flex items-center gap-4 mt-4 pb-1 overflow-x-auto board-scroll">
+          <span className="dd-eyebrow text-copper-bright tracking-widest flex-shrink-0">MITARBEITER</span>
           <div className="flex gap-2 flex-nowrap">
             {team.map((w) => (
               <PoolPill
@@ -315,7 +315,7 @@ export default function Plan() {
               />
             ))}
             {team.length === 0 && !loading && (
-              <span className="h-mono text-ink-mute text-[11px] italic">keine Mitarbeiter</span>
+              <span className="font-sans text-steel text-[11px] italic">keine Mitarbeiter</span>
             )}
           </div>
         </div>
@@ -350,9 +350,10 @@ export default function Plan() {
               return (
                 <section
                   key={iso}
-                  className={`flex flex-col rounded-xl overflow-hidden border ${
-                    isToday ? "border-copper bg-copper/5" : "border-ink/10 bg-bg-2"
+                  className={`flex flex-col overflow-hidden ${
+                    isToday ? "rounded-xl border-2 border-copper bg-copper/5" : "dd-card"
                   }`}
+                  style={isToday ? undefined : { ["--c" as any]: "#8B9197" }}
                 >
                   {/* DAY-HEADER */}
                   <header className="px-4 pt-4 pb-3 flex items-start justify-between gap-2 border-b border-ink/10">
@@ -549,13 +550,13 @@ function PoolPill({
         onDragStart();
       }}
       onDragEnd={onDragEnd}
-      className="flex items-center gap-2 pl-1 pr-3 py-1 bg-bg-2 border border-ink/10 rounded-full cursor-grab active:cursor-grabbing select-none flex-shrink-0 hover:bg-bg-3 transition-colors"
+      className="flex items-center gap-2 pl-1 pr-3 py-1 bg-white/10 border border-white/15 rounded-full cursor-grab active:cursor-grabbing select-none flex-shrink-0 hover:bg-white/15 transition-colors"
     >
-      <span className="w-7 h-7 rounded-full bg-bg-deep text-copper-bright font-display font-extrabold text-[11px] flex items-center justify-center">
+      <span className="w-7 h-7 rounded-full bg-bg-deep text-copper-bright font-display font-extrabold text-[11px] flex items-center justify-center ring-1 ring-white/15">
         {worker.initials}
       </span>
-      <span className="text-[13px] font-semibold whitespace-nowrap">{worker.firstName}</span>
-      <span className="h-mono text-ink-mute text-[9px] whitespace-nowrap">
+      <span className="text-[13px] font-semibold whitespace-nowrap text-white">{worker.firstName}</span>
+      <span className="font-mono text-steel text-[9px] whitespace-nowrap">
         {worker.role.split(" · ")[0]}
       </span>
     </div>
