@@ -80,7 +80,7 @@ export default function SiteDetail() {
     try {
       const companyId = me.companyId ?? await getCurrentCompanyId();
       if (!companyId) {
-        setUploadError("Konnte company_id nicht ermitteln — bitte neu anmelden");
+        setUploadError("Konnte company_id nicht ermitteln, bitte neu anmelden");
         return;
       }
       const stampContext = {
@@ -140,7 +140,7 @@ export default function SiteDetail() {
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex-1 min-w-0">
             {site.projectNumber && (
-              <div className="h-mono text-copper text-[11px]">— Auftrag {site.projectNumber}</div>
+              <div className="h-mono text-copper text-[11px]">Auftrag {site.projectNumber}</div>
             )}
             <h1 className="h-display text-2xl lg:text-3xl mt-1 uppercase tracking-tight">{site.name}</h1>
             {(site.street || site.city) && (
@@ -186,7 +186,7 @@ export default function SiteDetail() {
         <section>
           <div className="flex items-center justify-between gap-3 flex-wrap mb-4">
             <h2 className="h-mono text-copper text-[12px]">
-              — Fotos · {photos.length}{(filterWorker || filterFrom || filterTo) ? " (gefiltert)" : ""}
+              Fotos · {photos.length}{(filterWorker || filterFrom || filterTo) ? " (gefiltert)" : ""}
             </h2>
             <div className="flex gap-2 flex-wrap items-center text-[11px]">
               <select

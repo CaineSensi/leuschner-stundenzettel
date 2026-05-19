@@ -88,9 +88,9 @@ export default function Hours() {
     const mo = new Date(days[0]);
     const fr = new Date(days[days.length - 1]);
     if (mo.getMonth() === fr.getMonth()) {
-      return `${mo.getDate()}. – ${fr.getDate()}. ${MONTH_LONG[mo.getMonth()]}`;
+      return `${mo.getDate()}. bis ${fr.getDate()}. ${MONTH_LONG[mo.getMonth()]}`;
     }
-    return `${mo.getDate()}. ${MONTH_LONG[mo.getMonth()]} – ${fr.getDate()}. ${MONTH_LONG[fr.getMonth()]}`;
+    return `${mo.getDate()}. ${MONTH_LONG[mo.getMonth()]} bis ${fr.getDate()}. ${MONTH_LONG[fr.getMonth()]}`;
   }, [days]);
 
   return (
@@ -111,7 +111,7 @@ export default function Hours() {
               title="Vorherige Woche"
             >‹</button>
             <div className="flex flex-col">
-              <span className="h-mono text-copper text-[11px]">— Stunden · KW {week} / {year}</span>
+              <span className="h-mono text-copper text-[11px]">Stunden · KW {week} / {year}</span>
               <h1 className="h-display text-2xl lg:text-3xl leading-none mt-1">{monthRangeLabel}</h1>
               <span className="text-[12px] text-paper/55 mt-1">
                 {weekOffset === 0 ? "Aktuelle Woche" : weekOffset < 0 ? "Vergangene Woche" : "Zukünftige Woche"}
@@ -176,7 +176,7 @@ export default function Hours() {
                       <div className={`h-mono text-[10px] mt-0.5 ${
                         total >= sollMin ? "text-good" : total === 0 ? "text-paper/40" : "text-rust"
                       }`}>
-                        {total === 0 ? "—" : diff >= 0 ? `+${fmtHours(diff)}h zu Soll` : `${fmtHours(diff)}h zu Soll`}
+                        {total === 0 ? "·" : diff >= 0 ? `+${fmtHours(diff)}h zu Soll` : `${fmtHours(diff)}h zu Soll`}
                       </div>
                     </div>
                   </header>
@@ -213,7 +213,7 @@ export default function Hours() {
             })}
             <div className="bg-bg-3 border-2 border-ink/15 rounded-xl px-4 py-3.5 flex items-center justify-between">
               <div>
-                <div className="h-mono text-copper text-[11px]">— Gesamt</div>
+                <div className="h-mono text-copper text-[11px]">Gesamt</div>
                 <div className="text-[12px] text-paper/65">{team.length} Mitarbeiter</div>
               </div>
               <div className="text-right">
@@ -285,7 +285,7 @@ export default function Hours() {
                         <div className={`h-mono text-[11px] mt-1.5 ${
                           total >= sollMin ? "text-good" : total === 0 ? "text-paper/40" : "text-rust"
                         }`}>
-                          {total === 0 ? "—" : diff >= 0 ? `+${fmtHours(diff)} zu Soll` : `${fmtHours(diff)} zu Soll`}
+                          {total === 0 ? "·" : diff >= 0 ? `+${fmtHours(diff)} zu Soll` : `${fmtHours(diff)} zu Soll`}
                         </div>
                       </td>
                     </tr>
@@ -295,7 +295,7 @@ export default function Hours() {
               <tfoot>
                 <tr className="border-t-2 border-ink/25 bg-bg-2">
                   <td className="py-4 px-4">
-                    <div className="h-mono text-copper text-[12px]">— Gesamt</div>
+                    <div className="h-mono text-copper text-[12px]">Gesamt</div>
                     <div className="font-display text-base uppercase tracking-tight mt-1">{team.length} Mitarbeiter</div>
                     <div className="h-mono text-paper/55 text-[11px] mt-1">Soll {fmtHours(sollMin * team.length)} h</div>
                   </td>
@@ -347,7 +347,7 @@ function Cell({
   }
 
   return (
-    <div className={`text-center ${large ? "text-2xl" : "text-base"} ${isPast ? "text-rust/55" : "text-paper/30"}`}>—</div>
+    <div className={`text-center ${large ? "text-2xl" : "text-base"} ${isPast ? "text-rust/55" : "text-paper/30"}`}>·</div>
   );
 }
 

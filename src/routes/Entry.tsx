@@ -224,7 +224,7 @@ export default function Entry() {
         setPhotoBusy(true);
         const companyId = me.companyId ?? await getCurrentCompanyId();
         if (!companyId) {
-          setSaveError("Fotos konnten nicht hochgeladen werden — bitte neu anmelden");
+          setSaveError("Fotos konnten nicht hochgeladen werden, bitte neu anmelden");
         } else {
           const stampContext = {
             siteName: todaySite?.name,
@@ -258,7 +258,7 @@ export default function Entry() {
         setPhotoBusy(false);
       } else if (pendingPhotos.length > 0 && entryId.startsWith("local-")) {
         // Offline: Fotos können noch nicht hochgeladen werden
-        setSaveError("Eintrag offline gespeichert — Fotos bitte später hinzufügen, wenn wieder online");
+        setSaveError("Eintrag offline gespeichert, Fotos bitte später hinzufügen, wenn wieder online");
         setSaving(false);
         return;
       }
@@ -359,7 +359,7 @@ function TypePicker({ date, onPick }: { date: string; onPick: (t: EntryType) => 
       </header>
 
       <h1 className="h-display text-3xl mt-6">Was war {isToday ? "heute" : "an diesem Tag"}?</h1>
-      <p className="h-mono text-paper/55 text-[12px] mt-1.5">— {dateLabel}</p>
+      <p className="h-mono text-paper/55 text-[12px] mt-1.5">{dateLabel}</p>
 
       <div className="grid grid-cols-2 gap-3 mt-8 flex-1 content-start">
         {TYPE_OPTIONS.map((opt) => (
@@ -404,14 +404,14 @@ function NoWorkScreen({ date, onBack }: { date: string; onBack: () => void }) {
       <div className="flex-1 flex flex-col items-center justify-center text-center">
         <div className="text-6xl mb-4">🤔</div>
         <h1 className="h-display text-3xl">Keine Baustelle hinterlegt</h1>
-        <p className="mt-2 h-mono text-copper text-[11px]">— {dateLabel}</p>
+        <p className="mt-2 h-mono text-copper text-[11px]">{dateLabel}</p>
         <p className="mt-4 text-paper/75 text-sm leading-relaxed max-w-xs">
           {isToday
             ? "Für heute wurde dir vom Büro noch keine Baustelle zugewiesen."
-            : "Für diesen Tag wurde dir keine Baustelle zugewiesen — Rick muss das im Wochenplan nachtragen."}
+            : "Für diesen Tag wurde dir keine Baustelle zugewiesen, Rick muss das im Wochenplan nachtragen."}
         </p>
         <p className="mt-4 text-paper/65 text-[13px] leading-relaxed max-w-xs">
-          Frag kurz im Büro — sobald die Zuweisung steht, taucht hier die Baustelle automatisch auf.
+          Frag kurz im Büro, sobald die Zuweisung steht, taucht hier die Baustelle automatisch auf.
         </p>
       </div>
 
@@ -465,7 +465,7 @@ function AbsencePicker({
         <div className="text-5xl">{meta.emoji}</div>
         <div>
           <h1 className="h-display text-3xl">{meta.title}</h1>
-          <p className="h-mono text-paper/55 text-[12px] mt-1">— {days} {days === 1 ? "Tag" : "Tage"}</p>
+          <p className="h-mono text-paper/55 text-[12px] mt-1">{days} {days === 1 ? "Tag" : "Tage"}</p>
         </div>
       </div>
 
@@ -474,7 +474,7 @@ function AbsencePicker({
         <DateField label="Bis (optional)" value={endDate} onChange={onEnd} placeholder="leer = nur ein Tag" />
 
         <div>
-          <label className="h-mono text-copper text-[12px] block mb-1.5">— Notiz (optional)</label>
+          <label className="h-mono text-copper text-[12px] block mb-1.5">Notiz (optional)</label>
           <textarea
             value={note}
             onChange={(e) => onNote(e.target.value)}
@@ -532,7 +532,7 @@ function DateField({
 }) {
   return (
     <div>
-      <label className="h-mono text-copper text-[12px] block mb-1.5">— {label}</label>
+      <label className="h-mono text-copper text-[12px] block mb-1.5">{label}</label>
       <input
         type="date"
         value={value}
@@ -588,11 +588,11 @@ function ActivityTime({
         <span className="h-mono text-copper">{isPast ? "Nachtrag" : "Heute · vom Büro geplant"}</span>
       </header>
 
-      <div className="mt-3 h-mono text-paper/65 text-[11px]">— {dateLabel}</div>
+      <div className="mt-3 h-mono text-paper/65 text-[11px]">{dateLabel}</div>
 
       <div className="mt-3">
         {site?.projectNumber && (
-          <div className="h-mono text-paper/55 text-[11px]">— Auftrag {site.projectNumber}</div>
+          <div className="h-mono text-paper/55 text-[11px]">Auftrag {site.projectNumber}</div>
         )}
         <h1 className="h-display text-2xl mt-1">{site?.name ?? "Baustelle"}</h1>
         {site && (
@@ -606,7 +606,7 @@ function ActivityTime({
       </div>
 
       <section className="mt-6">
-        <div className="h-mono text-copper text-[12px] mb-2">— Was wird gemacht?</div>
+        <div className="h-mono text-copper text-[12px] mb-2">Was wird gemacht?</div>
         <div className="grid grid-cols-3 gap-2">
           {DISCIPLINES.map((d) => {
             const active = discipline === d.id;
@@ -629,10 +629,10 @@ function ActivityTime({
       </section>
 
       <section className="mt-6">
-        <div className="h-mono text-copper text-[12px] mb-2">— Wann?</div>
+        <div className="h-mono text-copper text-[12px] mb-2">Wann?</div>
         <div className="bg-bg-3 rounded-xl p-4 text-center">
           <div className="h-display text-3xl">
-            {fmtTime(startMin)}<span className="text-copper mx-2">—</span>{fmtTime(endMin)}
+            {fmtTime(startMin)}<span className="text-copper mx-2">bis</span>{fmtTime(endMin)}
           </div>
           <div className="h-mono text-copper text-[11px] mt-2">
             Σ Arbeitszeit · <span className="font-display text-paper text-sm">{fmtHours(totalMin)} h</span>
@@ -644,7 +644,7 @@ function ActivityTime({
 
         <div className="bg-bg-3 rounded-xl px-4 py-3 mt-3 flex items-center justify-between">
           <div>
-            <div className="h-mono text-paper/65 text-[12px]">— Pause</div>
+            <div className="h-mono text-paper/65 text-[12px]">Pause</div>
             <div className="font-semibold">{pause} Minuten</div>
           </div>
           <div className="flex items-center gap-1.5">

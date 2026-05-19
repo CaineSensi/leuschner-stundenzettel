@@ -28,7 +28,7 @@ export default function AdminLogin() {
     <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
       <header className="pt-3">
         <Logo />
-        <p className="h-mono text-copper mt-1 text-[11px]">— Büro · Admin-Zugang</p>
+        <p className="h-mono text-copper mt-1 text-[11px]">Büro · Admin-Zugang</p>
         {isBackendConnected() ? (
           <p className="h-mono text-good mt-1 text-[11px]">● Live · Frankfurt</p>
         ) : (
@@ -44,7 +44,7 @@ export default function AdminLogin() {
 
         <form onSubmit={handleSubmit} className="mt-8 space-y-3">
           <div>
-            <label className="h-mono text-copper text-[11px] block mb-1.5">— Email</label>
+            <label className="h-mono text-copper text-[11px] block mb-1.5">Email</label>
             <input
               type="email"
               autoFocus
@@ -58,7 +58,7 @@ export default function AdminLogin() {
           </div>
 
           <div>
-            <label className="h-mono text-copper text-[11px] block mb-1.5">— Passwort</label>
+            <label className="h-mono text-copper text-[11px] block mb-1.5">Passwort</label>
             <input
               type="password"
               autoComplete="current-password"

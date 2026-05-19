@@ -128,7 +128,7 @@ function CodeStep({
     <>
       <h1 className="h-display text-3xl">Einladungs-Code</h1>
       <p className="mt-2 text-paper/70 text-sm leading-relaxed">
-        Sechs Stellen, die du per WhatsApp bekommen hast — auf Zettel, per SMS oder im Hof zugerufen.
+        Sechs Stellen, die du per WhatsApp bekommen hast, auf Zettel, per SMS oder im Hof zugerufen.
       </p>
 
       <div className="mt-8 grid grid-cols-6 gap-2">
@@ -191,7 +191,7 @@ function ProfileStep({ worker, onNext }: { worker: Worker; onNext: () => void })
         </div>
         <div className="text-center">
           <h2 className="h-display text-2xl">{worker.firstName} {worker.lastName}</h2>
-          <p className="h-mono text-paper/55 mt-1">— {worker.role} —</p>
+          <p className="h-mono text-paper/55 mt-1">{worker.role}</p>
         </div>
       </div>
 
@@ -259,7 +259,7 @@ function InstallFirstScreen({ code }: { code: string }) {
       <BrowserWarning />
 
       <div className="mt-6">
-        <div className="h-mono text-copper text-[11px]">— Letzter Schritt · App installieren</div>
+        <div className="h-mono text-copper text-[11px]">Letzter Schritt · App installieren</div>
         <h1 className="h-display text-3xl mt-1">Fast fertig</h1>
         <p className="mt-2 text-paper/75 text-[14px] leading-snug">
           Damit du die App jeden Morgen schnell findest, leg sie auf deinen Home-Bildschirm.
@@ -268,7 +268,7 @@ function InstallFirstScreen({ code }: { code: string }) {
 
       {/* CODE prominent — wird nach Installation in der App gebraucht */}
       <div className="mt-5 bg-copper/10 border-2 border-copper rounded-xl p-4 text-center">
-        <div className="h-mono text-copper text-[11px]">— Merk dir deinen Code</div>
+        <div className="h-mono text-copper text-[11px]">Merk dir deinen Code</div>
         <div className="font-display text-4xl tracking-widest mt-2 text-paper">{code}</div>
         <button
           onClick={copyCode}
@@ -302,7 +302,7 @@ function InstallFirstScreen({ code }: { code: string }) {
       {/* IOS — Apple lässt programmatic install nicht zu, also klare Anleitung */}
       {isIOS && (
         <div className="mt-5 bg-bg-2 border border-ink/15 rounded-xl p-4">
-          <div className="h-mono text-copper text-[11px] mb-3">— iPhone · 3 Schritte</div>
+          <div className="h-mono text-copper text-[11px] mb-3">iPhone · 3 Schritte</div>
           <ol className="space-y-3 text-[13px] leading-snug">
             <li className="flex gap-3">
               <span className="flex-shrink-0 w-7 h-7 rounded-full bg-copper text-bg-deep font-bold flex items-center justify-center text-[12px]">1</span>
@@ -329,7 +329,7 @@ function InstallFirstScreen({ code }: { code: string }) {
       {/* DESKTOP / kein beforeinstallprompt verfügbar */}
       {!isIOS && !deferredPrompt && !installDone && (
         <div className="mt-5 bg-bg-2 border border-ink/15 rounded-xl p-4">
-          <div className="h-mono text-copper text-[11px] mb-2">— App installieren</div>
+          <div className="h-mono text-copper text-[11px] mb-2">App installieren</div>
           <p className="text-[13px] leading-snug">
             Im Browser-Menü (oben rechts „⋮") findest du <strong>„App installieren"</strong> bzw. <strong>„Zum Startbildschirm hinzufügen"</strong>.
           </p>
@@ -337,7 +337,7 @@ function InstallFirstScreen({ code }: { code: string }) {
       )}
 
       <p className="mt-auto pt-4 text-[12px] text-paper/55 leading-snug text-center">
-        Warum erst installieren? Auf iOS wird dein Login zwischen Safari und der App-Kachel getrennt — also lieber gleich in der App.
+        Warum erst installieren? Auf iOS wird dein Login zwischen Safari und der App-Kachel getrennt, also lieber gleich in der App.
       </p>
     </main>
   );
@@ -378,7 +378,7 @@ function BrowserWarning() {
       <div className="font-bold text-[14px] text-rust mb-1">⚠️ Bitte in Safari öffnen</div>
       <p className="text-[13px] leading-snug text-paper/85">
         Du bist gerade in <strong>{browserName}</strong>. Damit du die App nachher zum
-        Home-Bildschirm hinzufügen kannst, brauchst du <strong>Safari</strong> — das geht in
+        Home-Bildschirm hinzufügen kannst, brauchst du <strong>Safari</strong>, das geht in
         anderen iOS-Browsern leider nicht.
       </p>
       <ol className="mt-3 space-y-2 text-[12px] leading-snug text-paper/90">
@@ -418,7 +418,7 @@ function DoneStep({ worker, onNext }: { worker: Worker; onNext: () => void }) {
 
       {!isStandalone && isIOS && (
         <div className="mt-6 bg-bg-2 border border-copper/30 rounded-xl p-4">
-          <div className="h-mono text-copper text-[11px] mb-3">— So fügst du die App hinzu</div>
+          <div className="h-mono text-copper text-[11px] mb-3">So fügst du die App hinzu</div>
           <ol className="space-y-3 text-[13px] leading-snug">
             <li className="flex gap-3">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-copper text-bg-deep font-bold flex items-center justify-center text-[12px]">1</span>
@@ -430,7 +430,7 @@ function DoneStep({ worker, onNext }: { worker: Worker; onNext: () => void }) {
             </li>
             <li className="flex gap-3">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-copper text-bg-deep font-bold flex items-center justify-center text-[12px]">3</span>
-              <span>Oben rechts auf <strong>„Hinzufügen"</strong> — fertig</span>
+              <span>Oben rechts auf <strong>„Hinzufügen"</strong>, fertig</span>
             </li>
           </ol>
         </div>
@@ -438,7 +438,7 @@ function DoneStep({ worker, onNext }: { worker: Worker; onNext: () => void }) {
 
       {!isStandalone && !isIOS && (
         <div className="mt-6 bg-bg-2 border border-copper/30 rounded-xl p-4">
-          <div className="h-mono text-copper text-[11px] mb-2">— App installieren</div>
+          <div className="h-mono text-copper text-[11px] mb-2">App installieren</div>
           <p className="text-[13px] leading-snug">
             Im Browser-Menü („⋮" oben rechts) findest du <strong>„App installieren"</strong> bzw. <strong>„Zum Startbildschirm hinzufügen"</strong>.
           </p>
@@ -447,8 +447,8 @@ function DoneStep({ worker, onNext }: { worker: Worker; onNext: () => void }) {
 
       {isStandalone && (
         <div className="mt-6 bg-good/10 border border-good/30 rounded-xl p-4 text-center">
-          <div className="h-mono text-good text-[11px]">— Bereits installiert</div>
-          <p className="text-[13px] mt-1">Du startest die App direkt vom Home-Bildschirm — perfekt.</p>
+          <div className="h-mono text-good text-[11px]">Bereits installiert</div>
+          <p className="text-[13px] mt-1">Du startest die App direkt vom Home-Bildschirm, perfekt.</p>
         </div>
       )}
 

@@ -63,7 +63,7 @@ export default function InstallPrompt() {
       <div className="flex items-start gap-3">
         <div className="text-3xl flex-shrink-0">📱</div>
         <div className="flex-1 min-w-0">
-          <div className="h-mono text-copper text-[13px]">— App auf den Home-Bildschirm</div>
+          <div className="h-mono text-copper text-[13px]">App auf den Home-Bildschirm</div>
           <h3 className="font-display font-extrabold text-base mt-0.5 uppercase tracking-tight">
             Schneller starten
           </h3>
@@ -73,7 +73,7 @@ export default function InstallPrompt() {
             </p>
           ) : (
             <p className="text-[12px] text-paper/70 mt-1.5 leading-snug">
-              Mit einem Tap auf den Home-Bildschirm — sieht aus wie eine native App, läuft offline.
+              Mit einem Tap auf den Home-Bildschirm, sieht aus wie eine native App, läuft offline.
             </p>
           )}
           <div className="flex gap-2 mt-3">

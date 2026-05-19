@@ -79,7 +79,7 @@ export default function Home() {
     const t = setTimeout(() => {
       notify(
         "Heute noch nichts erfasst",
-        "Plus-Knopf öffnen — dauert keine zwei Minuten."
+        "Plus-Knopf öffnen, dauert keine zwei Minuten."
       );
     }, 1500);
     return () => clearTimeout(t);
@@ -105,9 +105,9 @@ export default function Home() {
 
   return (
     <main className="min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
-      <header className="px-6 safe-top pt-3 pb-4">
+      <header className="surface-steel px-6 safe-top pt-3 pb-5">
         <div className="flex items-center justify-between">
-          <span className="h-mono text-copper">— Moin, {me.firstName} ·</span>
+          <span className="h-mono text-copper">Moin, {me.firstName} ·</span>
           <div className="flex items-center gap-3">
             {me.isAdmin && (
               <Link to="/admin" className="h-mono text-copper text-[12px]">
@@ -126,14 +126,14 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-baseline justify-between mt-1 gap-3">
-          <h1 className="h-display text-3xl">KW {week}</h1>
-          <span className="h-mono text-paper/55 text-[12px]">
-            {shortDate(days[0])} – {shortDate(days[days.length - 1])} {year}
+          <h1 className="h-display text-3xl text-white">KW {week}</h1>
+          <span className="h-mono text-white/55 text-[12px]">
+            {shortDate(days[0])} bis {shortDate(days[days.length - 1])} {year}
           </span>
         </div>
         {todayInWeek && (
           <p className="h-mono text-copper text-[12px] mt-1.5">
-            — Heute · {fmtDateLong(today)}
+            Heute · {fmtDateLong(today)}
           </p>
         )}
       </header>
@@ -164,7 +164,7 @@ export default function Home() {
           onClick={() => navigate("/entry", { state: { assignment: todayAssignment } })}
           className="mx-6 mt-4 px-4 py-4 rounded-xl bg-gradient-to-br from-copper/25 to-copper/8 border border-copper text-left active:scale-[0.99] transition-transform"
         >
-          <div className="h-mono text-copper text-[11px]">— Heute · vom Büro geplant</div>
+          <div className="h-mono text-copper text-[11px]">Heute · vom Büro geplant</div>
           {assignmentSite?.projectNumber && (
             <div className="h-mono text-paper/65 text-[11px] mt-0.5">Auftrag {assignmentSite.projectNumber}</div>
           )}
@@ -191,10 +191,10 @@ export default function Home() {
       {/* Heute keine Zuweisung, aber heute ist Werktag und noch kein Eintrag */}
       {!todayAssignment && !hasToday && todayInWeek && (
         <div className="mx-6 mt-4 px-4 py-4 rounded-xl bg-bg-2 border border-ink/15">
-          <div className="h-mono text-paper/55 text-[11px]">— Heute · {fmtDateLong(today)}</div>
+          <div className="h-mono text-paper/55 text-[11px]">Heute · {fmtDateLong(today)}</div>
           <div className="font-semibold text-[14px] mt-1">Keine Baustelle vorgegeben</div>
           <div className="text-[12px] text-paper/70 mt-1 leading-snug">
-            Frag im Büro — sobald die Zuweisung da ist, taucht sie hier auf.
+            Frag im Büro, sobald die Zuweisung da ist, taucht sie hier auf.
           </div>
         </div>
       )}
@@ -218,7 +218,7 @@ export default function Home() {
 
       <section className="flex-1 px-6 mt-6 overflow-y-auto pb-28">
         <div className="flex items-baseline justify-between mb-3">
-          <span className="h-mono text-copper">— Tage</span>
+          <span className="h-mono text-copper">Tage</span>
           <span className="h-mono text-paper/45 text-[12px]">
             {myEntries.length} von {days.length} erfasst
           </span>
@@ -289,13 +289,13 @@ function DayRow({ date, entry, sites }: { date: string; entry: Entry; sites: imp
         </div>
         <div className="min-w-0">
           {site?.projectNumber && (
-            <div className="h-mono text-copper text-[10px] truncate">— Auftrag {site.projectNumber}</div>
+            <div className="h-mono text-copper text-[10px] truncate">Auftrag {site.projectNumber}</div>
           )}
           <div className="font-display font-extrabold text-base uppercase tracking-tight leading-tight truncate">
             {site?.name ?? "Baustelle (gelöscht)"}
           </div>
           <div className="h-mono text-paper/65 text-[11px] mt-0.5">
-            {entry.discipline} · {fmtTime(entry.startMin)}–{fmtTime(entry.endMin)}
+            {entry.discipline} · {fmtTime(entry.startMin)} bis {fmtTime(entry.endMin)}
           </div>
         </div>
         <div className="text-right">
@@ -354,7 +354,7 @@ function EmptyRow({ date, assignment, site }: { date: string; assignment?: Assig
         {hasPlan ? (
           <>
             {site?.projectNumber && (
-              <div className="h-mono text-copper text-[10px] truncate">— Auftrag {site.projectNumber}</div>
+              <div className="h-mono text-copper text-[10px] truncate">Auftrag {site.projectNumber}</div>
             )}
             <div className="font-display font-extrabold text-base uppercase tracking-tight leading-tight truncate">
               {site?.name ?? "Baustelle"}
@@ -366,7 +366,7 @@ function EmptyRow({ date, assignment, site }: { date: string; assignment?: Assig
         ) : (
           <>
             <div className="font-display font-extrabold text-base uppercase tracking-tight leading-tight">
-              {isFuture ? "—" : "Eintrag fehlt"}
+              {isFuture ? "geplant" : "Eintrag fehlt"}
             </div>
             <div className="h-mono text-[11px] mt-0.5">
               {isFuture ? "noch in der Zukunft" : "+ nachtragen"}
@@ -374,7 +374,7 @@ function EmptyRow({ date, assignment, site }: { date: string; assignment?: Assig
           </>
         )}
       </div>
-      <div className="h-display text-2xl text-paper/30">{hasPlan ? "→" : "—"}</div>
+      <div className="h-display text-2xl text-paper/30">{hasPlan ? "→" : "·"}</div>
     </>
   );
 

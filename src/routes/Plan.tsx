@@ -169,7 +169,7 @@ export default function Plan() {
 
   async function handleRemoveSite(date: string, siteId: string) {
     const onSite = workersOnSite(date, siteId);
-    if (onSite.length > 0 && !confirm(`${onSite.length} Mitarbeiter sind dort zugewiesen — wirklich entfernen?`)) {
+    if (onSite.length > 0 && !confirm(`${onSite.length} Mitarbeiter sind dort zugewiesen, wirklich entfernen?`)) {
       return;
     }
     setError(null);
@@ -192,7 +192,7 @@ export default function Plan() {
     try {
       const count = await publishWeek(days[0], days[days.length - 1]);
       if (count === 0) {
-        setPublishMsg("Nichts neues zu übertragen — alles bereits aktuell.");
+        setPublishMsg("Nichts neues zu übertragen, alles bereits aktuell.");
       } else {
         setPublishMsg(`✓ ${count} ${count === 1 ? "Zuweisung" : "Zuweisungen"} an die Mitarbeiter übertragen`);
       }
@@ -236,9 +236,9 @@ export default function Plan() {
     const mo = new Date(days[0]);
     const fr = new Date(days[days.length - 1]);
     if (mo.getMonth() === fr.getMonth()) {
-      return `${mo.getDate()}. – ${fr.getDate()}. ${MONTH_LONG[mo.getMonth()]}`;
+      return `${mo.getDate()}. bis ${fr.getDate()}. ${MONTH_LONG[mo.getMonth()]}`;
     }
-    return `${mo.getDate()}. ${MONTH_LONG[mo.getMonth()]} – ${fr.getDate()}. ${MONTH_LONG[fr.getMonth()]}`;
+    return `${mo.getDate()}. ${MONTH_LONG[mo.getMonth()]} bis ${fr.getDate()}. ${MONTH_LONG[fr.getMonth()]}`;
   }, [days]);
 
   return (
@@ -261,7 +261,7 @@ export default function Plan() {
               title="Vorherige Woche"
             >‹</button>
             <div className="flex flex-col">
-              <span className="h-mono text-copper text-[11px]">— KW {week} / {year}</span>
+              <span className="h-mono text-copper text-[11px]">KW {week} / {year}</span>
               <h1 className="h-display text-2xl lg:text-3xl leading-none mt-1">{monthRangeLabel}</h1>
               <span className="text-[12px] text-paper/55 mt-1">
                 {weekOffset === 0 ? "Aktuelle Woche" : weekOffset < 0 ? "Vergangene Woche" : "Zukünftige Woche"}
@@ -299,12 +299,12 @@ export default function Plan() {
         )}
 
         <p className="text-[13px] text-paper/65 mt-4 leading-snug max-w-4xl">
-          Mitarbeiter aus dem Pool unten in eine Baustelle ziehen. Änderungen sind <strong className="text-copper">Entwurf</strong>, bis du auf <strong className="text-copper">„Übertragen"</strong> klickst — erst dann sehen die Mitarbeiter-Handys den Plan.
+          Mitarbeiter aus dem Pool unten in eine Baustelle ziehen. Änderungen sind <strong className="text-copper">Entwurf</strong>, bis du auf <strong className="text-copper">„Übertragen"</strong> klickst, erst dann sehen die Mitarbeiter-Handys den Plan.
         </p>
 
         {/* MITARBEITER-POOL — größer, dunkler */}
         <div className="flex items-center gap-4 mt-4 pb-1 overflow-x-auto">
-          <span className="h-mono text-copper text-[12px] tracking-widest flex-shrink-0">— MITARBEITER</span>
+          <span className="h-mono text-copper text-[12px] tracking-widest flex-shrink-0">MITARBEITER</span>
           <div className="flex gap-2 flex-nowrap">
             {team.map((w) => (
               <PoolPill
@@ -358,7 +358,7 @@ export default function Plan() {
                   <header className="px-4 pt-4 pb-3 flex items-start justify-between gap-2 border-b border-ink/10">
                     <div className="min-w-0 flex-1">
                       <div className="h-mono text-copper text-[11px]">
-                        — {String(dt.getDate()).padStart(2, "0")}.{String(dt.getMonth() + 1).padStart(2, "0")}.
+                        {String(dt.getDate()).padStart(2, "0")}.{String(dt.getMonth() + 1).padStart(2, "0")}.
                         {isToday && " · HEUTE"}
                       </div>
                       <div className={`h-display text-2xl leading-none mt-1.5 ${isToday ? "text-copper" : ""}`}>
@@ -387,7 +387,7 @@ export default function Plan() {
                   {/* ABWESEND-Liste */}
                   {dayAbsences.length > 0 && (
                     <div className="px-4 py-3 bg-bg-3/40 border-b border-ink/10">
-                      <div className="h-mono text-paper/55 text-[10px] tracking-widest mb-2">— Abwesend</div>
+                      <div className="h-mono text-paper/55 text-[10px] tracking-widest mb-2">Abwesend</div>
                       <div className="flex flex-wrap gap-1.5">
                         {dayAbsences.map(({ worker, absence }) => {
                           const meta = ABSENCE_META[absence!.type as keyof typeof ABSENCE_META];
@@ -491,7 +491,7 @@ export default function Plan() {
                 autoFocus
                 value={pickerSearch}
                 onChange={(e) => setPickerSearch(e.target.value)}
-                placeholder="Suchen — Name, Straße, Ort …"
+                placeholder="Suchen: Name, Straße, Ort …"
                 className="w-full mt-3 px-3.5 py-2.5 bg-bg-2 border-2 border-ink/20 rounded-lg text-sm text-paper placeholder:text-paper/50 focus:outline-none focus:border-copper"
               />
             </div>
@@ -504,7 +504,7 @@ export default function Plan() {
                   >
                     <div className="flex-1 min-w-0">
                       {s.projectNumber && (
-                        <div className="h-mono text-copper text-[10px]">— Auftrag {s.projectNumber}</div>
+                        <div className="h-mono text-copper text-[10px]">Auftrag {s.projectNumber}</div>
                       )}
                       <div className="font-bold text-[15px] text-paper truncate">{s.name}</div>
                       <div className="h-mono text-paper/75 text-[11px] mt-0.5 truncate">
@@ -595,7 +595,7 @@ function SiteCard({
         <div className="flex-1 min-w-0">
           {site.projectNumber && (
             <div className="h-mono text-copper text-[10px] tracking-widest leading-none">
-              — Auftrag {site.projectNumber}
+              Auftrag {site.projectNumber}
             </div>
           )}
           <div className="font-display font-extrabold text-[16px] uppercase tracking-tight leading-tight mt-1 break-words">

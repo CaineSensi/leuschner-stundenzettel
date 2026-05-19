@@ -123,7 +123,7 @@ export default function Day() {
 
         <ul className="px-6 py-4 divide-y divide-ink/10">
           <Row label="Typ" value={meta.title} sub={meta.sub} />
-          <Row label="Zeitraum" value={entry.endDate ? `${shortDate(entry.date)} – ${shortDate(entry.endDate)}` : `Nur ${shortDate(entry.date)}`} />
+          <Row label="Zeitraum" value={entry.endDate ? `${shortDate(entry.date)} bis ${shortDate(entry.endDate)}` : `Nur ${shortDate(entry.date)}`} />
           {entry.note && <Row label="Notiz" value={entry.note} />}
         </ul>
 
@@ -149,7 +149,7 @@ export default function Day() {
       <section className="px-6 pt-4 pb-6 bg-gradient-to-br from-copper/15 to-transparent border-b border-ink/10">
         <div className="h-mono text-copper text-[12px] uppercase">{dayLabel}</div>
         {site?.projectNumber && (
-          <div className="h-mono text-paper/55 text-[11px] mt-1">— Auftrag {site.projectNumber}</div>
+          <div className="h-mono text-paper/55 text-[11px] mt-1">Auftrag {site.projectNumber}</div>
         )}
         <h1 className="h-display text-3xl mt-1">{site?.name ?? "Baustelle (gelöscht)"}</h1>
         {site && (
@@ -162,8 +162,8 @@ export default function Day() {
 
       <ul className="px-6 py-4 divide-y divide-ink/10">
         <Row label="Tätigkeit" value={entry.discipline} sub={DISCIPLINE_NAME[entry.discipline]} />
-        <Row label="Zeit" value={`${fmtTime(entry.startMin)} – ${fmtTime(entry.endMin)}`} sub={`${entry.pauseMin} min Pause · ${fmtHours(min)} h netto`} />
-        {entry.weather && <Row label="Wetter" value={WEATHER_LABEL[entry.weather]} sub={entry.note ?? "—"} />}
+        <Row label="Zeit" value={`${fmtTime(entry.startMin)} bis ${fmtTime(entry.endMin)}`} sub={`${entry.pauseMin} min Pause · ${fmtHours(min)} h netto`} />
+        {entry.weather && <Row label="Wetter" value={WEATHER_LABEL[entry.weather]} sub={entry.note ?? "keine Notiz"} />}
         <Row label="Standort" value={entry.geoVerified ? "GPS bestätigt" : "Manuell eingetragen"} sub={entry.geoVerified ? "± wenige Meter" : "Kein Geo-Match"} />
       </ul>
 

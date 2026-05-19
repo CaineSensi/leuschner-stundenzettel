@@ -42,7 +42,7 @@ export default function PhotoStrip({
   return (
     <section className="mt-6">
       <div className="h-mono text-copper text-[12px] mb-2 flex items-center justify-between">
-        <span>— Fotos {totalCount > 0 && <span className="text-paper/55">· {totalCount}</span>}</span>
+        <span>Fotos {totalCount > 0 && <span className="text-paper/55">· {totalCount}</span>}</span>
         {busy && <span className="text-paper/55 text-[11px]">lädt hoch …</span>}
       </div>
 

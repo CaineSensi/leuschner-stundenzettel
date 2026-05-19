@@ -36,21 +36,21 @@ export default function AdminPushBanner() {
   }
 
   return (
-    <div className="sticky top-0 z-40 bg-copper text-bg-deep border-b border-copper-bright/40">
+    <div className="surface-steel sticky top-0 z-40">
       <div className="px-5 lg:px-10 xl:px-16 py-2.5 flex items-center gap-4 flex-wrap">
         <span className="text-xl flex-shrink-0">🔔</span>
         <div className="flex-1 min-w-0">
-          <div className="font-display font-extrabold text-[14px] uppercase tracking-tight leading-none">
+          <div className="font-display font-black text-[14px] uppercase tracking-tight leading-none text-white">
             Browser-Push noch nicht aktiv
           </div>
-          <div className="h-mono text-[10px] tracking-widest mt-1 opacity-80">
+          <div className="h-mono text-[10px] tracking-widest mt-1 text-white/65">
             Du wirst sonst nicht informiert wenn jemand Stunden sendet oder einen Tag offen lässt.
           </div>
         </div>
         <button
           onClick={activate}
           disabled={activating}
-          className="px-4 py-2 rounded-lg bg-bg-deep text-copper-bright font-display font-extrabold uppercase tracking-wide text-[12px] disabled:opacity-60 flex-shrink-0"
+          className="px-4 py-2 rounded-md bg-copper text-white font-display font-black uppercase tracking-wide text-[12px] disabled:opacity-60 flex-shrink-0"
         >
           {activating ? "Frage Browser …" : "Jetzt aktivieren"}
         </button>

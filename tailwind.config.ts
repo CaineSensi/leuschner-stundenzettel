@@ -5,37 +5,41 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Hochkontrast-Theme · Schwarz / Weiß / Orange-Akzent
-        // Outdoor-Lesbarkeit hat Priorität — keine Wärme, nur Funktion.
+        // Stahl & Beton · Betongrau / gebürsteter Stahl / Orange als Schweißnaht
+        // Outdoor-Lesbarkeit hat Priorität — robust, wertig, kein Lifestyle.
         bg: {
-          DEFAULT: "#FFFFFF",
-          deep:    "#000000",
-          2:       "#F4F4F5",
-          3:       "#E5E7EB",
-          4:       "#D1D5DB"
+          DEFAULT: "#CDD1D5",  // Beton (Body-Gradient liegt in index.css drüber)
+          deep:    "#1A1C1E",  // gebürsteter Stahl, dunkle Oberfläche
+          2:       "#EDEFF1",  // Karten-Fläche hell
+          3:       "#DBDEE1",
+          4:       "#C7CBCF"
         },
         paper: {
-          DEFAULT: "#000000",
-          2:       "#1F2937",
-          3:       "#374151"
+          DEFAULT: "#1A1C1E",  // Primärtext + dunkle Oberfläche
+          2:       "#2B2E31",
+          3:       "#3A3E42"
         },
         ink: {
-          DEFAULT: "#000000",
-          soft:    "#1F2937",
-          mute:    "#6B7280"
+          DEFAULT: "#15171A",  // Kanten, starke Linien
+          soft:    "#2B2E31",
+          mute:    "#6A6E72"
         },
         moss: {
-          DEFAULT: "#15803D",
+          DEFAULT: "#1F7A3D",
           deep:    "#14532D",
           bright:  "#22C55E"
         },
-        bronze: "#A0522D",
+        bronze: "#8C6E45",     // Feiertag, gedämpftes Messing (kollidiert nicht mit Kupfer)
         copper: {
-          DEFAULT: "#DC6E2D",
-          bright:  "#F08A4D"
+          DEFAULT: "#DC6E2D",  // Schweißnaht-Akzent (unverändert aus Marke)
+          bright:  "#E8853F"
         },
         rust: "#B91C1C",
-        good: "#15803D"
+        good: "#1F7A3D",
+        steel: {
+          DEFAULT: "#A9AEB3",  // gebürsteter-Stahl-Rand
+          line:    "#8B9197"
+        }
       },
       fontFamily: {
         sans: [
@@ -43,7 +47,7 @@ export default {
           "-apple-system", "BlinkMacSystemFont", '"Segoe UI"',
           "Roboto", '"Helvetica Neue"', "Arial", "system-ui", "sans-serif"
         ],
-        display: ['"Big Shoulders Display"', "Impact", "sans-serif"],
+        display: ['"Archivo"', "Impact", "Haettenschweiler", "sans-serif"],
         mono: ['"JetBrains Mono"', "ui-monospace", "monospace"]
       },
       letterSpacing: {

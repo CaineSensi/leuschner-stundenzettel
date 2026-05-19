@@ -59,7 +59,7 @@ export default function UpdatePrompt() {
             Neue Version verfügbar
           </div>
           <div className="text-[12px] mt-1 leading-snug opacity-90">
-            Tippe „Aktualisieren" — Daten gehen nicht verloren.
+            Tippe „Aktualisieren", Daten gehen nicht verloren.
           </div>
         </div>
       </div>

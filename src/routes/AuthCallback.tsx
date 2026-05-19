@@ -33,7 +33,7 @@ export default function AuthCallback() {
       <Logo />
       {error ? (
         <>
-          <p className="h-mono text-rust mt-6 text-[12px]">— Anmeldung fehlgeschlagen</p>
+          <p className="h-mono text-rust mt-6 text-[12px]">Anmeldung fehlgeschlagen</p>
           <p className="text-sm text-paper/70 mt-2">{error}</p>
           <button
             onClick={() => navigate("/login", { replace: true })}
@@ -44,7 +44,7 @@ export default function AuthCallback() {
         </>
       ) : (
         <>
-          <p className="h-mono text-copper mt-6 text-[12px]">— Anmelden …</p>
+          <p className="h-mono text-copper mt-6 text-[12px]">Anmelden …</p>
           <p className="text-sm text-paper/70 mt-2">Session wird geprüft</p>
         </>
       )}

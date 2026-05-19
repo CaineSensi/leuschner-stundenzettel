@@ -11,26 +11,56 @@
     max-width: 100vw;
   }
   body {
-    @apply bg-bg text-paper font-sans antialiased;
+    /* Beton-Verlauf · gehört zur Stahl-&-Beton-Optik, fix damit beim
+       Scrollen kein Sprung entsteht */
+    background: linear-gradient(180deg, #D9DCDF 0%, #C4C8CC 100%) fixed;
+    @apply text-paper font-sans antialiased;
   }
   ::selection { background: theme('colors.copper.DEFAULT'); color: #FFFFFF; }
 }
 
 @layer components {
-  .h-display { @apply font-display font-extrabold uppercase tracking-tight; }
+  /* Archivo Black, Blockschrift wie auf einem Baustellenschild */
+  .h-display { @apply font-display font-black uppercase tracking-tight; }
   .h-mono    { @apply font-mono uppercase tracking-wide-x text-xs; }
 
+  /* Stahl-orange Schweißnaht-Button mit Stahl-Glanzkante, Handschuh-Target */
   .btn-primary {
-    @apply font-display font-extrabold uppercase tracking-wide text-sm px-4 py-3
-           bg-copper text-paper rounded-xl active:scale-[0.98] transition-transform;
+    @apply font-display font-black uppercase tracking-wide text-sm px-4
+           text-white rounded-md active:scale-[0.98] transition-transform;
+    min-height: 56px;
+    background: linear-gradient(180deg, #E8853F, #C95F22);
+    box-shadow: 0 8px 20px -8px rgba(201,95,34,.7),
+                inset 0 1px 0 rgba(255,255,255,.3);
   }
   .btn-ghost {
-    @apply font-mono uppercase tracking-wide text-xs px-4 py-3
-           border border-ink/15 text-paper/75 rounded-xl;
+    @apply font-mono uppercase tracking-wide text-xs px-4 rounded-md;
+    min-height: 56px;
+    color: #1A1C1E;
+    border: 1.5px solid #A9AEB3;
+    background: linear-gradient(180deg, #FFFFFF, #ECEEF0);
   }
+
+  /* Dunkle Stahl-Oberfläche mit Orange-Schweißnaht unten — Header/Leisten */
+  .surface-steel {
+    background: linear-gradient(180deg, #2B2E31, #1A1C1E);
+    color: #FFFFFF;
+    box-shadow: inset 0 -2px 0 #DC6E2D, inset 0 1px 0 rgba(255,255,255,.08);
+  }
+
+  /* Helle Stahl-Karte: gebürsteter-Metall-Verlauf + Stahlrand */
+  .card-steel {
+    background: linear-gradient(180deg, #FFFFFF, #ECEEF0);
+    border: 1px solid #A9AEB3;
+    border-radius: 7px;
+    box-shadow: 0 6px 16px -8px rgba(0,0,0,.35);
+  }
+
+  /* Orange Schweißnaht als Trennkante (z. B. unter Karten-Titeln) */
+  .seam { box-shadow: inset 0 -2px 0 #DC6E2D; }
 }
 
-/* Grain disabled in high-contrast theme — sun readability has priority over texture */
+/* Grain disabled — Sonnen-Lesbarkeit hat Vorrang vor Textur */
 .grain::before { content: none; }
 
 /* Safe area insets for installed PWA on iOS */

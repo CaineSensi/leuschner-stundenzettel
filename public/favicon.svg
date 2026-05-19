@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" fill="#161A1C" rx="6"/>
-  <text x="16" y="22" text-anchor="middle" font-family="Impact, sans-serif" font-weight="900" font-size="22" fill="#B17B3D">L</text>
+  <rect width="32" height="32" fill="#1A1C1E" rx="6"/>
+  <rect y="29" width="32" height="3" fill="#DC6E2D"/>
+  <text x="16" y="23" text-anchor="middle" font-family="Archivo, Impact, sans-serif" font-weight="900" font-size="22" fill="#DC6E2D">L</text>
 </svg>

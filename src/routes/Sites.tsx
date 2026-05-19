@@ -70,7 +70,7 @@ export default function Sites() {
 
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <span className="h-mono text-copper text-[11px]">— Stammdaten</span>
+            <span className="h-mono text-copper text-[11px]">Stammdaten</span>
             <h1 className="h-display text-2xl lg:text-3xl mt-1">Baustellen</h1>
             <span className="text-[12px] text-paper/65 mt-1 block">
               {activeCount} aktiv{archivedCount > 0 ? ` · ${archivedCount} archiviert` : ""}
@@ -89,7 +89,7 @@ export default function Sites() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Suchen — Name, Auftragsnr., Adresse …"
+            placeholder="Suchen: Name, Auftragsnr., Adresse …"
             className="flex-1 min-w-[200px] px-3.5 py-2 bg-bg-2 border-2 border-ink/15 rounded-lg text-sm focus:outline-none focus:border-copper"
           />
           <div className="flex gap-1.5 text-[11px]">
@@ -203,7 +203,7 @@ function SiteCard({
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           {site.projectNumber && (
-            <div className="h-mono text-copper text-[11px]">— Auftrag {site.projectNumber}</div>
+            <div className="h-mono text-copper text-[11px]">Auftrag {site.projectNumber}</div>
           )}
           <div className="font-display text-lg uppercase tracking-tight leading-tight">{site.name}</div>
           {(site.street || site.city) && (

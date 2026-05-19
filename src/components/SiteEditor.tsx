@@ -39,7 +39,7 @@ export default function SiteEditor({
           geoLng: geoLng ? Number(geoLng) : undefined
         }),
         new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Zeitüberschreitung — Server antwortet nicht")), 8000)
+          setTimeout(() => reject(new Error("Zeitüberschreitung, Server antwortet nicht")), 8000)
         )
       ]);
     } catch (e: any) {
@@ -94,7 +94,7 @@ export default function SiteEditor({
           </div>
 
           <details className="bg-bg-2 rounded-xl">
-            <summary className="px-4 py-2.5 cursor-pointer h-mono text-copper text-[11px]">— GPS-Koordinaten (optional)</summary>
+            <summary className="px-4 py-2.5 cursor-pointer h-mono text-copper text-[11px]">GPS-Koordinaten (optional)</summary>
             <div className="px-4 pb-3 pt-1 space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <Field label="Lat">
@@ -105,7 +105,7 @@ export default function SiteEditor({
                 </Field>
               </div>
               <p className="h-mono text-paper/45 text-[10px]">
-                Optional — wird später für GPS-Verifizierung der Mitarbeiter-Einträge genutzt
+                Optional, wird später für GPS-Verifizierung der Mitarbeiter-Einträge genutzt
               </p>
             </div>
           </details>
@@ -145,7 +145,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
   return (
     <div>
       <label className="h-mono text-copper text-[11px] block mb-1">
-        — {label}{required && <span className="text-rust ml-1">*</span>}
+        {label}{required && <span className="text-rust ml-1">*</span>}
       </label>
       {children}
     </div>
