@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   STAGES, listCards, createCard, updateCardStage, deleteCard,
-  archiveCard, unarchiveCard,
+  archiveCard, unarchiveCard, linkOrCreateSiteForCard,
   type PipelineCard, type Stage
 } from "../lib/pipeline";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
@@ -42,6 +42,7 @@ export default function Angebote() {
   const [cards, setCards] = useState<PipelineCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ msg: string; siteId?: string } | null>(null);
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [view, setView] = useState<"aktiv" | "archiv">("aktiv");
@@ -82,6 +83,26 @@ export default function Angebote() {
     setDetail((d) => d && d.id === card.id ? { ...d, stage } : d);
     try {
       await updateCardStage(card.id, stage);
+      // Automatik: beim Wechsel auf „Auftrag" Baustelle verknüpfen/anlegen
+      if (stage === "Auftrag") {
+        try {
+          const r = await linkOrCreateSiteForCard({ ...card, stage });
+          if (r) {
+            setNotice({
+              msg: r.created
+                ? `Baustelle „${r.siteName}" automatisch angelegt`
+                : `Mit bestehender Baustelle „${r.siteName}" verknüpft`,
+              siteId: r.siteId
+            });
+            refresh();
+          }
+        } catch (e: any) {
+          setError(
+            "Stufe gesetzt, aber Baustelle anlegen fehlgeschlagen: " +
+              (e?.message ?? "unbekannt")
+          );
+        }
+      }
     } catch (err: any) {
       setError(err?.message ?? "Verschieben fehlgeschlagen");
       refresh();
@@ -198,6 +219,31 @@ export default function Angebote() {
       {error && (
         <div className="mx-4 lg:mx-8 mt-3 px-4 py-2.5 bg-rust/10 border border-rust/35 rounded-lg text-[13px] text-rust font-sans">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="mx-4 lg:mx-8 mt-3 px-4 py-3 bg-moss/10 border border-moss/40 rounded-lg flex items-center justify-between gap-3 flex-wrap">
+          <span className="text-[13.5px] text-good font-sans font-bold">
+            ✓ {notice.msg}
+          </span>
+          <div className="flex items-center gap-2">
+            {notice.siteId && (
+              <button
+                onClick={() => navigate(`/admin/sites/${notice.siteId}`)}
+                className="font-display font-extrabold uppercase text-[12px] tracking-wide px-3.5 py-2 rounded-md text-white"
+                style={{ background: "linear-gradient(180deg,#2F8C4E,#1F7A3D)" }}
+              >
+                Baustelle öffnen
+              </button>
+            )}
+            <button
+              onClick={() => setNotice(null)}
+              className="font-sans text-[12.5px] text-ink-2 hover:text-ink px-2"
+            >
+              schließen
+            </button>
+          </div>
         </div>
       )}
 

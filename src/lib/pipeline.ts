@@ -139,6 +139,87 @@ export async function unarchiveCard(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/**
+ * Automatik Stufe „Auftrag": sorgt dafür, dass der Vorgang eine Baustelle hat.
+ * Dedupe: existiert eine Baustelle mit gleicher sevDesk-/AN-Nummer oder
+ * gleichem Kundennamen, wird damit verknüpft (keine Dublette), sonst wird
+ * eine neue Baustelle aus den Kartendaten angelegt. Verknüpft die Karte
+ * (site_id) und füllt plan_eur für die Nachkalkulation.
+ * Gibt zurück, was passiert ist (für den UI-Hinweis), oder null wenn nichts
+ * zu tun war (kein Backend / schon verknüpft).
+ */
+export async function linkOrCreateSiteForCard(
+  card: PipelineCard
+): Promise<{ siteId: string; created: boolean; siteName: string } | null> {
+  if (!isBackendConnected() || !supabase) return null;
+  if (card.siteId) return null;
+  const sb: any = supabase;
+
+  // 1) Dedupe: passende Baustelle suchen
+  const { data: sites, error: sErr } = await sb
+    .from("sites")
+    .select("id, name, customer_name, sevdesk_order_number");
+  if (sErr) throw sErr;
+  const norm = (s?: string) => (s ?? "").trim().toLowerCase();
+  const match =
+    (card.docNumber &&
+      (sites ?? []).find(
+        (s: any) => norm(s.sevdesk_order_number) === norm(card.docNumber)
+      )) ||
+    (sites ?? []).find(
+      (s: any) => norm(s.customer_name) === norm(card.customerName)
+    );
+
+  let siteId: string;
+  let siteName: string;
+  let created = false;
+
+  if (match) {
+    siteId = match.id;
+    siteName = match.name;
+  } else {
+    // 2) Neue Baustelle aus den Kartendaten
+    const company_id = await adminCompanyId(sb);
+    const notes = [
+      card.place ? `Ort: ${card.place}` : null,
+      card.description || null,
+      card.openPoints ? `Offen: ${card.openPoints}` : null,
+      card.docNumber ? `Aus Pipeline-Vorgang ${card.docNumber}` : null
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const { data: ins, error: iErr } = await sb
+      .from("sites")
+      .insert({
+        company_id,
+        name: card.customerName.trim(),
+        customer_name: card.customerName.trim(),
+        sevdesk_order_number: card.docNumber?.trim() || null,
+        estimate_net_eur: card.valueEur ?? card.planEur ?? null,
+        notes: notes || null,
+        starred: false
+      })
+      .select("id, name")
+      .single();
+    if (iErr) throw iErr;
+    siteId = ins.id;
+    siteName = ins.name;
+    created = true;
+  }
+
+  // 3) Karte verknüpfen + Plan für Nachkalkulation setzen
+  const patch: Record<string, unknown> = { site_id: siteId };
+  if (card.planEur == null && (card.valueEur ?? null) != null)
+    patch.plan_eur = card.valueEur;
+  const { error: uErr } = await sb
+    .from("pipeline_cards")
+    .update(patch)
+    .eq("id", card.id);
+  if (uErr) throw uErr;
+
+  return { siteId, created, siteName };
+}
+
 async function adminCompanyId(sb: any): Promise<string> {
   const uid = (await sb.auth.getUser()).data.user?.id;
   const { data: w, error } = await sb
