@@ -532,7 +532,7 @@ function DetailDrawer({
               className="bg-white/10 border border-white/20 text-white w-9 h-9 rounded-md grid place-items-center hover:bg-white/20 text-[17px]"
             >✕</button>
           </div>
-          <div className="font-display font-black uppercase text-[22px] text-white mt-3 leading-tight">
+          <div className="font-display font-black uppercase text-[26px] lg:text-[30px] text-white mt-3 leading-tight">
             {card.customerName}
           </div>
           <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3">
@@ -545,91 +545,103 @@ function DetailDrawer({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 lg:px-6 py-5 board-scroll">
-          {card.description && (
-            <>
-              <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
-                Leistung
-              </div>
-              <p className="font-sans text-[14.5px] text-ink-body leading-relaxed">{card.description}</p>
-            </>
-          )}
+        <div className="flex-1 overflow-y-auto px-5 lg:px-8 py-6 board-scroll">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start">
 
-          <div className="flex items-center justify-between gap-3 mt-5 px-4 py-4 rounded-lg surface-steel">
-            <span className="font-sans text-[13px] text-steel">
-              {card.actualEur != null ? "Plan · Ist" : "Volumen netto · 0 % USt (§19)"}
-            </span>
-            {card.actualEur != null ? (
-              <span className="font-display font-black text-[20px] text-white tabular-nums">
-                {eur(card.planEur)} · {eur(card.actualEur)}
-              </span>
-            ) : (
-              <span className="font-display font-black text-[22px] text-white tabular-nums">
-                {value != null ? eur(value) : "noch offen"}
-              </span>
-            )}
-          </div>
+            {/* LINKS · Eckdaten, Leistung, Klärungen */}
+            <div className="space-y-5">
+              {card.description && (
+                <div>
+                  <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
+                    Leistung
+                  </div>
+                  <p className="font-sans text-[14.5px] text-ink-body leading-relaxed">{card.description}</p>
+                </div>
+              )}
 
-          {klärungen.length > 0 && (
-            <div className="mt-5 bg-[#FBF3E9] border border-[#E0C49C] border-l-4 border-l-bronze rounded-lg px-4 py-3.5">
-              <div className="font-display font-extrabold uppercase text-[12px] tracking-wider text-[#7A5E2E] mb-2">
-                Offene Klärungen / Status
-              </div>
-              <ul className="flex flex-col gap-2">
-                {klärungen.map((k, idx) => (
-                  <li key={idx} className="font-sans text-[13.5px] text-[#5A4521] leading-snug pl-4 relative">
-                    <span className="absolute left-0 text-bronze">▸</span>{k}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {card.positions && card.positions.length > 0 ? (
-            <div className="mt-5">
-              <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
-                {card.docNumber?.startsWith("RE")
-                  ? "Schlussrechnung · Positionen"
-                  : "Angebot · Positionen"}
-              </div>
-              <div className="border border-steel rounded-lg overflow-hidden bg-white">
-                <table className="w-full border-collapse text-[13px]" style={{ tableLayout: "fixed" }}>
-                  <thead>
-                    <tr className="bg-bg-deep text-bg-2">
-                      <th className="w-7 text-center font-mono font-medium text-[10.5px] uppercase tracking-wide px-1.5 py-2">#</th>
-                      <th className="text-left font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2">Position</th>
-                      <th className="w-[58px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-1.5 py-2">Menge</th>
-                      <th className="w-[60px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-1.5 py-2">EP €</th>
-                      <th className="w-[72px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2">Summe</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {card.positions.map((p) => (
-                      <tr key={p.pos} className="border-b border-[#E2E4E7] last:border-0 even:bg-[#F6F7F8]">
-                        <td className="text-center font-mono text-ink-2 text-[12px] px-1.5 py-2 align-top">{p.pos}</td>
-                        <td className="text-ink text-[13px] leading-snug px-2 py-2 align-top break-words">{p.name}</td>
-                        <td className="text-right font-mono text-[12px] text-ink-2 px-1.5 py-2 align-top whitespace-nowrap">{p.quantity}</td>
-                        <td className="text-right font-mono text-[12px] text-ink-2 px-1.5 py-2 align-top whitespace-nowrap">{p.unitPrice}</td>
-                        <td className="text-right font-mono font-bold text-[12px] text-ink px-2 py-2 align-top whitespace-nowrap tabular-nums">{eur(p.sum)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="flex items-center justify-between gap-3 mt-3 px-4 py-3.5 rounded-lg surface-steel">
-                <span className="font-sans text-[13px] text-steel">Netto-Gesamt · 0 % USt (§19)</span>
-                <span className="font-display font-black text-[20px] text-white tabular-nums">
-                  {eur(card.positions.reduce((t, p) => t + (p.sum || 0), 0))}
+              <div className="flex items-center justify-between gap-3 px-4 py-4 rounded-lg surface-steel">
+                <span className="font-sans text-[13px] text-steel">
+                  {card.actualEur != null ? "Plan · Ist" : "Volumen netto · 0 % USt (§19)"}
                 </span>
+                {card.actualEur != null ? (
+                  <span className="font-display font-black text-[20px] text-white tabular-nums">
+                    {eur(card.planEur)} · {eur(card.actualEur)}
+                  </span>
+                ) : (
+                  <span className="font-display font-black text-[24px] text-white tabular-nums">
+                    {value != null ? eur(value) : "noch offen"}
+                  </span>
+                )}
               </div>
+
+              {klärungen.length > 0 && (
+                <div className="bg-[#FBF3E9] border border-[#E0C49C] border-l-4 border-l-bronze rounded-lg px-4 py-3.5">
+                  <div className="font-display font-extrabold uppercase text-[12px] tracking-wider text-[#7A5E2E] mb-2">
+                    Offene Klärungen / Status
+                  </div>
+                  <ul className="flex flex-col gap-2">
+                    {klärungen.map((k, idx) => (
+                      <li key={idx} className="font-sans text-[13.5px] text-[#5A4521] leading-snug pl-4 relative">
+                        <span className="absolute left-0 text-bronze">▸</span>{k}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
-          ) : (
-            <p className="font-sans text-[12.5px] text-ink-mute mt-5 leading-relaxed">
-              {card.docNumber
-                ? `Positionen zu ${card.docNumber} werden aus sevDesk gespiegelt, sobald die DB-Spalte "positions" angelegt und der Abgleich gelaufen ist.`
-                : "Noch kein sevDesk-Beleg verknüpft."}
-            </p>
-          )}
+
+            {/* RECHTS · Beleg-Positionen */}
+            <div>
+              {card.positions && card.positions.length > 0 ? (
+                <>
+                  <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
+                    {card.docNumber?.startsWith("RE")
+                      ? "Schlussrechnung · Positionen"
+                      : "Angebot · Positionen"}
+                  </div>
+                  <div className="border border-steel rounded-lg overflow-hidden bg-white">
+                    <table className="w-full border-collapse text-[13.5px]">
+                      <thead>
+                        <tr className="bg-bg-deep text-bg-2">
+                          <th className="w-8 text-center font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2.5">#</th>
+                          <th className="text-left font-mono font-medium text-[10.5px] uppercase tracking-wide px-3 py-2.5">Position</th>
+                          <th className="w-[72px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2.5">Menge</th>
+                          <th className="w-[78px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2.5">EP €</th>
+                          <th className="w-[96px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-3 py-2.5">Summe</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {card.positions.map((p) => (
+                          <tr key={p.pos} className="border-b border-[#E2E4E7] last:border-0 even:bg-[#F6F7F8]">
+                            <td className="text-center font-mono text-ink-2 text-[12px] px-2 py-2.5 align-top">{p.pos}</td>
+                            <td className="text-ink text-[13.5px] leading-snug px-3 py-2.5 align-top">{p.name}</td>
+                            <td className="text-right font-mono text-[12.5px] text-ink-2 px-2 py-2.5 align-top whitespace-nowrap">{p.quantity}</td>
+                            <td className="text-right font-mono text-[12.5px] text-ink-2 px-2 py-2.5 align-top whitespace-nowrap">{p.unitPrice}</td>
+                            <td className="text-right font-mono font-bold text-[12.5px] text-ink px-3 py-2.5 align-top whitespace-nowrap tabular-nums">{eur(p.sum)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 mt-3 px-4 py-4 rounded-lg surface-steel">
+                    <span className="font-sans text-[13px] text-steel">Netto-Gesamt · 0 % USt (§19)</span>
+                    <span className="font-display font-black text-[22px] text-white tabular-nums">
+                      {eur(card.positions.reduce((t, p) => t + (p.sum || 0), 0))}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div className="border border-dashed border-steel rounded-lg px-5 py-8 text-center bg-white/50">
+                  <p className="font-sans text-[13px] text-ink-2 leading-relaxed">
+                    {card.docNumber
+                      ? `Positionen zu ${card.docNumber} werden aus sevDesk gespiegelt, sobald der Abgleich gelaufen ist.`
+                      : "Noch kein sevDesk-Beleg verknüpft."}
+                  </p>
+                </div>
+              )}
+            </div>
+
+          </div>
         </div>
 
         <div className="flex-shrink-0 px-5 lg:px-6 py-3.5 bg-[#E2E4E7] border-t border-steel flex gap-2.5 flex-wrap">
