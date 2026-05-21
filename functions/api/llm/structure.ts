@@ -73,9 +73,9 @@ function parseHeuristic(text: string): Parsed {
   const mail = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
   if (mail) out.email = mail[0];
 
-  // Telefon — deutsche Formate
-  const phone = text.match(/(?:\+49|0)[\s\-/]?\d{2,5}[\s\-/]?\d{3,}[\s\-/]?\d{0,}/);
-  if (phone) out.phone = phone[0].replace(/\s+/g, ' ').trim();
+  // Telefon — deutsche Formate (Slash/Strich/Leerzeichen als Trenner)
+  const phone = text.match(/(?:Tel\.?|Telefon|Mobil|Phone)?[:\s]*((?:\+49|0)[\d\s\-/]{6,})/i);
+  if (phone) out.phone = phone[1].replace(/\s+/g, ' ').trim();
 
   // PLZ + Stadt
   const plzCity = text.match(/\b(\d{5})\s+([A-ZÄÖÜ][a-zäöüß][\w\säöüß.\-/()]*)/);
@@ -91,13 +91,15 @@ function parseHeuristic(text: string): Parsed {
   const street = text.match(/[A-ZÄÖÜ][\wäöüß.\- ]{2,}?(?:straße|str\.?|weg|allee|gasse|platz|ring|chaussee|damm)\s+\d+[a-z]?/i);
   if (street) out.street = street[0].trim();
 
-  // Name — erste Zeile die wie "Vorname Nachname" aussieht
+  // Name — erste passende Zeile, aber Grußformeln ausschließen
+  const greetingRe = /^(viele|liebe|herzliche|beste|freundliche|sonnige)\s+gr(ü|ue)(ß|ss)e?$|^mit\s+freundlichen?\s+gr|^mfg$|^lg$|^gru(ß|ss)$/i;
   const nameLine = text
     .split(/\n/)
     .map((l) => l.trim())
+    .filter((l) => !greetingRe.test(l))
     .find((l) =>
       /^[A-ZÄÖÜ][a-zäöüß]+(?:[- ][A-ZÄÖÜ][a-zäöüß]+)+$/.test(l) ||
-      /^Herr\s|^Frau\s|^Familie\s/i.test(l)
+      /^(?:Herr|Frau|Familie)\s+[A-ZÄÖÜ]/i.test(l)
     );
   if (nameLine) out.customerName = nameLine.replace(/^(Herr|Frau|Familie)\s+/i, '');
 
