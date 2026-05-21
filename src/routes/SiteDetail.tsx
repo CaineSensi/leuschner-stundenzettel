@@ -170,7 +170,7 @@ export default function SiteDetail() {
   return (
     <div className="min-h-screen safe-bottom">
       {/* App-Bar — Stahl, sticky */}
-      <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
+      <header className="sticky top-0 z-[1100] surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
         <button onClick={() => navigate("/admin/sites")} className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-3 flex items-center gap-2">
           <span aria-hidden>←</span><span>Zurück zur Baustellen-Liste</span>
         </button>
@@ -416,10 +416,10 @@ function Modal({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/60 z-50" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/60 z-[1200]" onClick={onClose} />
       <div
         role="dialog" aria-modal="true"
-        className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[51] bg-white rounded-2xl shadow-2xl border border-steel-line/45 overflow-hidden flex flex-col w-[94vw] ${wide ? "max-w-[1080px]" : "max-w-[760px]"} max-h-[88vh]`}
+        className={`fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[1201] bg-white rounded-2xl shadow-2xl border border-steel-line/45 overflow-hidden flex flex-col w-[94vw] ${wide ? "max-w-[1080px]" : "max-w-[760px]"} max-h-[88vh]`}
       >
         <header className="surface-steel px-5 py-4 flex items-center justify-between flex-shrink-0">
           <h2 className="font-display font-extrabold uppercase text-[18px] text-white leading-tight">{title}</h2>
@@ -807,7 +807,7 @@ function PhotoLightbox({
     finally { setDeleting(false); }
   }
   return (
-    <div className="fixed inset-0 bg-black/95 z-[60] flex flex-col">
+    <div className="fixed inset-0 bg-black/95 z-[1300] flex flex-col">
       <header className="flex items-center justify-between px-4 py-3 text-white safe-top">
         <div>
           <div className="font-mono text-sm">{index + 1} / {photos.length}</div>
