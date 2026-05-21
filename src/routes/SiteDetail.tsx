@@ -42,6 +42,7 @@ export default function SiteDetail() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [openModal, setOpenModal] = useState<ModalKind>(null);
+  const [mapView, setMapView] = useState<"satellite" | "map">("satellite");
 
   async function refresh() {
     if (!id) return;
@@ -132,6 +133,12 @@ export default function SiteDetail() {
       ? `https://www.openstreetmap.org/export/embed.html?bbox=6.5%2C53.0%2C7.5%2C53.4&layer=mapnik`
       : null;
 
+  // Satelliten-Bild (ESRI World Imagery, kostenlos, kein API-Key nötig).
+  // Bbox um die GPS-Koordinaten — engerer Crop als die Straßenkarte (Detail).
+  const satSrc = site.geo
+    ? `https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${site.geo.lng-0.0015}%2C${site.geo.lat-0.001}%2C${site.geo.lng+0.0015}%2C${site.geo.lat+0.001}&bboxSR=4326&size=900,500&imageSR=4326&format=jpg&f=image`
+    : null;
+
   return (
     <div className="min-h-screen safe-bottom">
       {/* App-Bar — Stahl, sticky */}
@@ -161,13 +168,42 @@ export default function SiteDetail() {
         {/* HERO · Karte + Side-Panel */}
         <section className="grid gap-4 lg:grid-cols-[1fr_300px]">
           <div className="relative rounded-2xl overflow-hidden border border-steel-line/45 bg-bg-3 min-h-[240px]">
-            {mapSrc ? (
+            {mapView === "satellite" && satSrc ? (
+              <img
+                src={satSrc}
+                alt={`Satellitenbild ${site.name}`}
+                loading="lazy"
+                className="w-full h-full min-h-[240px] object-cover block"
+              />
+            ) : mapSrc ? (
               <iframe src={mapSrc} loading="lazy" className="w-full h-full min-h-[240px] block border-0" title={`Karte ${site.name}`} />
             ) : (
               <div className="absolute inset-0 grid place-items-center font-mono text-[11px] text-ink-2 text-center px-4">
                 Adresse oder GPS-Koordinaten in der Baustelle fehlen<br />— Karte kann nicht angezeigt werden
               </div>
             )}
+
+            {/* Toggle Karte / Satellit (oben rechts) */}
+            {site.geo && (
+              <div className="absolute right-3 top-3 bg-bg-deep/92 backdrop-blur rounded-md flex overflow-hidden text-[10.5px] font-mono uppercase tracking-wider">
+                <button
+                  onClick={() => setMapView("satellite")}
+                  className={`px-2.5 py-1.5 transition-colors ${mapView === "satellite" ? "bg-copper text-white" : "text-white/70 hover:text-white"}`}
+                >🛰 Satellit</button>
+                <button
+                  onClick={() => setMapView("map")}
+                  className={`px-2.5 py-1.5 transition-colors ${mapView === "map" ? "bg-copper text-white" : "text-white/70 hover:text-white"}`}
+                >🗺 Karte</button>
+              </div>
+            )}
+
+            {/* Marker-Overlay (nur Satellit, weil OSM-iframe schon einen hat) */}
+            {mapView === "satellite" && site.geo && (
+              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full pointer-events-none">
+                <div className="text-[26px] drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]" style={{ color: "#DC6E2D" }}>⌖</div>
+              </div>
+            )}
+
             <div className="absolute left-3 bottom-3 bg-bg-deep/95 backdrop-blur text-white px-3 py-1.5 rounded-md font-mono text-[10.5px] tracking-wider flex items-center gap-2">
               <span className="text-copper">⌖</span> <b className="text-copper">{site.name}</b>
               {site.geo && <span className="text-steel">· {site.geo.lat.toFixed(4)}, {site.geo.lng.toFixed(4)}</span>}
