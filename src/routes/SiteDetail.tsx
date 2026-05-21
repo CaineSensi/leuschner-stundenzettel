@@ -7,6 +7,7 @@ import {
 } from "../lib/photos";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { supabase, isBackendConnected } from "../lib/supabase";
+import { geocodeAddress } from "../lib/geocode";
 import SiteEditor from "../components/SiteEditor";
 import type { PhotoWithContext, Site, Worker, WorkEntry } from "../lib/types";
 import type { PipelinePosition } from "../lib/pipeline";
@@ -43,6 +44,9 @@ export default function SiteDetail() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [openModal, setOpenModal] = useState<ModalKind>(null);
   const [mapView, setMapView] = useState<"satellite" | "map">("satellite");
+  // Auto-Geocoding wenn die Baustelle nur Adresse hat, keine GPS-Koordinaten
+  const [geocoded, setGeocoded] = useState<{ lat: number; lng: number } | null>(null);
+  const [geocoding, setGeocoding] = useState(false);
 
   async function refresh() {
     if (!id) return;
@@ -74,6 +78,30 @@ export default function SiteDetail() {
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
   useRealtime(`site-detail-${id}`, ["entry_photos", "entries", "sites", "site_invoices", "pipeline_cards"], refresh);
   useRefreshOnVisible(refresh);
+
+  // Auto-Geocoding: wenn keine GPS-Koordinaten in der DB sind, aber eine
+  // Adresse da ist, fragen wir Nominatim und persistieren das Ergebnis.
+  useEffect(() => {
+    if (!site || site.geo) { setGeocoded(null); return; }
+    if (!site.street && !site.city) return;
+    let cancelled = false;
+    setGeocoding(true);
+    geocodeAddress({ street: site.street, zip: (site as any).zip, city: site.city })
+      .then(async (hit) => {
+        if (cancelled || !hit) return;
+        setGeocoded({ lat: hit.lat, lng: hit.lng });
+        // Persistieren — schlägt nichts an der UI an, schreibt nur zurück
+        if (isBackendConnected() && supabase) {
+          const sb: any = supabase;
+          await sb.from("sites")
+            .update({ geo_lat: hit.lat, geo_lng: hit.lng })
+            .eq("id", site.id)
+            .then((r: any) => r.error && console.warn("geocode persist", r.error));
+        }
+      })
+      .finally(() => { if (!cancelled) setGeocoding(false); });
+    return () => { cancelled = true; };
+  }, [site?.id, site?.geo, site?.street, site?.city]);
 
   const workerMap = useMemo(() => {
     const m = new Map<string, Worker>();
@@ -126,17 +154,20 @@ export default function SiteDetail() {
   const latestPhoto = photos[0];
   const mapAddr = [site.street, site.city].filter(Boolean).join(", ");
 
+  // Effektive Koordinaten: explizit gesetzt oder via Geocoding ermittelt
+  const effectiveGeo = site.geo ?? geocoded;
+
   // OSM-iframe-Bbox um den Mittelpunkt — 0.03° = ~3 km radius
-  const mapSrc = site.geo
-    ? `https://www.openstreetmap.org/export/embed.html?bbox=${site.geo.lng-0.03}%2C${site.geo.lat-0.02}%2C${site.geo.lng+0.03}%2C${site.geo.lat+0.02}&layer=mapnik&marker=${site.geo.lat}%2C${site.geo.lng}`
+  const mapSrc = effectiveGeo
+    ? `https://www.openstreetmap.org/export/embed.html?bbox=${effectiveGeo.lng-0.03}%2C${effectiveGeo.lat-0.02}%2C${effectiveGeo.lng+0.03}%2C${effectiveGeo.lat+0.02}&layer=mapnik&marker=${effectiveGeo.lat}%2C${effectiveGeo.lng}`
     : mapAddr
       ? `https://www.openstreetmap.org/export/embed.html?bbox=6.5%2C53.0%2C7.5%2C53.4&layer=mapnik`
       : null;
 
   // Satelliten-Bild (ESRI World Imagery, kostenlos, kein API-Key nötig).
   // Bbox um die GPS-Koordinaten — engerer Crop als die Straßenkarte (Detail).
-  const satSrc = site.geo
-    ? `https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${site.geo.lng-0.0015}%2C${site.geo.lat-0.001}%2C${site.geo.lng+0.0015}%2C${site.geo.lat+0.001}&bboxSR=4326&size=900,500&imageSR=4326&format=jpg&f=image`
+  const satSrc = effectiveGeo
+    ? `https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${effectiveGeo.lng-0.0015}%2C${effectiveGeo.lat-0.001}%2C${effectiveGeo.lng+0.0015}%2C${effectiveGeo.lat+0.001}&bboxSR=4326&size=900,500&imageSR=4326&format=jpg&f=image`
     : null;
 
   return (
@@ -184,7 +215,7 @@ export default function SiteDetail() {
             )}
 
             {/* Toggle Karte / Satellit (oben rechts) */}
-            {site.geo && (
+            {effectiveGeo && (
               <div className="absolute right-3 top-3 bg-bg-deep/92 backdrop-blur rounded-md flex overflow-hidden text-[10.5px] font-mono uppercase tracking-wider">
                 <button
                   onClick={() => setMapView("satellite")}
@@ -198,15 +229,33 @@ export default function SiteDetail() {
             )}
 
             {/* Marker-Overlay (nur Satellit, weil OSM-iframe schon einen hat) */}
-            {mapView === "satellite" && site.geo && (
+            {mapView === "satellite" && effectiveGeo && (
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full pointer-events-none">
                 <div className="text-[26px] drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]" style={{ color: "#DC6E2D" }}>⌖</div>
               </div>
             )}
 
+            {/* Geocoding-Hinweis */}
+            {geocoding && (
+              <div className="absolute inset-x-0 top-0 bg-copper/90 text-white text-center font-mono text-[10.5px] uppercase tracking-wider py-1.5">
+                Adresse wird auf der Karte gesucht …
+              </div>
+            )}
+            {!effectiveGeo && !geocoding && (site.street || site.city) && (
+              <div className="absolute inset-0 grid place-items-center bg-bg-3/95 font-mono text-[11px] text-ink-2 text-center px-4">
+                Adresse <b className="text-ink">{[site.street, site.city].filter(Boolean).join(", ")}</b><br />
+                konnte nicht auf der Karte gefunden werden — bitte GPS-Koordinaten manuell eintragen.
+              </div>
+            )}
+
             <div className="absolute left-3 bottom-3 bg-bg-deep/95 backdrop-blur text-white px-3 py-1.5 rounded-md font-mono text-[10.5px] tracking-wider flex items-center gap-2">
               <span className="text-copper">⌖</span> <b className="text-copper">{site.name}</b>
-              {site.geo && <span className="text-steel">· {site.geo.lat.toFixed(4)}, {site.geo.lng.toFixed(4)}</span>}
+              {effectiveGeo && (
+                <span className="text-steel">
+                  · {effectiveGeo.lat.toFixed(4)}, {effectiveGeo.lng.toFixed(4)}
+                  {!site.geo && geocoded && <span className="ml-1 text-copper-bright">(geocoded)</span>}
+                </span>
+              )}
             </div>
           </div>
 
