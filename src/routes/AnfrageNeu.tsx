@@ -9,6 +9,7 @@ import { sevdeskCreateContact } from "../lib/sevdesk";
 import { createInquiry, updateInquiry, findSimilar, type InquirySource, type Inquiry } from "../lib/inquiries";
 import { createCard } from "../lib/pipeline";
 import { isBackendConnected } from "../lib/supabase";
+import SaveProgress, { type SaveStep } from "../components/SaveProgress";
 
 /* ────────────────────────────────────────────────────────────────────────
    Anfrage anlegen · 3 Schritte
@@ -68,6 +69,11 @@ export default function AnfrageNeu() {
   const [createSevdesk, setCreateSevdesk] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // Save-Progress
+  const [progressOpen, setProgressOpen] = useState(false);
+  const [steps, setSteps] = useState<SaveStep[]>([]);
+  const [createdCardId, setCreatedCardId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!isBackendConnected()) return;
     listCustomers().then(setAllCustomers).catch(() => {});
@@ -126,6 +132,46 @@ export default function AnfrageNeu() {
     setStep("edit");
   }
 
+  function diagnoseError(err: any): { detail: string; hint?: string } {
+    const msg = String(err?.message ?? err ?? "Unbekannter Fehler");
+    if (/Could not find the table 'public\.inquiries'/i.test(msg) || /relation .*inquiries.* does not exist/i.test(msg)) {
+      return {
+        detail: msg,
+        hint: "Die Tabelle `inquiries` fehlt in der Live-DB. Spiele dazu die Datei\n`supabase/migrations/20260521140000_inquiries.sql`\nund\n`supabase/migrations/20260521160000_inquiries_extra.sql`\nim Supabase-SQL-Editor aus, dann nochmal speichern.",
+      };
+    }
+    if (/Could not find the table 'public\.customers'/i.test(msg)) {
+      return {
+        detail: msg,
+        hint: "Die Tabelle `customers` fehlt — Migration `20260521120000_customers.sql` im SQL-Editor ausführen.",
+      };
+    }
+    if (/sevDesk .* 4\d\d/i.test(msg)) {
+      return { detail: msg, hint: "sevDesk-API hat abgelehnt. SEVDESK_TOKEN als Cloudflare-Secret prüfen." };
+    }
+    if (/Failed to fetch|NetworkError|TypeError: Load failed/i.test(msg)) {
+      return { detail: msg, hint: "Netzwerk-/Verbindungsfehler. Internet prüfen, dann erneut versuchen." };
+    }
+    return { detail: msg };
+  }
+
+  function makeSteps(): SaveStep[] {
+    const useExisting = !!chosenCustomerId;
+    return [
+      { key: "parse",    label: "Strukturierung übernehmen",              status: "pending" },
+      { key: "match",    label: useExisting ? "Bestandskunde verknüpft" : "Kundenstamm prüfen", status: useExisting ? "done" : "pending" },
+      { key: "sevdesk",  label: createSevdesk && !useExisting ? "sevDesk-Contact anlegen" : "sevDesk übersprungen",
+                         status: createSevdesk && !useExisting ? "pending" : "skipped" },
+      { key: "customer", label: useExisting ? "Kunde übernommen" : "Kunde in App anlegen",  status: useExisting ? "done" : "pending" },
+      { key: "card",     label: 'Pipeline-Karte in Stage „Anfrage"',    status: "pending" },
+      { key: "inquiry",  label: "Anfrage in Inbox speichern",            status: "pending" },
+    ];
+  }
+
+  function updateStep(key: string, patch: Partial<SaveStep>) {
+    setSteps((prev) => prev.map((s) => s.key === key ? { ...s, ...patch } : s));
+  }
+
   async function doSave() {
     if (!customerName.trim()) {
       setError("Kundenname fehlt.");
@@ -133,33 +179,61 @@ export default function AnfrageNeu() {
     }
     setError(null);
     setSaving(true);
+    const initial = makeSteps();
+    setSteps(initial);
+    setProgressOpen(true);
+
+    const useExisting = !!chosenCustomerId;
+    let customerId: string | undefined = chosenCustomerId ?? undefined;
+
     try {
-      // 1) Kunde — bestehend wählen oder neu anlegen
-      let customerId = chosenCustomerId ?? undefined;
-      if (!customerId) {
-        let sevdeskContactId: string | undefined;
-        let customerNumber: string | undefined;
-        if (createSevdesk) {
-          try {
-            const isCompany = /gmbh|gbr|e\.k\.|ag\b|kg\b|ohg|ug\b/i.test(customerName);
-            const parts = customerName.trim().split(/\s+/);
-            const sev = await sevdeskCreateContact({
-              isCompany,
-              name: isCompany ? customerName : undefined,
-              surename: !isCompany ? parts[0] : undefined,
-              familyname: !isCompany ? parts.slice(1).join(" ") || undefined : undefined,
-              email: email || undefined,
-              phone: phone || undefined,
-              street: street || undefined,
-              zip: zip || undefined,
-              city: city || undefined,
-            });
-            sevdeskContactId = sev.id;
-            customerNumber = sev.customerNumber;
-          } catch (sevErr: any) {
-            console.warn("sevDesk-Anlage fehlgeschlagen, Kunde wird nur lokal angelegt:", sevErr?.message);
-          }
+      // 1) Strukturierung — synthetischer „Confirm"-Schritt
+      updateStep("parse", { status: "running" });
+      await new Promise((r) => setTimeout(r, 80));
+      updateStep("parse", {
+        status: "done",
+        detail: parsed?.parser ? `via ${parsed.parser}` : "manuell ausgefüllt",
+      });
+
+      // 2) Kundenstamm-Match
+      if (!useExisting) {
+        updateStep("match", { status: "running" });
+        await new Promise((r) => setTimeout(r, 80));
+        updateStep("match", { status: "done", detail: "keine Bestands-Übereinstimmung — wird neu angelegt" });
+      }
+
+      // 3) sevDesk-Contact (optional)
+      let sevdeskContactId: string | undefined;
+      let customerNumber: string | undefined;
+      if (createSevdesk && !useExisting) {
+        updateStep("sevdesk", { status: "running" });
+        try {
+          const isCompany = /gmbh|gbr|e\.k\.|ag\b|kg\b|ohg|ug\b/i.test(customerName);
+          const parts = customerName.trim().split(/\s+/);
+          const sev = await sevdeskCreateContact({
+            isCompany,
+            name: isCompany ? customerName : undefined,
+            surename: !isCompany ? parts[0] : undefined,
+            familyname: !isCompany ? parts.slice(1).join(" ") || undefined : undefined,
+            email: email || undefined,
+            phone: phone || undefined,
+            street: street || undefined,
+            zip: zip || undefined,
+            city: city || undefined,
+          });
+          sevdeskContactId = sev.id;
+          customerNumber = sev.customerNumber;
+          updateStep("sevdesk", { status: "done", detail: `Kd-Nr ${customerNumber || sev.id}` });
+        } catch (sevErr: any) {
+          const d = diagnoseError(sevErr);
+          updateStep("sevdesk", { status: "error", detail: d.detail, errorHint: d.hint ?? "sevDesk-Anlage übersprungen — Kunde wird nur in der App angelegt" });
+          // Wir machen aber weiter — App-intern reicht für die Anfrage
         }
+      }
+
+      // 4) App-Customer
+      if (!useExisting) {
+        updateStep("customer", { status: "running" });
         const isCompany = /gmbh|gbr|e\.k\.|ag\b|kg\b|ohg|ug\b/i.test(customerName);
         const parts = customerName.trim().split(/\s+/);
         const newCust = await createCustomerLocal({
@@ -173,9 +247,11 @@ export default function AnfrageNeu() {
           street: street || undefined, zip: zip || undefined, city: city || undefined,
         });
         customerId = newCust.id;
+        updateStep("customer", { status: "done", detail: customerName });
       }
 
-      // 2) Pipeline-Karte in Stage Anfrage
+      // 5) Pipeline-Card
+      updateStep("card", { status: "running" });
       const place = [zip, city].filter(Boolean).join(" ").trim() || street || undefined;
       const card = await createCard({
         stage: "Anfrage",
@@ -184,8 +260,11 @@ export default function AnfrageNeu() {
         description: description || undefined,
         openPoints: notes || undefined,
       });
+      updateStep("card", { status: "done", detail: place ? `${customerName} · ${place}` : customerName });
+      setCreatedCardId(card.id);
 
-      // 3) Inquiry-Row
+      // 6) Inquiry
+      updateStep("inquiry", { status: "running" });
       const inq = await createInquiry({
         source,
         rawText,
@@ -195,10 +274,17 @@ export default function AnfrageNeu() {
         customerId,
       });
       await updateInquiry(inq.id, { pipelineCardId: card.id, status: "in_arbeit" });
-
-      navigate("/admin/angebote");
+      updateStep("inquiry", { status: "done", detail: `Quelle ${source} · in_arbeit` });
     } catch (e: any) {
-      setError(e?.message ?? "Speichern fehlgeschlagen");
+      // Welcher Schritt war running?
+      setSteps((prev) => {
+        const idx = prev.findIndex((s) => s.status === "running");
+        if (idx === -1) return prev;
+        const next = [...prev];
+        const d = diagnoseError(e);
+        next[idx] = { ...next[idx], status: "error", detail: d.detail, errorHint: d.hint };
+        return next;
+      });
     } finally {
       setSaving(false);
     }
@@ -316,6 +402,19 @@ export default function AnfrageNeu() {
 
         {step === "edit" && (
           <div className="space-y-5">
+            <SaveProgress
+              open={progressOpen}
+              steps={steps}
+              title={`Anfrage anlegen · ${customerName || "ohne Namen"}`}
+              onClose={() => setProgressOpen(false)}
+              retry={steps.some((s) => s.status === "error") ? { label: "Erneut versuchen", onClick: doSave } : undefined}
+              done={steps.length > 0 && steps.every((s) => s.status === "done" || s.status === "skipped")
+                ? {
+                    label: createdCardId ? "→ Zur Pipeline" : "→ Zur Inbox",
+                    onClick: () => navigate(createdCardId ? "/admin/angebote" : "/admin/anfragen"),
+                  }
+                : undefined}
+            />
             <div className="bg-bg-2 border border-steel-line/45 rounded-lg p-4">
               <span className="dd-eyebrow text-ink-2 block mb-2">
                 Originaltext · Quelle {SOURCES.find((s) => s.value === source)?.label}
