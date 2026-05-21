@@ -229,9 +229,9 @@ export default function Admin() {
           </button>
         </aside>
 
-        <main className="flex-1 px-5 py-5 lg:px-10 xl:px-14 lg:py-8 w-full">
+        <main className="flex-1 w-full">
           {/* Mobile-Header */}
-          <header className="lg:hidden mb-6 flex items-center justify-between">
+          <header className="lg:hidden px-5 py-4 flex items-center justify-between bg-bg-2 border-b border-steel-line/40">
             <div>
               <Logo />
               <p className="dd-eyebrow text-ink-mute mt-1">{adminLabel}</p>
@@ -239,44 +239,49 @@ export default function Admin() {
             <button onClick={handleLogout} className="dd-eyebrow text-ink-mute">Abmelden</button>
           </header>
 
-          {/* TOP-ROW: Titel + Live-Status + Aktions-Buttons */}
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-7 pb-5 border-b border-ink/10">
-            <div>
-              <span className="dd-eyebrow text-copper block">
-                {new Date().toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long" })} · KW {week}
-              </span>
-              <h1 className="font-display font-black uppercase text-3xl lg:text-4xl mt-1.5 leading-none">
-                Übersicht · So läuft dein Betrieb
-              </h1>
-              {!loading && (
-                <p className={`font-mono text-[11.5px] mt-2 tracking-wide ${isBackendConnected() ? "text-good" : "text-ink-mute"}`}>
-                  {isBackendConnected()
-                    ? `● Live · ${liveCount} Mitarbeiter aktiv · ${activeSites.length} Baustelle${activeSites.length === 1 ? "" : "n"} · ${cards.length} Vorgänge`
-                    : "○ Mock-Modus"}
-                </p>
-              )}
+          {/* STAHL-HEADER · konsistent mit allen anderen Admin-Routen */}
+          <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-5 pb-5 safe-top">
+            <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 flex-wrap">
+              <div>
+                <span className="dd-eyebrow text-copper-bright block">
+                  {new Date().toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long" })} · KW {week}
+                </span>
+                <h1 className="font-display font-black uppercase text-2xl lg:text-3xl xl:text-4xl text-white leading-none mt-1.5">
+                  Übersicht · So läuft dein Betrieb
+                </h1>
+                {!loading && (
+                  <p className={`font-mono text-[11.5px] mt-2 tracking-wide ${isBackendConnected() ? "text-moss-bright" : "text-steel"}`}>
+                    {isBackendConnected()
+                      ? `● Live · ${liveCount} Mitarbeiter aktiv · ${activeSites.length} Baustelle${activeSites.length === 1 ? "" : "n"} · ${cards.length} Vorgänge`
+                      : "○ Mock-Modus"}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Link
+                  to="/admin/anfrage-neu"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md bg-white/10 border border-white/25 text-white text-[12px] font-display font-extrabold uppercase tracking-wide hover:bg-white/20 hover:border-copper-bright transition-colors !min-h-[44px]"
+                  title="Neue Kundenanfrage in die Eingangsbox einfügen — Mail/Telefon/WhatsApp-Text reinpasten, KI strukturiert die Felder"
+                >
+                  ＋ Anfrage
+                </Link>
+                <button
+                  className="inline-flex items-center justify-center px-4 py-2.5 rounded-md bg-white/10 border border-white/25 text-white text-[12px] font-display font-extrabold uppercase tracking-wide hover:bg-white/20 hover:border-copper-bright transition-colors !min-h-[44px]"
+                  title="PDF-Export der aktuellen Wochen-Übersicht — kommt noch"
+                >PDF</button>
+                <Link
+                  to="/admin/zeiterfassung?tab=datev"
+                  className="inline-flex items-center justify-center px-4 py-2.5 rounded-md bg-copper text-white text-[12px] font-display font-extrabold uppercase tracking-wide hover:bg-copper-bright transition-colors !min-h-[44px]"
+                  title="DATEV-Stundenexport: CSV für den Steuerberater (alle Mitarbeiter, alle Lohnarten der Woche)"
+                >
+                  DATEV ↗
+                </Link>
+              </div>
             </div>
-            <div className="flex gap-2 flex-wrap">
-              <Link
-                to="/admin/anfrage-neu"
-                className="btn-ghost !min-h-[44px] !px-4 text-[12px] flex items-center justify-center"
-                title="Neue Kundenanfrage in die Eingangsbox einfügen — Mail/Telefon/WhatsApp-Text reinpasten, KI strukturiert die Felder"
-              >
-                ＋ Anfrage
-              </Link>
-              <button
-                className="btn-ghost !min-h-[44px] !px-4 text-[12px]"
-                title="PDF-Export der aktuellen Wochen-Übersicht — kommt noch"
-              >PDF</button>
-              <Link
-                to="/admin/zeiterfassung?tab=datev"
-                className="btn-primary !min-h-[44px] text-[12px] flex items-center justify-center"
-                title="DATEV-Stundenexport: CSV für den Steuerberater (alle Mitarbeiter, alle Lohnarten der Woche)"
-              >
-                DATEV ↗
-              </Link>
-            </div>
-          </div>
+          </header>
+
+          {/* Module-Grid · jetzt mit eigenem Padding-Wrapper */}
+          <div className="px-5 py-6 lg:px-10 xl:px-14 lg:py-8">
 
           {loadError && (
             <div className="mb-5 bg-rust/15 border border-rust/40 rounded-xl p-4">
@@ -548,6 +553,7 @@ export default function Admin() {
               ＋ Mitarbeiter einladen
             </button>
           </div>
+          </div>{/* /Module-Grid-Wrapper */}
         </main>
       </div>
 
@@ -612,8 +618,11 @@ function Module({ span, eyebrow, title, moreLabel, moreTo, hint, children }: {
     span === "third"   ? "col-span-12 sm:col-span-6 lg:col-span-4" :
     /* quarter */        "col-span-12 sm:col-span-6 lg:col-span-3";
   return (
-    <section className={`${spanCls} dd-card overflow-hidden`} style={{ ["--c" as any]: "#A9AEB3" }}>
-      <header className="px-4 lg:px-5 pt-3.5 pb-2.5 flex items-end justify-between gap-3 border-b border-ink/8">
+    <section
+      className={`${spanCls} dd-card overflow-hidden shadow-[0_2px_8px_rgba(15,17,20,0.06),0_8px_24px_rgba(15,17,20,0.04)] hover:shadow-[0_4px_12px_rgba(15,17,20,0.10),0_12px_32px_rgba(15,17,20,0.06)] transition-shadow duration-200`}
+      style={{ ["--c" as any]: "#DC6E2D" }}
+    >
+      <header className="px-4 lg:px-5 pt-3.5 pb-2.5 flex items-end justify-between gap-3 border-b border-ink/8 relative">
         <div className="min-w-0">
           <div className="dd-eyebrow text-copper flex items-center">
             {eyebrow}
@@ -625,6 +634,8 @@ function Module({ span, eyebrow, title, moreLabel, moreTo, hint, children }: {
           ? <Link to={moreTo} className="font-mono text-[10.5px] tracking-wider text-ink-2 hover:text-copper uppercase whitespace-nowrap">{moreLabel}</Link>
           : <span className="font-mono text-[10.5px] tracking-wider text-ink-mute uppercase whitespace-nowrap">{moreLabel}</span>
         )}
+        {/* Kupfer-Akzentstreifen unten am Header */}
+        <span aria-hidden className="absolute left-0 right-0 bottom-0 h-[1.5px] bg-gradient-to-r from-copper via-copper to-transparent opacity-50" />
       </header>
       {children}
     </section>
