@@ -6,6 +6,7 @@ import {
 } from "../lib/inquiries";
 import { llmStructure, VORGANG_LABEL, VORGANG_COLOR, type Vorgang } from "../lib/llm";
 import BackButton from "../components/BackButton";
+import InlinePopover from "../components/InlinePopover";
 import { isBackendConnected } from "../lib/supabase";
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -19,17 +20,25 @@ const SOURCE_LABEL: Record<InquirySource, string> = {
   letter: "Brief", in_person: "persönlich", web: "Web", other: "andere"
 };
 
-const STATUS_META: Record<InquiryStatus, { label: string; color: string }> = {
-  offen:            { label: "offen",            color: "#DC6E2D" },
-  in_arbeit:        { label: "in Arbeit",        color: "#C9852F" },
-  wurde_zu_angebot: { label: "→ Angebot",        color: "#1F7A3D" },
-  verworfen:        { label: "verworfen",        color: "#6A6E72" }
+const STATUS_META: Record<InquiryStatus, { label: string; color: string; hint: string }> = {
+  offen:            { label: "offen",     color: "#DC6E2D", hint: "Frisch eingegangen, noch nicht angefasst. Klick auf den Badge zeigt Status-Optionen." },
+  in_arbeit:        { label: "in Arbeit", color: "#C9852F", hint: "Du hast die Anfrage schon einmal angefasst (z.B. Notiz, Stamm bearbeitet), aber noch kein Angebot daraus gemacht." },
+  wurde_zu_angebot: { label: "→ Angebot", color: "#1F7A3D", hint: 'Aus der Anfrage wurde eine Angebots-Karte in der Pipeline. Wandert in der Inbox in "verarbeitet".' },
+  verworfen:        { label: "verworfen", color: "#6A6E72", hint: "Anfrage wurde aktiv abgelehnt oder als unbrauchbar markiert (Spam, Doppelt, kein echtes Anliegen)." },
 };
 
-const PRIORITY_META: Record<InquiryPriority, { label: string; color: string; rank: number }> = {
-  hoch:    { label: "hoch",    color: "#B91C1C", rank: 0 },
-  normal:  { label: "normal",  color: "#6A6E72", rank: 1 },
-  niedrig: { label: "niedrig", color: "#9CA3AF", rank: 2 },
+const PRIORITY_META: Record<InquiryPriority, { label: string; color: string; rank: number; hint: string }> = {
+  hoch:    { label: "hoch",    color: "#B91C1C", rank: 0, hint: 'Sofort bearbeiten. Vom Chef so eingestuft oder vom Kunden ausdrücklich gewünscht (z.B. "dringend", "so schnell wie möglich").' },
+  normal:  { label: "normal",  color: "#6A6E72", rank: 1, hint: "Standard-Priorität. Wird in normaler Reihenfolge bearbeitet." },
+  niedrig: { label: "niedrig", color: "#9CA3AF", rank: 2, hint: 'Hat Zeit. Z.B. "erst nächstes Jahr", "in Ruhe", oder Anfrage für etwas das ohnehin nicht in der Saison liegt.' },
+};
+
+const VORGANG_HINT: Record<Vorgang, string> = {
+  angebot:     'Kunde will einen Preis. Klassischer Vertriebs-Vorgang. Von hier geht es weiter zur Pipeline-Karte "Angebot".',
+  termin:      "Kunde will nur einen Termin (Rückruf, Aufmaß, Besichtigung). Kein Angebot direkt verlangt — erst hingehen, dann Angebot machen.",
+  reklamation: "Beschwerde über eine bereits ausgeführte Arbeit. Hoch priorisieren, separater Workflow als bei einer Vertriebs-Anfrage.",
+  material:    "Kunde will nur Material bestellen (Mutterboden, Pflastersteine, etc.). Keine Bauleistung — Logistik-Pfad statt Angebots-Pfad.",
+  sonstiges:   "Klassifikation unklar oder passt in keine andere Kategorie. Im Drawer-Detail prüfen.",
 };
 
 function fmtDate(iso: string): string {
@@ -152,6 +161,15 @@ export default function Anfragen() {
       refresh();
     } catch (e: any) { setError(e?.message); refresh(); }
   }
+  async function setVorgang(i: Inquiry, vorgang: Vorgang) {
+    const newParsed = { ...(i.parsedJson ?? {}), vorgang };
+    setItems((prev) => prev.map((x) => x.id === i.id ? { ...x, parsedJson: newParsed } : x));
+    try {
+      await updateInquiry(i.id, { parsedJson: newParsed });
+      await appendNote(i.id, { kind: "system", text: `Vorgangstyp → ${VORGANG_LABEL[vorgang]}` });
+      refresh();
+    } catch (e: any) { setError(e?.message); refresh(); }
+  }
   async function remove(i: Inquiry) {
     if (!confirm(`Anfrage von „${i.customerName ?? "unbekannt"}" wirklich löschen?`)) return;
     setItems((prev) => prev.filter((x) => x.id !== i.id));
@@ -203,6 +221,7 @@ export default function Anfragen() {
             )}
           </div>
           <FilterSelect
+            title="Filter nach Bearbeitungs-Status. Default: offen + in Arbeit (alles was noch dein Zutun braucht)."
             value={fStatus} onChange={(v) => setParam("status", v)}
             options={[
               { value: "open",             label: "offen / Arbeit" },
@@ -212,6 +231,7 @@ export default function Anfragen() {
             ]}
           />
           <FilterSelect
+            title="Filter nach Vorgangstyp. Reklamation getrennt sehen, oder nur Material-Bestellungen."
             value={fVorgang} onChange={(v) => setParam("vorgang", v)}
             options={[
               { value: "",            label: "alle Vorgänge" },
@@ -223,6 +243,7 @@ export default function Anfragen() {
             ]}
           />
           <FilterSelect
+            title="Filter nach Eingangs-Kanal (Mail, Telefon, WhatsApp, Brief, persönlich, Web, andere)."
             value={fSource} onChange={(v) => setParam("source", v)}
             options={[
               { value: "",          label: "alle Quellen" },
@@ -230,6 +251,7 @@ export default function Anfragen() {
             ]}
           />
           <FilterSelect
+            title="Filter nach Priorität — sieh dir nur die hochprioren Sachen an wenn es eilt."
             value={fPriority} onChange={(v) => setParam("priority", v)}
             options={[
               { value: "",        label: "alle Prio" },
@@ -239,6 +261,7 @@ export default function Anfragen() {
             ]}
           />
           <FilterSelect
+            title="Sortier-Reihenfolge: Neueste zuerst (Standard), Älteste zuerst (Aufräum-Modus), oder nach Priorität gruppiert."
             value={sort} onChange={(v) => setParam("sort", v)}
             options={[
               { value: "neu",  label: "Neueste zuerst" },
@@ -268,6 +291,9 @@ export default function Anfragen() {
                 inquiry={i}
                 active={detail?.id === i.id}
                 onOpen={() => setDetail(i)}
+                onSetStatus={(s) => setStatus(i, s)}
+                onSetPriority={(p) => setPriority(i, p)}
+                onSetVorgang={(v) => setVorgang(i, v)}
               />
             ))}
           </ul>
@@ -291,15 +317,18 @@ export default function Anfragen() {
 /* ── Komponenten ────────────────────────────────────────────────────────── */
 
 function FilterSelect({
-  value, onChange, options
+  value, onChange, options, title,
 }: {
   value: string; onChange: (v: string) => void;
   options: { value: string; label: string }[];
+  title?: string;
 }) {
   return (
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      title={title}
+      aria-label={title}
       className="bg-white/[0.08] border-[1.5px] border-white/20 rounded-lg px-3 py-2 text-[12px] text-white font-sans focus:outline-none focus:border-copper-bright"
     >
       {options.map((o) => (
@@ -327,45 +356,128 @@ function EmptyState({ hasItems }: { hasItems: boolean }) {
 }
 
 function InquiryRow({
-  inquiry: i, active, onOpen
+  inquiry: i, active, onOpen, onSetStatus, onSetPriority, onSetVorgang,
 }: {
   inquiry: Inquiry; active: boolean; onOpen: () => void;
+  onSetStatus: (s: InquiryStatus) => void;
+  onSetPriority: (p: InquiryPriority) => void;
+  onSetVorgang: (v: Vorgang) => void;
 }) {
   const sMeta = STATUS_META[i.status];
   const pMeta = PRIORITY_META[i.priority];
   const vorgang = (i.parsedJson?.vorgang as Vorgang | undefined);
+
+  // Aria-Label für Screenreader · komplette Karten-Info in einem Satz
+  const ariaLabel = [
+    `Anfrage von ${i.customerName || "unbekannt"}`,
+    `Eingang ${fmtDate(i.createdAt)}`,
+    `Quelle ${SOURCE_LABEL[i.source] ?? i.source}`,
+    `Status: ${sMeta.label}`,
+    `Priorität: ${pMeta.label}`,
+    vorgang ? `Vorgang: ${VORGANG_LABEL[vorgang]}` : "",
+  ].filter(Boolean).join(", ");
+
   return (
     <li
       onClick={onOpen}
-      className={`bg-white border rounded-lg px-4 py-3 cursor-pointer transition-colors ${
-        active ? "border-copper shadow-sm" : "border-steel-line/45 hover:border-copper/60"
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(); } }}
+      role="button"
+      tabIndex={0}
+      aria-label={ariaLabel}
+      aria-pressed={active}
+      className={`bg-white border rounded-lg px-4 py-3 cursor-pointer transition-all duration-150 ${
+        active
+          ? "border-copper shadow-md ring-1 ring-copper/30"
+          : "border-steel-line/45 hover:border-copper/60 hover:shadow-md"
       }`}
     >
       <div className="flex items-start gap-3">
-        <div
-          className="w-1 self-stretch rounded-sm flex-shrink-0"
-          style={{ background: pMeta.color }}
-          title={`Priorität ${pMeta.label}`}
+        {/* Priostrich — klickbar mit Popover */}
+        <InlinePopover<InquiryPriority>
+          ariaLabel={`Priorität ändern. Aktuell: ${pMeta.label}. ${pMeta.hint}`}
+          title="Priorität setzen"
+          options={(["hoch", "normal", "niedrig"] as InquiryPriority[]).map((p) => ({
+            value: p,
+            label: PRIORITY_META[p].label,
+            color: PRIORITY_META[p].color,
+            hint: PRIORITY_META[p].hint,
+            active: i.priority === p,
+          }))}
+          onSelect={onSetPriority}
+          trigger={
+            <span
+              className="w-1 self-stretch min-h-[44px] rounded-sm flex-shrink-0 block"
+              style={{ background: pMeta.color }}
+              title={`Priorität ${pMeta.label} — ${pMeta.hint} (klicken zum Ändern)`}
+            />
+          }
         />
+
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <span className="font-mono text-[9.5px] uppercase font-bold px-2 py-0.5 rounded-full" style={{ background: sMeta.color, color: "#fff" }}>
-              {sMeta.label}
-            </span>
+            {/* Status-Badge — klickbar mit Popover */}
+            <InlinePopover<InquiryStatus>
+              ariaLabel={`Status ändern. Aktuell: ${sMeta.label}. ${sMeta.hint}`}
+              title="Status ändern"
+              options={(["offen", "in_arbeit", "wurde_zu_angebot", "verworfen"] as InquiryStatus[]).map((s) => ({
+                value: s,
+                label: STATUS_META[s].label,
+                color: STATUS_META[s].color,
+                hint: STATUS_META[s].hint,
+                active: i.status === s,
+              }))}
+              onSelect={onSetStatus}
+              trigger={
+                <span
+                  className="font-mono text-[9.5px] uppercase font-bold px-2 py-0.5 rounded-full inline-block"
+                  style={{ background: sMeta.color, color: "#fff" }}
+                  title={`Status: ${sMeta.label} — ${sMeta.hint} (klicken zum Ändern)`}
+                >
+                  {sMeta.label}
+                </span>
+              }
+            />
+
+            {/* Vorgangs-Badge — klickbar mit Popover (auch korrigierbar wenn das LLM falsch klassifiziert hat) */}
             {vorgang && (
-              <span
-                className="font-mono text-[9.5px] uppercase font-bold px-2 py-0.5 rounded-full"
-                style={{ background: VORGANG_COLOR[vorgang] + "22", color: VORGANG_COLOR[vorgang], border: `1px solid ${VORGANG_COLOR[vorgang]}55` }}
-                title={`Vorgangstyp: ${VORGANG_LABEL[vorgang]}`}
-              >
-                {VORGANG_LABEL[vorgang]}
-              </span>
+              <InlinePopover<Vorgang>
+                ariaLabel={`Vorgangstyp ändern. Aktuell: ${VORGANG_LABEL[vorgang]}. ${VORGANG_HINT[vorgang]}`}
+                title="Vorgangstyp korrigieren"
+                options={(["angebot", "termin", "reklamation", "material", "sonstiges"] as Vorgang[]).map((v) => ({
+                  value: v,
+                  label: VORGANG_LABEL[v],
+                  color: VORGANG_COLOR[v],
+                  hint: VORGANG_HINT[v],
+                  active: vorgang === v,
+                }))}
+                onSelect={onSetVorgang}
+                trigger={
+                  <span
+                    className="font-mono text-[9.5px] uppercase font-bold px-2 py-0.5 rounded-full inline-block"
+                    style={{
+                      background: VORGANG_COLOR[vorgang] + "22",
+                      color: VORGANG_COLOR[vorgang],
+                      border: `1px solid ${VORGANG_COLOR[vorgang]}55`,
+                    }}
+                    title={`Vorgang: ${VORGANG_LABEL[vorgang]} — ${VORGANG_HINT[vorgang]} (klicken zum Korrigieren)`}
+                  >
+                    {VORGANG_LABEL[vorgang]}
+                  </span>
+                }
+              />
             )}
-            <span className="font-mono text-[10.5px] text-ink-2">
+
+            <span
+              className="font-mono text-[10.5px] text-ink-2"
+              title={`Eingegangen am ${fmtFullDate(i.createdAt)} über ${SOURCE_LABEL[i.source] ?? i.source}`}
+            >
               {fmtDate(i.createdAt)} · {SOURCE_LABEL[i.source] ?? i.source}
             </span>
             {i.notesLog.length > 1 && (
-              <span className="font-mono text-[10.5px] text-ink-2">
+              <span
+                className="font-mono text-[10.5px] text-ink-2"
+                title={`Verlauf: ${i.notesLog.length} Einträge (Notizen, Status-Wechsel). Drawer öffnen für Details.`}
+              >
                 · {i.notesLog.length - 1} Eintr{i.notesLog.length === 2 ? "ag" : "äge"}
               </span>
             )}
@@ -374,12 +486,39 @@ function InquiryRow({
             <div className="font-sans font-bold text-[14.5px] text-ink truncate">
               {i.customerName || <span className="text-ink-2 italic">ohne Namen</span>}
             </div>
-            {i.city && <span className="font-sans text-[12px] text-ink-2">{i.city}</span>}
-            {i.customerPhone && <span className="font-mono text-[11px] text-ink-2" title="Festnetz">☏ {i.customerPhone}</span>}
-            {i.parsedJson?.phone_mobile && <span className="font-mono text-[11px] text-ink-2" title="Mobil">📱 {i.parsedJson.phone_mobile}</span>}
+            {i.city && (
+              <span className="font-sans text-[12px] text-ink-2" title={`Ort: ${i.city}`}>
+                {i.city}
+              </span>
+            )}
+            {i.customerPhone && (
+              <a
+                href={`tel:${i.customerPhone.replace(/[^\d+]/g, "")}`}
+                onClick={(e) => e.stopPropagation()}
+                className="font-mono text-[11px] text-ink-2 hover:text-copper transition-colors"
+                title="Festnetz · klicken um anzurufen"
+              >
+                ☏ {i.customerPhone}
+              </a>
+            )}
+            {i.parsedJson?.phone_mobile && (
+              <a
+                href={`tel:${String(i.parsedJson.phone_mobile).replace(/[^\d+]/g, "")}`}
+                onClick={(e) => e.stopPropagation()}
+                className="font-mono text-[11px] text-ink-2 hover:text-copper transition-colors"
+                title="Mobil · klicken um anzurufen"
+              >
+                📱 {i.parsedJson.phone_mobile}
+              </a>
+            )}
           </div>
           {i.description && (
-            <div className="font-sans text-[12.5px] text-ink-2 line-clamp-2 mt-0.5">{i.description}</div>
+            <div
+              className="font-sans text-[12.5px] text-ink-2 line-clamp-2 mt-0.5"
+              title={i.description}
+            >
+              {i.description}
+            </div>
           )}
         </div>
       </div>
