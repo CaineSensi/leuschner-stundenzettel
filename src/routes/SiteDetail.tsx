@@ -202,6 +202,13 @@ export default function SiteDetail() {
                 lng={effectiveGeo.lng}
                 label={site.name}
                 className="w-full h-full min-h-[280px]"
+                onMove={async (la, ln) => {
+                  setGeocoded({ lat: la, lng: ln });
+                  if (isBackendConnected() && supabase) {
+                    const sb: any = supabase;
+                    await sb.from("sites").update({ geo_lat: la, geo_lng: ln }).eq("id", site.id);
+                  }
+                }}
               />
             ) : mapSrc ? (
               <iframe src={mapSrc} loading="lazy" className="w-full h-full min-h-[240px] block border-0" title={`Karte ${site.name}`} />
@@ -658,11 +665,17 @@ async function loadPipelineCardForSite(siteId: string): Promise<OrderRef | null>
 /* ── Leaflet-Satelliten-Karte (Pan + Wheel-Zoom + Marker) ───────────────── */
 
 function LeafletSatellite({
-  lat, lng, label, className
-}: { lat: number; lng: number; label: string; className?: string }) {
+  lat, lng, label, className, onMove
+}: {
+  lat: number; lng: number; label: string; className?: string;
+  onMove?: (lat: number, lng: number) => void;
+}) {
   const ref = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  // onMove über Ref, damit der einmalige Init-Effekt nicht neu rendern muss
+  const onMoveRef = useRef(onMove);
+  useEffect(() => { onMoveRef.current = onMove; }, [onMove]);
 
   // Map einmalig initialisieren
   useEffect(() => {
@@ -687,14 +700,21 @@ function LeafletSatellite({
       }
     ).addTo(map);
 
-    // Orangener Crosshair-Marker
+    // Orangener Crosshair-Marker, draggable
     const icon = L.divIcon({
       className: "leuschner-marker",
-      html: `<div style="color:#DC6E2D;font-size:28px;line-height:1;text-shadow:0 2px 4px rgba(0,0,0,0.7);">⌖</div>`,
+      html: `<div style="color:#DC6E2D;font-size:28px;line-height:1;text-shadow:0 2px 4px rgba(0,0,0,0.7);cursor:grab;">⌖</div>`,
       iconSize: [28, 28],
       iconAnchor: [14, 28],
     });
-    markerRef.current = L.marker([lat, lng], { icon }).addTo(map).bindPopup(label);
+    const marker = L.marker([lat, lng], { icon, draggable: true, autoPan: true })
+      .addTo(map)
+      .bindTooltip(`${label} · ziehen, um Position zu korrigieren`, { direction: "top", offset: [0, -28] });
+    marker.on("dragend", () => {
+      const ll = marker.getLatLng();
+      onMoveRef.current?.(ll.lat, ll.lng);
+    });
+    markerRef.current = marker;
 
     mapRef.current = map;
     return () => {
@@ -705,12 +725,21 @@ function LeafletSatellite({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auf Koordinaten-Änderung: Marker + View nachziehen
+  // Auf Koordinaten-Änderung von außen: Marker + View nachziehen
+  // (NICHT triggern durch eigenen dragend, sonst Endlos-Loop)
   useEffect(() => {
     if (!mapRef.current || !markerRef.current) return;
-    markerRef.current.setLatLng([lat, lng]).setPopupContent(label);
+    const cur = markerRef.current.getLatLng();
+    if (Math.abs(cur.lat - lat) < 1e-7 && Math.abs(cur.lng - lng) < 1e-7) return;
+    markerRef.current.setLatLng([lat, lng]);
     mapRef.current.setView([lat, lng]);
-  }, [lat, lng, label]);
+  }, [lat, lng]);
+
+  // Label-Änderung (z. B. Site umbenannt)
+  useEffect(() => {
+    if (!markerRef.current) return;
+    markerRef.current.setTooltipContent(`${label} · ziehen, um Position zu korrigieren`);
+  }, [label]);
 
   return <div ref={ref} className={className} />;
 }

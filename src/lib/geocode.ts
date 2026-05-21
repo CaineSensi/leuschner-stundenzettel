@@ -48,8 +48,19 @@ export async function geocodeAddress(parts: {
     return cached.hit;
   }
 
-  const q = [...addrParts, parts.country === "de" || !parts.country ? "Deutschland" : parts.country].join(", ");
-  const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
+  // Strukturierte Suche ist deutlich präziser als freie Query, vor allem bei
+  // kleinen Orten und mehrdeutigen Straßennamen.
+  const country = parts.country === "de" || !parts.country ? "Deutschland" : parts.country;
+  const params = new URLSearchParams({
+    format: "json",
+    limit: "3",
+    addressdetails: "1",
+    country,
+  });
+  if (parts.street) params.set("street", parts.street.trim());
+  if (parts.zip)    params.set("postalcode", parts.zip.trim());
+  if (parts.city)   params.set("city", parts.city.trim());
+  const url = `https://nominatim.openstreetmap.org/search?${params.toString()}`;
 
   try {
     const r = await fetch(url, {
@@ -60,7 +71,20 @@ export async function geocodeAddress(parts: {
       }
     });
     if (!r.ok) throw new Error(`Nominatim ${r.status}`);
-    const data = await r.json() as Array<{ lat: string; lon: string; display_name: string }>;
+    let data = await r.json() as Array<{ lat: string; lon: string; display_name: string; importance?: number }>;
+
+    // Fallback: wenn strukturierte Suche nichts findet, freie Query probieren
+    if (data.length === 0 && addrParts.length > 0) {
+      const fallbackQ = [...addrParts, country].join(", ");
+      const r2 = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(fallbackQ)}`, {
+        headers: { Accept: "application/json" },
+      });
+      if (r2.ok) data = await r2.json();
+    }
+
+    // Trefferqualität: bevorzuge denjenigen mit höchstem Nominatim-`importance`-Score
+    data.sort((a, b) => (b.importance ?? 0) - (a.importance ?? 0));
+
     const hit: GeocodeHit | null = data[0]
       ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon), displayName: data[0].display_name }
       : null;
