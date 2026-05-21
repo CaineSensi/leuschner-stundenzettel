@@ -211,9 +211,9 @@ export default function SiteDetail() {
               </div>
             )}
 
-            {/* Toggle Karte / Satellit (oben rechts) */}
+            {/* Toggle Karte / Satellit (oben rechts) — z-[1100] damit über Leaflet-Controls */}
             {effectiveGeo && (
-              <div className="absolute right-3 top-3 bg-bg-deep/92 backdrop-blur rounded-md flex overflow-hidden text-[10.5px] font-mono uppercase tracking-wider">
+              <div className="absolute right-3 top-3 z-[1100] bg-bg-deep/92 backdrop-blur rounded-md flex overflow-hidden text-[10.5px] font-mono uppercase tracking-wider shadow-lg">
                 <button
                   onClick={() => setMapView("satellite")}
                   className={`px-2.5 py-1.5 transition-colors ${mapView === "satellite" ? "bg-copper text-white" : "text-white/70 hover:text-white"}`}
@@ -228,18 +228,18 @@ export default function SiteDetail() {
 
             {/* Geocoding-Hinweis */}
             {geocoding && (
-              <div className="absolute inset-x-0 top-0 bg-copper/90 text-white text-center font-mono text-[10.5px] uppercase tracking-wider py-1.5">
+              <div className="absolute inset-x-0 top-0 z-[1100] bg-copper/90 text-white text-center font-mono text-[10.5px] uppercase tracking-wider py-1.5 shadow">
                 Adresse wird auf der Karte gesucht …
               </div>
             )}
             {!effectiveGeo && !geocoding && (site.street || site.city) && (
-              <div className="absolute inset-0 grid place-items-center bg-bg-3/95 font-mono text-[11px] text-ink-2 text-center px-4">
+              <div className="absolute inset-0 z-[1100] grid place-items-center bg-bg-3/95 font-mono text-[11px] text-ink-2 text-center px-4">
                 Adresse <b className="text-ink">{[site.street, site.city].filter(Boolean).join(", ")}</b><br />
                 konnte nicht auf der Karte gefunden werden — bitte GPS-Koordinaten manuell eintragen.
               </div>
             )}
 
-            <div className="absolute left-3 bottom-3 bg-bg-deep/95 backdrop-blur text-white px-3 py-1.5 rounded-md font-mono text-[10.5px] tracking-wider flex items-center gap-2">
+            <div className="absolute left-3 bottom-3 z-[1100] bg-bg-deep/95 backdrop-blur text-white px-3 py-1.5 rounded-md font-mono text-[10.5px] tracking-wider flex items-center gap-2 shadow-lg">
               <span className="text-copper">⌖</span> <b className="text-copper">{site.name}</b>
               {effectiveGeo && (
                 <span className="text-steel">
