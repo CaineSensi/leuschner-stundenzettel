@@ -559,7 +559,7 @@ const REVIEW_META: Record<ReviewStatus, { dot: string; label: string }> = {
   offen:     { dot: "#A9AEB3", label: "offen" },
   ok:        { dot: "#1F7A3D", label: "OK" },
   kommentar: { dot: "#DC6E2D", label: "Kommentar" },
-  aenderung: { dot: "#B91C1C", label: "Änderung" }
+  aenderung: { dot: "#B45309", label: "Unsicher" }
 };
 
 function DetailDrawer({
@@ -761,8 +761,9 @@ function DetailDrawer({
                                     className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "kommentar" ? "bg-copper text-white border-copper" : "border-steel text-ink-2 hover:border-copper hover:text-copper"}`}
                                     title="Kommentar">💬</button>
                                   <button onClick={() => setReview(p.pos, "aenderung")} disabled={busy}
-                                    className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "aenderung" ? "bg-rust text-white border-rust" : "border-steel text-ink-2 hover:border-rust hover:text-rust"}`}
-                                    title="Änderung erbeten">⚠</button>
+                                    className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "aenderung" ? "bg-amber text-white border-amber" : "border-steel text-ink-2 hover:border-amber hover:text-amber"}`}
+                                    style={rv?.status === "aenderung" ? { background: "#B45309", borderColor: "#B45309", color: "#fff" } : undefined}
+                                    title="Unsicher · noch klären / nachfragen">? Unsicher</button>
                                   {rv && rv.status !== "offen" && (
                                     <button onClick={() => setReview(p.pos, "offen")} disabled={busy}
                                       className="text-[11px] font-mono px-1.5 py-0.5 rounded text-ink-mute hover:text-ink"
@@ -773,7 +774,7 @@ function DetailDrawer({
                               {!released && commenting?.pos === p.pos && (
                                 <div className="mt-2 ml-4 bg-bg-2 border border-copper/40 rounded-md p-2.5">
                                   <div className="dd-eyebrow text-copper mb-1.5">
-                                    {commenting.status === "kommentar" ? "💬 Kommentar zu dieser Position" : "⚠ Was soll geändert werden?"}
+                                    {commenting.status === "kommentar" ? "💬 Kommentar zu dieser Position" : "? Was bist du dir unsicher?"}
                                   </div>
                                   <textarea
                                     value={commenting.text}
@@ -787,7 +788,7 @@ function DetailDrawer({
                                     }}
                                     autoFocus
                                     rows={3}
-                                    placeholder={commenting.status === "kommentar" ? "z.B. Höhe bitte 183 statt 163" : "z.B. Menge anpassen auf 40 lfm"}
+                                    placeholder={commenting.status === "kommentar" ? "z.B. Höhe bitte 183 statt 163" : "z.B. Maße prüfen · Hesse-Preis nachfragen · noch ohne Aufmaß"}
                                     className="w-full bg-white border border-steel-line/45 rounded px-2 py-1.5 text-[12.5px] font-sans focus:outline-none focus:border-copper resize-y"
                                   />
                                   <div className="mt-1.5 flex items-center justify-between gap-2">

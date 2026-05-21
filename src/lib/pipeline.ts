@@ -378,7 +378,7 @@ export async function reviewPosition(
   );
   const label =
     patch.status === "ok" ? "freigegeben"
-    : patch.status === "aenderung" ? "Änderung erbeten"
+    : patch.status === "aenderung" ? "als unsicher markiert"
     : patch.status === "kommentar" ? "kommentiert"
     : "zurückgesetzt";
   const freigabe = mergeFreigabe(card.freigabe, {
