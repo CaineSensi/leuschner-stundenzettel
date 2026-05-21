@@ -94,7 +94,7 @@ export default function InfoTip({
           className="fixed z-[2147483000] pointer-events-none"
           style={{ top: pos.top, left: pos.left, transform }}
         >
-          <div className="bg-ink text-paper text-[11.5px] font-sans leading-snug px-3 py-2 rounded-md shadow-xl max-w-[280px] w-max">
+          <div className="bg-ink text-white text-[11.5px] font-sans leading-snug px-3 py-2 rounded-md shadow-xl max-w-[280px] w-max">
             {text}
           </div>
         </div>,
