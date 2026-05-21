@@ -578,6 +578,9 @@ function DetailDrawer({
   const [busy, setBusy] = useState(false);
   const [revErr, setRevErr] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
+  // Inline-Editor für Position-Kommentare (ersetzt window.prompt, das in
+  // PWA-Standalone — iOS-Home-Screen — unzuverlässig ist)
+  const [commenting, setCommenting] = useState<{ pos: number; status: "kommentar" | "aenderung"; text: string } | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -591,22 +594,27 @@ function DetailDrawer({
   const released = !!card.freigabe?.releasedAt;
   const history = card.freigabe?.history ?? [];
 
-  async function setReview(posNr: number, status: ReviewStatus) {
-    let comment: string | undefined;
-    if (status === "kommentar" || status === "aenderung") {
-      const t = window.prompt(
-        status === "kommentar" ? "Kommentar zu dieser Position:" : "Was soll geändert werden?"
-      );
-      if (t == null) return;
-      comment = t.trim() || undefined;
-    }
+  /** Wird für „ok" und „offen" (Reset) direkt aufgerufen, ohne Kommentar-Eingabe. */
+  async function saveReview(posNr: number, status: ReviewStatus, comment?: string) {
     setBusy(true); setRevErr(null);
     try {
       const r = await reviewPosition(card, posNr, { status, comment }, reviewerName);
       onUpdate({ positions: r.positions, freigabe: r.freigabe });
+      setCommenting(null);
     } catch (e: any) {
       setRevErr(e?.message ?? "Speichern fehlgeschlagen");
     } finally { setBusy(false); }
+  }
+
+  /** Klick auf Status-Button — bei „kommentar"/„aenderung" öffnet Inline-Editor. */
+  function setReview(posNr: number, status: ReviewStatus) {
+    if (status === "kommentar" || status === "aenderung") {
+      const existing = card.positions?.find((p) => p.pos === posNr)?.review;
+      const prefill = existing?.status === status ? (existing.comment ?? "") : "";
+      setCommenting({ pos: posNr, status, text: prefill });
+      return;
+    }
+    saveReview(posNr, status);
   }
 
   async function doRelease() {
@@ -744,7 +752,7 @@ function DetailDrawer({
                                   „{rv.comment}"
                                 </div>
                               )}
-                              {!released && (
+                              {!released && commenting?.pos !== p.pos && (
                                 <div className="mt-1.5 ml-4 flex items-center gap-1">
                                   <button onClick={() => setReview(p.pos, "ok")} disabled={busy}
                                     className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "ok" ? "bg-good text-white border-good" : "border-steel text-ink-2 hover:border-good hover:text-good"}`}
@@ -760,6 +768,44 @@ function DetailDrawer({
                                       className="text-[11px] font-mono px-1.5 py-0.5 rounded text-ink-mute hover:text-ink"
                                       title="Zurücksetzen">↺</button>
                                   )}
+                                </div>
+                              )}
+                              {!released && commenting?.pos === p.pos && (
+                                <div className="mt-2 ml-4 bg-bg-2 border border-copper/40 rounded-md p-2.5">
+                                  <div className="dd-eyebrow text-copper mb-1.5">
+                                    {commenting.status === "kommentar" ? "💬 Kommentar zu dieser Position" : "⚠ Was soll geändert werden?"}
+                                  </div>
+                                  <textarea
+                                    value={commenting.text}
+                                    onChange={(e) => setCommenting({ ...commenting, text: e.target.value })}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Escape") { e.preventDefault(); setCommenting(null); }
+                                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && commenting.text.trim()) {
+                                        e.preventDefault();
+                                        saveReview(p.pos, commenting.status, commenting.text.trim());
+                                      }
+                                    }}
+                                    autoFocus
+                                    rows={3}
+                                    placeholder={commenting.status === "kommentar" ? "z.B. Höhe bitte 183 statt 163" : "z.B. Menge anpassen auf 40 lfm"}
+                                    className="w-full bg-white border border-steel-line/45 rounded px-2 py-1.5 text-[12.5px] font-sans focus:outline-none focus:border-copper resize-y"
+                                  />
+                                  <div className="mt-1.5 flex items-center justify-between gap-2">
+                                    <span className="font-mono text-[10px] text-ink-mute">
+                                      Strg+↵ speichert · Esc bricht ab
+                                    </span>
+                                    <div className="flex gap-1.5">
+                                      <button
+                                        onClick={() => setCommenting(null)}
+                                        className="text-[11px] font-mono px-2 py-1 rounded text-ink-2 hover:text-ink"
+                                      >abbrechen</button>
+                                      <button
+                                        onClick={() => saveReview(p.pos, commenting.status, commenting.text.trim() || undefined)}
+                                        disabled={busy}
+                                        className="text-[11px] font-mono px-2.5 py-1 rounded bg-copper text-white hover:bg-copper-bright disabled:opacity-50"
+                                      >{busy ? "speichere …" : "speichern"}</button>
+                                    </div>
+                                  </div>
                                 </div>
                               )}
                             </td>
