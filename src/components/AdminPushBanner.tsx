@@ -36,9 +36,9 @@ export default function AdminPushBanner() {
   }
 
   return (
-    <div className="surface-steel sticky top-0 z-40">
+    <div className="surface-steel relative z-40">
       <div className="px-5 lg:px-10 xl:px-16 py-2.5 flex items-center gap-4 flex-wrap">
-        <span className="text-xl flex-shrink-0">🔔</span>
+        <span className="text-xl flex-shrink-0" aria-hidden>🔔</span>
         <div className="flex-1 min-w-0">
           <div className="font-display font-black text-[14px] uppercase tracking-tight leading-none text-white">
             Browser-Push noch nicht aktiv
@@ -50,10 +50,16 @@ export default function AdminPushBanner() {
         <button
           onClick={activate}
           disabled={activating}
-          className="px-4 py-2 rounded-md bg-copper text-white font-display font-black uppercase tracking-wide text-[12px] disabled:opacity-60 flex-shrink-0"
+          className="px-4 py-2 rounded-md bg-copper text-white font-display font-black uppercase tracking-wide text-[12px] disabled:opacity-60 flex-shrink-0 hover:bg-copper-bright transition-colors"
         >
           {activating ? "Frage Browser …" : "Jetzt aktivieren"}
         </button>
+        <button
+          onClick={() => setReady(true)}
+          aria-label="Banner ausblenden"
+          title="Banner ausblenden"
+          className="w-8 h-8 rounded-md bg-white/10 border border-white/20 text-white/70 hover:bg-white/20 hover:text-white flex items-center justify-center text-[15px] flex-shrink-0 transition-colors"
+        >✕</button>
       </div>
     </div>
   );

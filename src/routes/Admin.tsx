@@ -14,19 +14,12 @@ import { isBackendConnected } from "../lib/supabase";
 import { currentUser, signOutFully } from "../lib/auth";
 import { isoWeek, todayIso, weekDays, fmtHours, workMinutes } from "../lib/utils";
 import { isWorkEntry, type Entry, type Site, type Worker, type Assignment } from "../lib/types";
+import { BuiltByDollart } from "../components/Logo";
 import InfoTip from "../components/InfoTip";
 
-/* Erklär-Texte je Sidebar/Modul/Stage. Sollen für jemand klingen, der die
- * App zum ersten Mal sieht: kurz, konkret, ohne Insider-Slang. */
-const SB_HINT: Record<string, string> = {
-  uebersicht:    "Diese Seite. Zeigt den Tages-Stand: wer ist heute auf Baustelle, was steht in der Pipeline, welche Aktionen sind offen.",
-  zeiterfassung: "Wochenplanung, erfasste Stunden je Mitarbeiter, Urlaub/Krank und der DATEV-Export für den Steuerberater.",
-  baustellen:    "Liste aller Baustellen — aktive, ruhende, archivierte. Pro Baustelle Adresse, Auftragsnummer, Foto-Galerie, Karte.",
-  angebote:      "Pipeline-Board: Anfrage → Angebot → Versendet → Auftrag → In Arbeit → Abgerechnet. Verknüpft mit sevDesk.",
-  anfragen:      "Eingangsbox für neue Kundenanfragen (Mail, WhatsApp, Telefon). KI strukturiert die Rohnachricht in Felder.",
-  mitarbeiter:   "Mitarbeiter einladen (QR-Code/Link), Telefonnummern pflegen, Geräte-Verknüpfungen verwalten.",
-  auswertung:    "Kommt später: Umsatz pro Baustelle, Stundenproduktivität, saisonale Auslastung.",
-};
+/* Erklär-Texte je Modul/Stage. Sollen für jemand klingen, der die
+ * App zum ersten Mal sieht: kurz, konkret, ohne Insider-Slang.
+ * Sidebar hat keine Tooltips mehr (User-Entscheidung 21.05.2026). */
 const STAGE_HINT: Record<string, string> = {
   "Anfrage":     "Roh eingegangen, noch nicht beziffert. Liegt in der Inbox, wartet auf Aufmaß/Bewertung.",
   "Angebot":     "Angebot in Vorbereitung in sevDesk. Material- und Lohn-Positionen werden kalkuliert.",
@@ -219,23 +212,30 @@ export default function Admin() {
       <div className="lg:flex">
         {/* SIDEBAR · konsolidiert auf 5 Top-Einträge */}
         <aside className="hidden lg:flex flex-col w-60 surface-steel px-5 py-6 sticky top-0 h-screen">
-          <Logo tone="light" />
-          <p className="dd-eyebrow text-steel mt-1.5">{adminLabel}</p>
+          {/* Logo · groß und fett, füllt die Sidebar-Breite spürbar aus */}
+          <Logo tone="light" size="default" className="block" />
+          <p className="dd-eyebrow text-steel mt-2">{adminLabel}</p>
 
           <nav className="mt-10 flex flex-col gap-1">
-            <SbItem icon="●" label="Übersicht" active hint={SB_HINT.uebersicht} />
-            <SbItem icon="◷" label="Zeiterfassung" to="/admin/zeiterfassung" hint={SB_HINT.zeiterfassung} />
-            <SbItem icon="⌂" label="Baustellen" to="/admin/sites" hint={SB_HINT.baustellen} />
-            <SbItem icon="◇" label="Angebote" to="/admin/angebote" hint={SB_HINT.angebote} />
-            <SbItem icon="✉" label="Anfragen" to="/admin/anfragen" hint={SB_HINT.anfragen} />
-            <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} hint={SB_HINT.mitarbeiter} />
+            <SbItem icon="●" label="Übersicht" active />
+            <SbItem icon="◷" label="Zeiterfassung" to="/admin/zeiterfassung" />
+            <SbItem icon="⌂" label="Baustellen" to="/admin/sites" />
+            <SbItem icon="◇" label="Angebote" to="/admin/angebote" />
+            <SbItem icon="✉" label="Anfragen" to="/admin/anfragen" />
+            <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
             <div className="h-px bg-white/8 my-3" />
-            <SbItem icon="▮" label="Auswertung" disabled hint={SB_HINT.auswertung} />
+            <SbItem icon="▮" label="Auswertung" disabled />
           </nav>
 
-          <button onClick={handleLogout} className="mt-auto dd-eyebrow text-steel text-left hover:text-copper-bright transition-colors">
-            ← Abmelden
-          </button>
+          {/* Footer-Block · Abmelden + Doll(ART)-Brand */}
+          <div className="mt-auto flex flex-col gap-4">
+            <button onClick={handleLogout} className="dd-eyebrow text-steel text-left hover:text-copper-bright transition-colors">
+              ← Abmelden
+            </button>
+            <div className="pt-3 border-t border-white/10">
+              <BuiltByDollart />
+            </div>
+          </div>
         </aside>
 
         <main className="flex-1 w-full">
@@ -597,16 +597,18 @@ function SbItem({ icon, label, active, disabled, onClick, to, hint }: {
   icon: string; label: string; active?: boolean; disabled?: boolean;
   onClick?: () => void; to?: string; hint?: string;
 }) {
-  const cls = `flex items-center gap-3 px-3 py-2.5 rounded-lg text-left dd-eyebrow tracking-[.10em] transition-colors ${
+  // Größer, fetter, gut lesbar im Sidebar-Kontext — Display-Schrift wie das
+  // Logo, klare Hierarchie zwischen aktivem und inaktivem Item.
+  const cls = `flex items-center gap-3 px-3 py-3 rounded-lg text-left font-display font-black uppercase text-[15px] tracking-[0.04em] leading-none transition-colors ${
     active ? "bg-copper/22 text-copper-bright"
     : disabled ? "text-white/30 cursor-not-allowed"
-    : "text-steel hover:bg-white/5 hover:text-white"
+    : "text-white/70 hover:bg-white/5 hover:text-white"
   }`;
   const content = (
     <>
-      <span className="w-4 text-center text-base">{icon}</span>
-      <span>{label}</span>
-      {hint && <span className="ml-auto" onClick={(e) => e.stopPropagation()}><InfoTip text={hint} placement="right" tone="light" size={13} /></span>}
+      <span className="w-5 text-center text-[17px] leading-none flex-shrink-0">{icon}</span>
+      <span className="flex-1">{label}</span>
+      {hint && <span className="flex-shrink-0" onClick={(e) => e.stopPropagation()}><InfoTip text={hint} placement="right" tone="light" size={16} /></span>}
       {disabled && <span className="ml-auto font-mono text-[9px] text-white/25 lowercase tracking-wider">bald</span>}
     </>
   );
@@ -670,7 +672,7 @@ function PipeStage({ label, value, tone = "neutral" }: { label: string; value: n
     >
       <div className="font-mono text-[9.5px] tracking-wider text-ink-mute uppercase flex items-center">
         {label}
-        {hint && <InfoTip text={hint} placement="bottom" size={11} />}
+        {hint && <InfoTip text={hint} placement="bottom" size={16} />}
       </div>
       <div className="font-display font-black text-xl leading-none tabular-nums mt-1" style={{ color: t.fg }}>{value}</div>
     </div>

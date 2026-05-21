@@ -2,9 +2,9 @@ import type { Entry, Site, Worker } from "./types";
 
 // IDs in sync mit supabase/seed.sql — gleiche UUIDs wie in der DB
 export const WORKERS: Worker[] = [
-  { id: "00000000-0000-0000-0000-000000000010", initials: "RK", firstName: "Rick",     lastName: "Kohlberg",  role: "Büro · Verwaltung",         isAdmin: true },
-  { id: "00000000-0000-0000-0000-000000000011", initials: "UL", firstName: "Udo",      lastName: "Leuschner", role: "Inhaber · Geschäftsführer" },
-  { id: "00000000-0000-0000-0000-000000000012", initials: "WW", firstName: "Wolfgang", lastName: "Wilken",    role: "Inhaber · Geschäftsführer" },
+  { id: "00000000-0000-0000-0000-000000000010", initials: "RK", firstName: "Rick",     lastName: "Kohlberg",  role: "Admin · Doll(ART)",          isAdmin: true },
+  { id: "00000000-0000-0000-0000-000000000011", initials: "UL", firstName: "Udo",      lastName: "Leuschner", role: "Inhaber" },
+  { id: "00000000-0000-0000-0000-000000000012", initials: "WW", firstName: "Wolfgang", lastName: "Wilken",    role: "Geschäftsführer · Bau-Sparte" },
   { id: "00000000-0000-0000-0000-000000000013", initials: "MJ", firstName: "Mathias",  lastName: "Jauken",    role: "Maschinist · Bagger" }
 ];
 

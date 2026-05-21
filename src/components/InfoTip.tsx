@@ -84,9 +84,28 @@ export default function InfoTip({
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
         aria-label="Hilfe anzeigen"
-        className={`rounded-full font-bold flex items-center justify-center cursor-help leading-none transition-colors ${iconStyle}`}
-        style={{ width: size, height: size, fontSize: Math.max(9, size - 5) }}
-      >?</span>
+        className={`rounded-[3px] flex items-center justify-center cursor-help leading-none transition-colors ${iconStyle}`}
+        style={{ width: size + 2, height: size + 2, padding: 1 }}
+      >
+        {/* Frage-Quadrat · kantig, passt zur Stahl-&-Beton-Sprache (Variante 16
+            aus dem 21.05.2026 Mockup). Quadrat-Container + Fragezeichen innen,
+            currentColor erbt die iconStyle-Textfarbe. */}
+        <svg
+          viewBox="0 0 24 24"
+          width={size}
+          height={size}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect x="3" y="3" width="18" height="18" rx="2" />
+          <path d="M9.5 9.5a2.5 2.5 0 0 1 5 0c0 1.5-1.5 2-2.5 3" />
+          <line x1="12" y1="16" x2="12" y2="16.01" strokeWidth="2.6" />
+        </svg>
+      </span>
 
       {open && pos && createPortal(
         <div
