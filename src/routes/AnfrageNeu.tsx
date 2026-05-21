@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { llmStructure, type ParsedInquiry } from "../lib/llm";
 import {
@@ -6,7 +6,7 @@ import {
   type Customer, type CustomerMatch
 } from "../lib/customers";
 import { sevdeskCreateContact } from "../lib/sevdesk";
-import { createInquiry, updateInquiry, type InquirySource } from "../lib/inquiries";
+import { createInquiry, updateInquiry, findSimilar, type InquirySource, type Inquiry } from "../lib/inquiries";
 import { createCard } from "../lib/pipeline";
 import { isBackendConnected } from "../lib/supabase";
 
@@ -27,6 +27,18 @@ const SOURCES: { value: InquirySource; label: string }[] = [
   { value: "other",     label: "andere" }
 ];
 
+/** Auto-Erkennung der Quelle anhand von Heuristiken im Rohtext. */
+function detectSource(text: string): InquirySource | null {
+  const t = text.toLowerCase();
+  if (/\b(von|from|gesendet|gesendet von)[\s:].*@/.test(t) ||
+      /\bbetreff:|\bsubject:/.test(t)) return "mail";
+  if (/whatsapp|✓✓|✔✔/.test(t)) return "whatsapp";
+  if (/kleinanzeigen|noreply@kleinanzeigen/.test(t)) return "mail";
+  if (/\b(telefonat|rückruf|angerufen|am telefon|telefon-notiz)\b/i.test(text)) return "phone";
+  if (text.length < 180 && !/@/.test(text) && /^[A-Z]/.test(text)) return "whatsapp";
+  return null;
+}
+
 type Step = "paste" | "edit";
 
 export default function AnfrageNeu() {
@@ -37,6 +49,8 @@ export default function AnfrageNeu() {
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState<ParsedInquiry | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [similar, setSimilar] = useState<Inquiry[]>([]);
+  const parseTimer = useRef<number | null>(null);
 
   // Editier-Felder
   const [customerName, setCustomerName] = useState("");
@@ -58,6 +72,23 @@ export default function AnfrageNeu() {
     if (!isBackendConnected()) return;
     listCustomers().then(setAllCustomers).catch(() => {});
   }, []);
+
+  // Auto-Source-Erkennung beim Tippen
+  useEffect(() => {
+    if (!rawText.trim()) return;
+    const guess = detectSource(rawText);
+    if (guess && source === "mail" && step === "paste") setSource(guess);
+  }, [rawText]);
+
+  // Doppel-Check: ähnliche Anfrage in den letzten 7 Tagen?
+  useEffect(() => {
+    if (rawText.trim().length < 40) { setSimilar([]); return; }
+    if (parseTimer.current) window.clearTimeout(parseTimer.current);
+    parseTimer.current = window.setTimeout(() => {
+      findSimilar(rawText).then(setSimilar).catch(() => {});
+    }, 600);
+    return () => { if (parseTimer.current) window.clearTimeout(parseTimer.current); };
+  }, [rawText]);
 
   const matches: CustomerMatch[] = useMemo(() => {
     if (!customerName && !email && !phone) return [];
@@ -226,13 +257,43 @@ export default function AnfrageNeu() {
               <textarea
                 value={rawText}
                 onChange={(e) => setRawText(e.target.value)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && rawText.trim()) {
+                    e.preventDefault();
+                    doParse();
+                  }
+                }}
+                autoFocus
                 placeholder="Hier Rohtext einfügen: kopierte Mail, WhatsApp-Nachricht, Telefonnotiz, abgetippter Brief …"
                 className="w-full min-h-[280px] bg-bg-2 border-[1.5px] border-steel-line/45 rounded-lg p-3.5 text-[14px] font-sans text-ink placeholder:text-ink-2 focus:outline-none focus:border-copper resize-y"
               />
               <p className="font-mono text-[11px] text-ink-2 mt-1.5">
-                {rawText.length} Zeichen
+                {rawText.length} Zeichen · <kbd className="px-1 py-0.5 bg-bg-3 text-[10px] font-mono rounded">Strg+↵</kbd> zum Strukturieren
               </p>
             </div>
+
+            {/* Doppel-Anfrage-Warnung */}
+            {similar.length > 0 && (
+              <div className="bg-amber/10 border border-amber/35 rounded-lg p-3.5">
+                <div className="font-display font-extrabold uppercase text-[12px] text-amber tracking-wide mb-1.5">
+                  ⚠ Ähnliche Anfrage{similar.length === 1 ? "" : "n"} in den letzten 7 Tagen
+                </div>
+                <ul className="space-y-1">
+                  {similar.slice(0, 3).map((s) => (
+                    <li key={s.id} className="font-sans text-[12.5px] text-ink">
+                      <b>{s.customerName ?? "ohne Namen"}</b>
+                      {s.city && <span className="text-ink-2"> · {s.city}</span>}
+                      <span className="font-mono text-[10.5px] text-ink-2 ml-2">
+                        {new Date(s.createdAt).toLocaleDateString("de-DE")}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="font-sans text-[11.5px] text-ink-2 mt-2">
+                  Möglicher Duplikat — vorher in der Inbox prüfen.
+                </p>
+              </div>
+            )}
 
             <div className="flex gap-3">
               <button

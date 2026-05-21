@@ -5,6 +5,7 @@ import {
 } from "../lib/pipeline";
 import { sevdeskCreateOrder, sevdeskNextOrderNumber } from "../lib/sevdesk";
 import { supabase, isBackendConnected } from "../lib/supabase";
+import { updateInquiry, appendNote } from "../lib/inquiries";
 
 /* ────────────────────────────────────────────────────────────────────────
    Angebot-Wizard · macht aus einer „Anfrage"-Karte ein „Angebot"
@@ -122,6 +123,23 @@ export default function AngebotNeu() {
     setRows([...rows, ...t.rows.map((r) => ({ ...r }))]);
   }
 
+  /** Schließt den Kreis Anfrage → Angebot: setzt inquiry.status + Verlaufseintrag. */
+  async function closeInquiryLink(cardId: string, note: string) {
+    if (!isBackendConnected() || !supabase) return;
+    const sb: any = supabase;
+    const { data } = await sb
+      .from("inquiries")
+      .select("id")
+      .eq("pipeline_card_id", cardId)
+      .limit(1);
+    const inqId = data?.[0]?.id;
+    if (!inqId) return;
+    try {
+      await updateInquiry(inqId, { status: "wurde_zu_angebot" });
+      await appendNote(inqId, { kind: "system", text: note });
+    } catch { /* silent — Hauptaktion war schon erfolgreich */ }
+  }
+
   async function saveAsAngebot() {
     if (!card || !isBackendConnected() || !supabase) return;
     setSaving(true); setError(null);
@@ -145,6 +163,7 @@ export default function AngebotNeu() {
         })
         .eq("id", card.id);
       if (upErr) throw upErr;
+      await closeInquiryLink(card.id, `Angebot app-intern angelegt · ${rows.length} Positionen · ${sumNet.toFixed(2)} €`);
       navigate("/admin/angebote");
     } catch (e: any) { setError(e?.message ?? "Speichern fehlgeschlagen"); }
     finally { setSaving(false); }
@@ -195,6 +214,7 @@ export default function AngebotNeu() {
         })
         .eq("id", card.id);
       if (upErr) throw upErr;
+      await closeInquiryLink(card.id, `Angebot ${result.orderNumber} in sevDesk angelegt`);
       navigate("/admin/angebote");
     } catch (e: any) { setError(e?.message ?? "sevDesk-Push fehlgeschlagen"); }
     finally { setPushing(false); }

@@ -8,6 +8,7 @@ import {
   updateWorkerPhone, unlinkWorker
 } from "../lib/api";
 import { listCards, type PipelineCard, type Stage } from "../lib/pipeline";
+import { listInquiries, type Inquiry } from "../lib/inquiries";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { isBackendConnected } from "../lib/supabase";
 import { currentUser, signOutFully } from "../lib/auth";
@@ -35,6 +36,7 @@ export default function Admin() {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [assignmentsToday, setAssignmentsToday] = useState<Assignment[]>([]);
   const [cards, setCards] = useState<PipelineCard[]>([]);
+  const [inquiries, setInquiries] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showInvite, setShowInvite] = useState(false);
@@ -46,18 +48,20 @@ export default function Admin() {
     let cancelled = false;
     (async () => {
       try {
-        const [w, s, e, a, c] = await Promise.all([
+        const [w, s, e, a, c, inq] = await Promise.all([
           listWorkers(),
           listSites().catch(() => [] as Site[]),
           listAllEntries(days[0], days[days.length - 1]).catch(() => [] as Entry[]),
           listAssignmentsForCompany(today, today).catch(() => [] as Assignment[]),
-          listCards({ archived: false }).catch(() => [] as PipelineCard[])
+          listCards({ archived: false }).catch(() => [] as PipelineCard[]),
+          listInquiries({ onlyOpen: true }).catch(() => [] as Inquiry[])
         ]);
         if (cancelled) return;
         setWorkers(w);
         setSites(s);
         setEntries(e);
         setAssignmentsToday(a);
+        setInquiries(inq);
         setCards(c);
       } catch (err: any) {
         if (!cancelled) setLoadError(err?.message ?? "Verbindung fehlgeschlagen");
@@ -69,7 +73,7 @@ export default function Admin() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
-  useRealtime("admin-dashboard", ["workers", "entries", "assignments", "sites", "pipeline_cards"],
+  useRealtime("admin-dashboard", ["workers", "entries", "assignments", "sites", "pipeline_cards", "inquiries"],
     () => setRefreshKey((k) => k + 1));
   useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
 
@@ -357,6 +361,63 @@ export default function Admin() {
                 <div className="col-span-3 font-mono text-[10.5px] tracking-wider text-ink-mute uppercase pt-2 border-t border-ink/8">
                   Zahlen aus sevDesk-Pipeline · Mahnungs-Modul folgt
                 </div>
+              </div>
+            </Module>
+
+            {/* ── ANFRAGEN-INBOX · 1/2 ────────────────────────────────────── */}
+            <Module
+              span="half"
+              eyebrow="Inbox · Vertrieb"
+              title={inquiries.length === 0
+                ? "Inbox leer"
+                : `${inquiries.length} offene Anfrage${inquiries.length === 1 ? "" : "n"}`}
+              moreLabel="Alle Anfragen →"
+              moreTo="/admin/anfragen"
+            >
+              <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
+                {loading ? (
+                  <div className="font-mono text-[11px] text-ink-mute text-center py-4">Lädt …</div>
+                ) : inquiries.length === 0 ? (
+                  <div className="text-center py-5">
+                    <div className="font-display font-black uppercase text-[15px] text-good tracking-tight">✓ alle bearbeitet</div>
+                    <div className="font-mono text-[10.5px] tracking-wider text-ink-mute uppercase mt-1.5 mb-3">
+                      keine offenen Anfragen
+                    </div>
+                    <Link to="/admin/anfrage-neu" className="btn-ghost !min-h-[36px] !px-3 text-[11px] inline-flex items-center">
+                      ＋ Anfrage einfügen
+                    </Link>
+                  </div>
+                ) : (
+                  <>
+                    {inquiries.slice(0, 4).map((i) => {
+                      const prioColor = i.priority === "hoch" ? "#B91C1C" : i.priority === "niedrig" ? "#9CA3AF" : "#6A6E72";
+                      const status = i.status === "in_arbeit" ? "in Arbeit" : "offen";
+                      return (
+                        <Link
+                          key={i.id}
+                          to="/admin/anfragen"
+                          className="flex items-start gap-2.5 px-2.5 py-2 rounded-md hover:bg-bg-2 transition-colors"
+                        >
+                          <span className="w-1 h-10 rounded-sm flex-shrink-0 mt-0.5" style={{ background: prioColor }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="font-sans font-bold text-[13px] text-ink truncate">
+                              {i.customerName || <span className="italic text-ink-2">ohne Namen</span>}
+                            </div>
+                            <div className="font-mono text-[10px] text-ink-2 truncate">
+                              {status} · {i.source} · {new Date(i.createdAt).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" })}
+                              {i.city && ` · ${i.city}`}
+                            </div>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                    {inquiries.length > 4 && (
+                      <div className="font-mono text-[10.5px] text-ink-mute text-center pt-1">
+                        … und {inquiries.length - 4} weitere
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </Module>
 

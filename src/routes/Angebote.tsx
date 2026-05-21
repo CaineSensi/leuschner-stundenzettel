@@ -263,8 +263,12 @@ export default function Angebote() {
             {isArchiv ? "→ Aktives Board" : "Archiv ansehen"}
           </button>
           {!isArchiv && (
-            <button onClick={() => setCreating(true)} className="btn-primary !min-h-[44px] text-[12px]">
-              ＋ Neue Anfrage
+            <button
+              onClick={() => navigate("/admin/anfrage-neu")}
+              className="btn-primary !min-h-[44px] text-[12px] whitespace-nowrap"
+              title="Kundenanfrage einfügen (Mail / WhatsApp / Telefonnotiz)"
+            >
+              ＋ Anfrage einfügen
             </button>
           )}
         </div>
@@ -332,9 +336,18 @@ export default function Angebote() {
                           style={{ background: meta.color, boxShadow: "0 0 0 3px rgba(255,255,255,.10)" }} />
                     {stage}
                   </div>
-                  <span className="font-mono font-bold text-[12px] bg-white/15 text-white px-2.5 py-0.5 rounded-full min-w-[26px] text-center">
-                    {list.length}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {stage === "Anfrage" && (
+                      <button
+                        onClick={() => navigate("/admin/anfrage-neu")}
+                        title="Anfrage einfügen"
+                        className="w-7 h-7 rounded-full bg-copper hover:bg-copper-bright text-white font-bold text-[14px] grid place-items-center transition-colors"
+                      >＋</button>
+                    )}
+                    <span className="font-mono font-bold text-[12px] bg-white/15 text-white px-2.5 py-0.5 rounded-full min-w-[26px] text-center">
+                      {list.length}
+                    </span>
+                  </div>
                 </header>
                 <div className="flex items-center justify-between gap-2 px-3.5 py-2 bg-bg-deep/95 border-b border-steel-line/40">
                   <span className="font-sans text-[11.5px] text-steel">{meta.hint}</span>
