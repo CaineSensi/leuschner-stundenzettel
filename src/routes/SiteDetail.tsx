@@ -44,9 +44,11 @@ export default function SiteDetail() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [openModal, setOpenModal] = useState<ModalKind>(null);
   const [mapView, setMapView] = useState<"satellite" | "map">("satellite");
+  const [satZoom, setSatZoom] = useState(0);     // 0 = Default, +1 = näher, -1 = weiter weg
   // Auto-Geocoding wenn die Baustelle nur Adresse hat, keine GPS-Koordinaten
   const [geocoded, setGeocoded] = useState<{ lat: number; lng: number } | null>(null);
   const [geocoding, setGeocoding] = useState(false);
+  const [satFullscreen, setSatFullscreen] = useState(false);
 
   async function refresh() {
     if (!id) return;
@@ -165,10 +167,14 @@ export default function SiteDetail() {
       : null;
 
   // Satelliten-Bild (ESRI World Imagery, kostenlos, kein API-Key nötig).
-  // Bbox um die GPS-Koordinaten — engerer Crop als die Straßenkarte (Detail).
-  const satSrc = effectiveGeo
-    ? `https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${effectiveGeo.lng-0.0015}%2C${effectiveGeo.lat-0.001}%2C${effectiveGeo.lng+0.0015}%2C${effectiveGeo.lat+0.001}&bboxSR=4326&size=900,500&imageSR=4326&format=jpg&f=image`
-    : null;
+  // Zoom-Faktor: Bbox-Halbradius * 1.6^-zoom — höherer Zoom = engerer Crop = mehr Detail.
+  function satUrl(lat: number, lng: number, zoom: number, size = "900,500") {
+    const halfX = 0.0015 / Math.pow(1.6, zoom);
+    const halfY = 0.001  / Math.pow(1.6, zoom);
+    return `https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export?bbox=${lng-halfX}%2C${lat-halfY}%2C${lng+halfX}%2C${lat+halfY}&bboxSR=4326&size=${size}&imageSR=4326&format=jpg&f=image`;
+  }
+  const satSrc = effectiveGeo ? satUrl(effectiveGeo.lat, effectiveGeo.lng, satZoom) : null;
+  const satSrcFull = effectiveGeo ? satUrl(effectiveGeo.lat, effectiveGeo.lng, satZoom, "1600,1000") : null;
 
   return (
     <div className="min-h-screen safe-bottom">
@@ -200,12 +206,18 @@ export default function SiteDetail() {
         <section className="grid gap-4 lg:grid-cols-[1fr_300px]">
           <div className="relative rounded-2xl overflow-hidden border border-steel-line/45 bg-bg-3 min-h-[240px]">
             {mapView === "satellite" && satSrc ? (
-              <img
-                src={satSrc}
-                alt={`Satellitenbild ${site.name}`}
-                loading="lazy"
-                className="w-full h-full min-h-[240px] object-cover block"
-              />
+              <button
+                onClick={() => setSatFullscreen(true)}
+                title="Klick zum Vergrößern"
+                className="block w-full h-full min-h-[240px] p-0 m-0 border-0 cursor-zoom-in"
+              >
+                <img
+                  src={satSrc}
+                  alt={`Satellitenbild ${site.name}`}
+                  loading="lazy"
+                  className="w-full h-full min-h-[240px] object-cover block"
+                />
+              </button>
             ) : mapSrc ? (
               <iframe src={mapSrc} loading="lazy" className="w-full h-full min-h-[240px] block border-0" title={`Karte ${site.name}`} />
             ) : (
@@ -232,6 +244,30 @@ export default function SiteDetail() {
             {mapView === "satellite" && effectiveGeo && (
               <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-full pointer-events-none">
                 <div className="text-[26px] drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)]" style={{ color: "#DC6E2D" }}>⌖</div>
+              </div>
+            )}
+
+            {/* Zoom-Buttons (nur Satellit) */}
+            {mapView === "satellite" && effectiveGeo && (
+              <div className="absolute right-3 bottom-3 bg-bg-deep/92 backdrop-blur rounded-md overflow-hidden flex flex-col text-white">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setSatZoom((z) => Math.min(4, z + 1)); }}
+                  disabled={satZoom >= 4}
+                  className="w-9 h-9 grid place-items-center hover:bg-white/10 disabled:opacity-30 text-[18px] font-bold border-b border-white/15"
+                  title="Reinzoomen"
+                >＋</button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setSatZoom((z) => Math.max(-2, z - 1)); }}
+                  disabled={satZoom <= -2}
+                  className="w-9 h-9 grid place-items-center hover:bg-white/10 disabled:opacity-30 text-[18px] font-bold border-b border-white/15"
+                  title="Rauszoomen"
+                >−</button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setSatZoom(0); }}
+                  disabled={satZoom === 0}
+                  className="w-9 h-9 grid place-items-center hover:bg-white/10 disabled:opacity-30 text-[10px] font-mono uppercase"
+                  title="Standard-Zoom"
+                >⌂</button>
               </div>
             )}
 
@@ -317,6 +353,17 @@ export default function SiteDetail() {
           />
         </section>
       </main>
+
+      {/* Vollbild-Satellit (Pan via overflow + native Pinch-Zoom auf Touch) */}
+      {satFullscreen && satSrcFull && (
+        <SatelliteFullscreen
+          src={satSrcFull}
+          title={site.name}
+          zoom={satZoom}
+          onZoomChange={setSatZoom}
+          onClose={() => setSatFullscreen(false)}
+        />
+      )}
 
       {/* Modals */}
       {openModal === "positions" && orderRef && (
@@ -662,6 +709,75 @@ async function loadPipelineCardForSite(siteId: string): Promise<OrderRef | null>
     positions: Array.isArray(r.positions) ? r.positions : [],
     sumNet: r.value_eur ?? r.plan_eur ?? null,
   };
+}
+
+/* ── Satellit-Vollbild ──────────────────────────────────────────────────── */
+
+function SatelliteFullscreen({
+  src, title, zoom, onZoomChange, onClose
+}: {
+  src: string; title: string; zoom: number;
+  onZoomChange: (z: number) => void; onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+      if (e.key === "+" || e.key === "=") onZoomChange(Math.min(4, zoom + 1));
+      if (e.key === "-" || e.key === "_") onZoomChange(Math.max(-2, zoom - 1));
+      if (e.key === "0") onZoomChange(0);
+    }
+    window.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+  }, [zoom, onClose, onZoomChange]);
+
+  return (
+    <div className="fixed inset-0 bg-black/95 z-[70] flex flex-col" onClick={onClose}>
+      <header className="flex items-center justify-between px-4 py-3 text-white safe-top" onClick={(e) => e.stopPropagation()}>
+        <div>
+          <div className="font-display font-extrabold uppercase text-[16px]">{title}</div>
+          <div className="font-mono text-[10.5px] text-white/55 tracking-wider uppercase">
+            🛰 Satellit · Zoom {zoom > 0 ? `+${zoom}` : zoom}
+          </div>
+        </div>
+        <button onClick={onClose} className="text-white text-2xl leading-none" aria-label="Schließen">×</button>
+      </header>
+
+      <div
+        className="flex-1 overflow-auto grid place-items-center p-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <img
+          src={src}
+          alt={`Satellitenbild ${title}`}
+          className="max-w-none rounded-lg shadow-2xl"
+          style={{ minWidth: "min(100%, 1600px)" }}
+          draggable={false}
+        />
+      </div>
+
+      <footer className="flex items-center justify-center gap-2 px-4 py-3 safe-bottom" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={() => onZoomChange(Math.max(-2, zoom - 1))}
+          disabled={zoom <= -2}
+          className="w-11 h-11 rounded-full bg-white/15 disabled:opacity-30 text-white font-bold text-[20px]"
+          title="Rauszoomen (−)"
+        >−</button>
+        <button
+          onClick={() => onZoomChange(0)}
+          disabled={zoom === 0}
+          className="px-3 h-11 rounded-full bg-white/15 disabled:opacity-30 text-white font-mono text-[11px] uppercase tracking-wider"
+          title="Standard-Zoom (0)"
+        >Standard</button>
+        <button
+          onClick={() => onZoomChange(Math.min(4, zoom + 1))}
+          disabled={zoom >= 4}
+          className="w-11 h-11 rounded-full bg-white/15 disabled:opacity-30 text-white font-bold text-[20px]"
+          title="Reinzoomen (+)"
+        >＋</button>
+      </footer>
+    </div>
+  );
 }
 
 /* ── PhotoTile + Lightbox (unverändert aus der alten Datei) ─────────────── */
