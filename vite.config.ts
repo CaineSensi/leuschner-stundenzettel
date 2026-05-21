@@ -48,6 +48,17 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    allowedHosts: [".trycloudflare.com", ".ngrok-free.app", "localhost"]
+    allowedHosts: [".trycloudflare.com", ".ngrok-free.app", "localhost"],
+    // Vite-Dev kennt keine Cloudflare-Pages-Functions. Damit das Anfragen-
+    // Modul (/api/llm/structure, /api/sevdesk/*) lokal genauso reagiert wie
+    // im Live-Build, leiten wir /api/* primär an `wrangler pages dev` weiter
+    // (Port 8788, lokaler Functions-Worker mit aktuellem Code). Fallback in
+    // CI/Cloud-Pages: kein Proxy nötig (Functions liegen unter /api/* nativ).
+    proxy: {
+      "/api": {
+        target: "http://localhost:8788",
+        changeOrigin: true,
+      },
+    },
   }
 });

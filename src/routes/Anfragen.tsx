@@ -4,7 +4,8 @@ import {
   listInquiries, updateInquiry, deleteInquiry, appendNote,
   type Inquiry, type InquiryStatus, type InquirySource, type InquiryPriority
 } from "../lib/inquiries";
-import { llmStructure } from "../lib/llm";
+import { llmStructure, VORGANG_LABEL, VORGANG_COLOR, type Vorgang } from "../lib/llm";
+import BackButton from "../components/BackButton";
 import { isBackendConnected } from "../lib/supabase";
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -63,6 +64,7 @@ export default function Anfragen() {
   const fStatus    = params.get("status") ?? "open";  // open = offen+in_arbeit (default)
   const fSource    = params.get("source") ?? "";
   const fPriority  = params.get("priority") ?? "";
+  const fVorgang   = params.get("vorgang") ?? "";
   const sort       = params.get("sort") ?? "neu";
 
   function setParam(k: string, v: string) {
@@ -96,6 +98,7 @@ export default function Anfragen() {
     else if (fStatus && fStatus !== "all") arr = arr.filter((i) => i.status === fStatus);
     if (fSource)   arr = arr.filter((i) => i.source === fSource);
     if (fPriority) arr = arr.filter((i) => i.priority === fPriority);
+    if (fVorgang)  arr = arr.filter((i) => i.parsedJson?.vorgang === fVorgang);
     if (needle) {
       arr = arr.filter((i) =>
         (i.customerName ?? "").toLowerCase().includes(needle) ||
@@ -111,7 +114,7 @@ export default function Anfragen() {
     else if (sort === "prio") arr.sort((a, b) => PRIORITY_META[a.priority].rank - PRIORITY_META[b.priority].rank);
     else arr.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
     return arr;
-  }, [items, q, fStatus, fSource, fPriority, sort]);
+  }, [items, q, fStatus, fSource, fPriority, fVorgang, sort]);
 
   const counts = useMemo(() => {
     const c = { offen: 0, in_arbeit: 0, wurde_zu_angebot: 0, verworfen: 0 };
@@ -160,12 +163,7 @@ export default function Anfragen() {
   return (
     <div className="min-h-screen flex flex-col safe-top">
       <header className="surface-steel px-4 lg:px-8 pt-4 pb-4">
-        <button
-          onClick={() => navigate("/admin")}
-          className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-2 flex items-center gap-2"
-        >
-          <span aria-hidden>←</span><span>Zurück zum Dashboard</span>
-        </button>
+        <BackButton title="Zurück zur Betriebs-Übersicht (Dashboard)" />
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
             <span className="dd-eyebrow text-copper-bright block">Vertrieb · Inbox</span>
@@ -211,6 +209,17 @@ export default function Anfragen() {
               { value: "all",              label: "alle" },
               { value: "wurde_zu_angebot", label: "→ Angebot" },
               { value: "verworfen",        label: "verworfen" }
+            ]}
+          />
+          <FilterSelect
+            value={fVorgang} onChange={(v) => setParam("vorgang", v)}
+            options={[
+              { value: "",            label: "alle Vorgänge" },
+              { value: "angebot",     label: "Angebotsanfrage" },
+              { value: "termin",      label: "Termin / Rückruf" },
+              { value: "reklamation", label: "Reklamation" },
+              { value: "material",    label: "Materialbestellung" },
+              { value: "sonstiges",   label: "Sonstiges" }
             ]}
           />
           <FilterSelect
@@ -324,6 +333,7 @@ function InquiryRow({
 }) {
   const sMeta = STATUS_META[i.status];
   const pMeta = PRIORITY_META[i.priority];
+  const vorgang = (i.parsedJson?.vorgang as Vorgang | undefined);
   return (
     <li
       onClick={onOpen}
@@ -342,6 +352,15 @@ function InquiryRow({
             <span className="font-mono text-[9.5px] uppercase font-bold px-2 py-0.5 rounded-full" style={{ background: sMeta.color, color: "#fff" }}>
               {sMeta.label}
             </span>
+            {vorgang && (
+              <span
+                className="font-mono text-[9.5px] uppercase font-bold px-2 py-0.5 rounded-full"
+                style={{ background: VORGANG_COLOR[vorgang] + "22", color: VORGANG_COLOR[vorgang], border: `1px solid ${VORGANG_COLOR[vorgang]}55` }}
+                title={`Vorgangstyp: ${VORGANG_LABEL[vorgang]}`}
+              >
+                {VORGANG_LABEL[vorgang]}
+              </span>
+            )}
             <span className="font-mono text-[10.5px] text-ink-2">
               {fmtDate(i.createdAt)} · {SOURCE_LABEL[i.source] ?? i.source}
             </span>

@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   listWorkers, listSites, listAllEntries, listAssignmentsForCompany
 } from "../lib/api";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { getHoliday, isHoliday } from "../lib/holidays";
 import { isoWeek, todayIso, weekDays, fmtHours, workMinutes } from "../lib/utils";
-import { isWorkEntry, type Assignment, type Entry, type Site, type Worker } from "../lib/types";
+import { isWorkEntry, DISCIPLINE_LABEL, type Assignment, type Entry, type Site, type Worker } from "../lib/types";
+import {
+  buildExportRows, buildCSV, downloadCSV, csvFilename, aggregate,
+  LOHNART_LABEL, LOHNART_MAPPING, LOHNART_ABSENCE, type ExportRow,
+} from "../lib/datev";
+import BackButton from "../components/BackButton";
 
 /* ────────────────────────────────────────────────────────────────────────
    Zeiterfassung · konsolidierter Tab
@@ -17,11 +22,11 @@ import { isWorkEntry, type Assignment, type Entry, type Site, type Worker } from
 
 type TabKey = "tagesplanung" | "woche" | "datev" | "urlaub";
 
-const TABS: { key: TabKey; num: string; label: string }[] = [
-  { key: "tagesplanung", num: "01", label: "Tagesplanung" },
-  { key: "woche",        num: "02", label: "Wochenübersicht" },
-  { key: "datev",        num: "03", label: "DATEV-Export" },
-  { key: "urlaub",       num: "04", label: "Urlaub & Krank" }
+const TABS: { key: TabKey; num: string; label: string; hint: string }[] = [
+  { key: "tagesplanung", num: "01", label: "Tagesplanung",     hint: "Matrix Mitarbeiter × Wochentag. Zeigt wer wo geplant ist und wo Einträge fehlen." },
+  { key: "woche",        num: "02", label: "Wochenübersicht",  hint: "Summen pro Mitarbeiter, Vergleich Soll/Ist, Lücken-Übersicht." },
+  { key: "datev",        num: "03", label: "DATEV-Export",     hint: "CSV-Export für den Steuerberater mit Lohnarten und Kostenstellen." },
+  { key: "urlaub",       num: "04", label: "Urlaub & Krank",   hint: "Abwesenheiten dieser Woche pro Mitarbeiter, getrennt nach Urlaub und Krankheit." }
 ];
 
 const DAY_LONG  = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
@@ -29,7 +34,6 @@ const DAY_SHORT = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 const MONTH_LONG = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 
 export default function Zeiterfassung() {
-  const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const rawTab = (params.get("tab") ?? "tagesplanung") as TabKey;
   const tab: TabKey = TABS.some((t) => t.key === rawTab) ? rawTab : "tagesplanung";
@@ -123,12 +127,7 @@ export default function Zeiterfassung() {
     <div className="min-h-screen safe-bottom bg-bg-DEFAULT flex flex-col">
       {/* HEADER ─ Stahl-Surface wie Angebote/Plan */}
       <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
-        <button
-          onClick={() => navigate("/admin")}
-          className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-3 flex items-center gap-2"
-        >
-          <span aria-hidden>←</span><span>Zurück zum Dashboard</span>
-        </button>
+        <BackButton title="Zurück zur Betriebs-Übersicht (Dashboard)" />
 
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>
@@ -175,6 +174,7 @@ export default function Zeiterfassung() {
             <button
               key={t.key}
               onClick={() => setTab(t.key)}
+              title={t.hint}
               className={`relative px-5 py-3 -mb-0.5 font-mono text-[12px] tracking-wider uppercase border-b-2 transition-colors ${
                 active
                   ? "border-copper text-ink font-bold bg-gradient-to-b from-white to-bg-2 border-x border-x-steel-line border-t border-t-steel-line rounded-t-md"
@@ -223,7 +223,15 @@ export default function Zeiterfassung() {
             sollMinutes={sollMinutes}
           />
         ) : tab === "datev" ? (
-          <DatevTab week={week} year={year} totalWeekMinutes={totalWeekMinutes} sollMinutes={sollMinutes} />
+          <DatevTab
+            week={week} year={year}
+            totalWeekMinutes={totalWeekMinutes}
+            sollMinutes={sollMinutes}
+            team={team}
+            days={days}
+            entries={entries}
+            sites={sites}
+          />
         ) : (
           <UrlaubKrankTab team={team} entries={entries} days={days} />
         )}
@@ -357,9 +365,9 @@ function Tagesplanung({
           <Link to="/admin/plan" className="btn-ghost !min-h-[44px] !px-5 text-[12px]">
             Tagesplan bearbeiten →
           </Link>
-          <button className="btn-primary !min-h-[44px] text-[12px]">
+          <Link to="/admin/zeiterfassung?tab=datev" className="btn-primary !min-h-[44px] text-[12px] flex items-center">
             DATEV ↗
-          </button>
+          </Link>
         </div>
       </div>
     </>
@@ -541,28 +549,75 @@ function Wochenuebersicht({
 
 /* ──────── TAB 03 · DATEV-Export ──────── */
 
-function DatevTab({ week, year, totalWeekMinutes, sollMinutes }: {
+function DatevTab({
+  week, year, totalWeekMinutes, sollMinutes, team, days, entries, sites,
+}: {
   week: number; year: number; totalWeekMinutes: number; sollMinutes: number;
+  team: Worker[]; days: string[]; entries: Entry[]; sites: Site[];
 }) {
-  return (
-    <div className="max-w-3xl">
-      <div className="dd-card px-6 py-6" style={{ ["--c" as any]: "#DC6E2D" }}>
-        <div className="dd-eyebrow text-copper">DATEV-Export · KW {week} / {year}</div>
-        <h2 className="font-display font-black uppercase text-2xl text-ink mt-1.5">
-          {fmtHours(totalWeekMinutes)} Stunden bereit
-        </h2>
-        <p className="text-[14px] text-ink-body mt-2 leading-relaxed">
-          Wochenstunden werden im ASCII-Format <code className="font-mono text-[12.5px] bg-bg-deep text-copper-bright px-1.5 py-0.5 rounded">EXTF-Lohnimport</code> exportiert,
-          inkl. Mitarbeiternummern, Kostenstellen (Baustellen-Auftragsnummer) und Lohnarten.
-        </p>
+  const [showPreview, setShowPreview] = useState(false);
 
-        <div className="mt-5 grid grid-cols-3 gap-3">
+  const rows = useMemo(
+    () => buildExportRows(days, team, entries, sites),
+    [days, team, entries, sites]
+  );
+  const agg = useMemo(() => aggregate(rows), [rows]);
+  const totalHours = rows.reduce((s, r) => s + r.hours, 0);
+
+  function handleDownload() {
+    if (rows.length === 0) {
+      alert("Für diese Woche gibt es noch keine Stunden zum Exportieren.");
+      return;
+    }
+    const csv = buildCSV(rows);
+    downloadCSV(csvFilename(year, week), csv);
+  }
+
+  return (
+    <div className="max-w-5xl space-y-4">
+      {/* Status-Karte */}
+      <div className="dd-card px-6 py-6" style={{ ["--c" as any]: "#DC6E2D" }}>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <div className="dd-eyebrow text-ink-mute">Σ Stunden</div>
+            <div className="dd-eyebrow text-copper">DATEV-Export · KW {week} / {year}</div>
+            <h2 className="font-display font-black uppercase text-2xl text-ink mt-1.5">
+              {rows.length === 0
+                ? "Noch keine Stunden in dieser Woche"
+                : `${totalHours.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} Stunden in ${rows.length} Zeilen`}
+            </h2>
+            <p className="text-[13.5px] text-ink-body mt-2 leading-relaxed max-w-[640px]">
+              CSV-Export im DATEV-LODAS-Format: Semikolon-getrennt, UTF-8 mit BOM (Excel-tauglich),
+              Komma als Dezimaltrenner. Spalten: Personalnummer · Name · Datum · Lohnart · Stunden
+              · Kostenstelle · Bemerkung.
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 min-w-[180px]">
+            <button
+              onClick={handleDownload}
+              disabled={rows.length === 0}
+              title="Lädt die CSV-Datei mit allen Stunden dieser Woche herunter. Datei kann in Excel oder direkt im DATEV-Lohn-Modul geöffnet werden."
+              className="btn-primary !min-h-[44px] text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ↓ CSV herunterladen
+            </button>
+            <button
+              onClick={() => setShowPreview(true)}
+              disabled={rows.length === 0}
+              title="Öffnet eine Vorschau-Tabelle mit allen Export-Zeilen — siehst genau was in der CSV-Datei landen wird, bevor du sie herunterlädst."
+              className="btn-ghost !min-h-[44px] !px-4 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              Vorschau ansehen
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-5 pt-5 border-t border-ink/10 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div>
+            <div className="dd-eyebrow text-ink-mute">Σ Stunden gebucht</div>
             <div className="font-display font-black text-2xl tabular-nums mt-1">{fmtHours(totalWeekMinutes)}</div>
           </div>
           <div>
-            <div className="dd-eyebrow text-ink-mute">Soll</div>
+            <div className="dd-eyebrow text-ink-mute">Soll Mo–Fr</div>
             <div className="font-display font-black text-2xl tabular-nums mt-1">{fmtHours(sollMinutes)}</div>
           </div>
           <div>
@@ -571,27 +626,144 @@ function DatevTab({ week, year, totalWeekMinutes, sollMinutes }: {
               {sollMinutes > 0 ? Math.round((totalWeekMinutes / sollMinutes) * 100) : 0} %
             </div>
           </div>
-        </div>
-
-        <div className="mt-6 pt-5 border-t border-ink/10 flex items-center gap-3 flex-wrap">
-          <button className="btn-primary !min-h-[44px] text-[12px]">
-            EXTF-Datei erzeugen
-          </button>
-          <button className="btn-ghost !min-h-[44px] !px-4 text-[12px]">
-            Vorschau
-          </button>
+          <div>
+            <div className="dd-eyebrow text-ink-mute">Mitarbeiter im Export</div>
+            <div className="font-display font-black text-2xl tabular-nums mt-1">{agg.perWorker.length}</div>
+          </div>
         </div>
       </div>
 
-      <div className="dd-card px-6 py-5 mt-4" style={{ ["--c" as any]: "#A9AEB3" }}>
-        <div className="dd-eyebrow text-copper">In Vorbereitung</div>
-        <p className="text-[13px] text-ink-body mt-2 leading-relaxed">
-          DATEV-Export-Modul ist verkabelt aber noch nicht scharf — Stunden werden korrekt summiert,
-          die EXTF-Generierung folgt sobald die Lohnart-Mapping-Tabelle (PFL/GTN/ZAU → DATEV-Lohnart)
-          mit dem Steuerberater abgestimmt ist.
-        </p>
+      {/* Lohnart-Mapping (read-only · konfigurierbar im Code, bis StB liefert) */}
+      <div className="dd-card px-6 py-5" style={{ ["--c" as any]: "#C9852F" }}>
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <div className="dd-eyebrow text-bronze">Lohnart-Mapping</div>
+            <p className="text-[12.5px] text-ink-body mt-1 max-w-[640px]">
+              Default „010 Grundlohn" für alle Arbeits-Stunden bis der Steuerberater eine
+              feinere Aufschlüsselung (z.B. eigene Lohnarten je Discipline) liefert.
+              Anpassbar in <code className="font-mono text-[11.5px] bg-bg-deep text-copper-bright px-1.5 py-0.5 rounded">src/lib/datev.ts</code>.
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
+          {(["PFL", "GTN", "ZAU"] as const).map((d) => (
+            <div key={d} className="flex items-center justify-between text-[12.5px] py-1 border-b border-ink/8">
+              <span className="font-mono text-ink-2">{DISCIPLINE_LABEL[d]}</span>
+              <span className="font-mono text-ink">
+                Lohnart <b className="text-copper">{LOHNART_MAPPING[d]}</b>
+                <span className="text-ink-mute ml-2">{LOHNART_LABEL[LOHNART_MAPPING[d]]}</span>
+              </span>
+            </div>
+          ))}
+          {(["vacation", "sick", "holiday"] as const).map((a) => (
+            <div key={a} className="flex items-center justify-between text-[12.5px] py-1 border-b border-ink/8">
+              <span className="font-mono text-ink-2">
+                {a === "vacation" ? "Urlaub" : a === "sick" ? "Krankheit" : "Feiertag"}
+              </span>
+              <span className="font-mono text-ink">
+                Lohnart <b className="text-copper">{LOHNART_ABSENCE[a]}</b>
+                <span className="text-ink-mute ml-2">{LOHNART_LABEL[LOHNART_ABSENCE[a]]}</span>
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
+
+      {/* Summen pro Lohnart */}
+      {agg.perLohnart.length > 0 && (
+        <div className="dd-card px-6 py-5" style={{ ["--c" as any]: "#1F7A3D" }}>
+          <div className="dd-eyebrow text-good mb-3">Summen je Lohnart in dieser Woche</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {agg.perLohnart.sort(([a], [b]) => a.localeCompare(b)).map(([code, hours]) => (
+              <div key={code} className="bg-bg-2 border border-steel-line/45 rounded-lg px-3.5 py-2.5">
+                <div className="font-mono text-[10px] tracking-wider text-ink-mute uppercase">Lohnart {code}</div>
+                <div className="font-display font-black text-xl tabular-nums text-ink mt-0.5">
+                  {hours.toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })} h
+                </div>
+                <div className="font-mono text-[10.5px] text-ink-2 mt-0.5">{LOHNART_LABEL[code] ?? "?"}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Vorschau-Modal */}
+      {showPreview && <PreviewModal rows={rows} week={week} year={year} onClose={() => setShowPreview(false)} onDownload={handleDownload} />}
     </div>
+  );
+}
+
+function PreviewModal({
+  rows, week, year, onClose, onDownload,
+}: {
+  rows: ExportRow[]; week: number; year: number; onClose: () => void; onDownload: () => void;
+}) {
+  return (
+    <>
+      <div className="dd-scrim on" onClick={onClose} />
+      <aside className="dd-drawer on" role="dialog" aria-modal="true" aria-label="DATEV-Vorschau">
+        <div className="surface-steel px-5 lg:px-6 pt-5 pb-4 flex-shrink-0">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="dd-eyebrow text-copper-bright">CSV-Vorschau · KW {week} / {year}</div>
+              <h2 className="font-display font-black uppercase text-xl lg:text-2xl text-white mt-1 leading-tight">
+                {rows.length} Zeilen · {csvFilename(year, week)}
+              </h2>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Schließen"
+              className="bg-white/10 border border-white/20 text-white w-9 h-9 rounded-md grid place-items-center hover:bg-white/20 text-[17px]"
+            >✕</button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto px-5 lg:px-6 py-5 board-scroll">
+          <table className="w-full font-mono text-[11.5px] border-collapse">
+            <thead className="sticky top-0 bg-bg-2 z-10">
+              <tr className="border-b-2 border-ink">
+                <th className="text-left px-2 py-2 dd-eyebrow text-ink">Pers-Nr</th>
+                <th className="text-left px-2 py-2 dd-eyebrow text-ink">Name</th>
+                <th className="text-left px-2 py-2 dd-eyebrow text-ink">Datum</th>
+                <th className="text-left px-2 py-2 dd-eyebrow text-ink">Lohnart</th>
+                <th className="text-right px-2 py-2 dd-eyebrow text-ink">Stunden</th>
+                <th className="text-left px-2 py-2 dd-eyebrow text-ink">Kost-St</th>
+                <th className="text-left px-2 py-2 dd-eyebrow text-ink">Bemerkung</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, idx) => (
+                <tr key={idx} className={`border-b border-ink/8 ${idx % 2 === 1 ? "bg-bg-2/40" : ""}`}>
+                  <td className="px-2 py-1.5 text-ink font-bold">{r.personalNumber}</td>
+                  <td className="px-2 py-1.5 text-ink">{r.workerName}</td>
+                  <td className="px-2 py-1.5 text-ink-2">{r.date}</td>
+                  <td className="px-2 py-1.5"><span className="text-copper font-bold">{r.lohnart}</span> <span className="text-ink-mute">{LOHNART_LABEL[r.lohnart] ?? ""}</span></td>
+                  <td className="px-2 py-1.5 text-right text-ink tabular-nums font-bold">
+                    {r.hours.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                  <td className="px-2 py-1.5 text-ink-2">{r.kostenstelle || "—"}</td>
+                  <td className="px-2 py-1.5 text-ink-2">{r.bemerkung}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-ink bg-bg-3">
+                <td colSpan={4} className="px-2 py-2 font-display font-black uppercase text-ink text-[12px]">Σ Wochenstunden</td>
+                <td className="px-2 py-2 text-right font-display font-black text-ink tabular-nums text-[14px]">
+                  {rows.reduce((s, r) => s + r.hours, 0).toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
+                <td colSpan={2}></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div className="flex-shrink-0 px-5 lg:px-6 py-3.5 bg-[#E2E4E7] border-t border-steel flex flex-wrap gap-2 justify-end">
+          <button onClick={onClose} className="btn-ghost !min-h-[44px] !px-4 text-[12px]">Schließen</button>
+          <button onClick={onDownload} className="btn-primary !min-h-[44px] text-[12px]">↓ CSV herunterladen</button>
+        </div>
+      </aside>
+    </>
   );
 }
 

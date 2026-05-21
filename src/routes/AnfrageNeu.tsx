@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { llmStructure, type ParsedInquiry } from "../lib/llm";
+import {
+  llmStructure, VORGANG_LABEL, VORGANG_COLOR, PARSER_LABEL,
+  type ParsedInquiry, type Vorgang, type Confidence,
+} from "../lib/llm";
 import {
   listCustomers, matchCustomers, createCustomerLocal,
   type Customer, type CustomerMatch
@@ -10,6 +13,7 @@ import { createInquiry, updateInquiry, findSimilar, type InquirySource, type Inq
 import { createCard } from "../lib/pipeline";
 import { isBackendConnected } from "../lib/supabase";
 import SaveProgress, { type SaveStep } from "../components/SaveProgress";
+import BackButton from "../components/BackButton";
 
 /* ────────────────────────────────────────────────────────────────────────
    Anfrage anlegen · 3 Schritte
@@ -27,6 +31,26 @@ const SOURCES: { value: InquirySource; label: string }[] = [
   { value: "web",       label: "Web-Formular" },
   { value: "other",     label: "andere" }
 ];
+
+/** Telefon in normalisierte Form bringen: ohne doppelte Leerzeichen, +49
+ *  statt führende 0, damit sevDesk / Such-Index sauber arbeitet. */
+function normalizePhone(raw: string): string {
+  const s = raw.replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  // Bereits internationale Form
+  if (s.startsWith("+")) return s;
+  // DE-Nummer: erste 0 durch +49 ersetzen
+  if (s.startsWith("0")) {
+    const stripped = s.slice(1).replace(/^\s*/, "").replace(/[\s\-/]+/g, " ");
+    return `+49 ${stripped}`.replace(/\s+/g, " ").trim();
+  }
+  return s;
+}
+
+/** Name trimmen + überflüssige Anreden entfernen. */
+function normalizeName(raw: string): string {
+  return raw.replace(/^(Herr|Frau|Familie|Hr\.?|Fr\.?)\s+/i, "").trim();
+}
 
 /** Auto-Erkennung der Quelle anhand von Heuristiken im Rohtext. */
 function detectSource(text: string): InquirySource | null {
@@ -62,6 +86,7 @@ export default function AnfrageNeu() {
   const [city, setCity] = useState("");
   const [description, setDescription] = useState("");
   const [notes, setNotes] = useState("");
+  const [vorgang, setVorgang] = useState<Vorgang>("angebot");
 
   // Kunden-Match
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
@@ -111,13 +136,14 @@ export default function AnfrageNeu() {
     try {
       const p = await llmStructure(rawText);
       setParsed(p);
-      setCustomerName(p.customerName ?? "");
-      setPhone(p.phone ?? "");
-      setEmail(p.email ?? "");
+      setCustomerName(normalizeName(p.customerName ?? ""));
+      setPhone(normalizePhone(p.phone ?? ""));
+      setEmail((p.email ?? "").toLowerCase().trim());
       setStreet(p.street ?? "");
       setZip(p.zip ?? "");
       setCity(p.city ?? "");
       setDescription(p.description ?? "");
+      if (p.vorgang) setVorgang(p.vorgang);
       if (p.source_guess) setSource(p.source_guess);
       setStep("edit");
     } catch (e: any) {
@@ -294,7 +320,7 @@ export default function AnfrageNeu() {
       const inq = await createInquiry({
         source,
         rawText,
-        parsedJson: parsed,
+        parsedJson: { ...(parsed ?? { parser: "heuristic" }), vorgang },
         customerName, customerPhone: phone, customerEmail: email,
         street, zip, city, description, notes,
         customerId,
@@ -319,12 +345,7 @@ export default function AnfrageNeu() {
   return (
     <div className="min-h-screen flex flex-col safe-top">
       <header className="surface-steel px-4 lg:px-8 pt-4 pb-4">
-        <button
-          onClick={() => navigate("/admin")}
-          className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-2 flex items-center gap-2"
-        >
-          <span aria-hidden>←</span><span>Zurück zum Dashboard</span>
-        </button>
+        <BackButton title="Zurück zur Betriebs-Übersicht (Dashboard)" />
         <span className="dd-eyebrow text-copper-bright block">Vertrieb · Eingangsbearbeitung</span>
         <h1 className="font-display font-black uppercase text-2xl lg:text-3xl text-white leading-none mt-1">
           Neue Anfrage
@@ -445,7 +466,12 @@ export default function AnfrageNeu() {
               <span className="dd-eyebrow text-ink-2 block mb-2">
                 Originaltext · Quelle {SOURCES.find((s) => s.value === source)?.label}
                 {parsed?.parser && (
-                  <span className="ml-2 font-mono text-[10px] text-ink-2">[strukturiert via {parsed.parser}]</span>
+                  <span className="ml-2 font-mono text-[10px] text-ink-2">
+                    [strukturiert via {PARSER_LABEL[parsed.parser]}]
+                  </span>
+                )}
+                {parsed?.confidence?.overall && (
+                  <ConfidenceDot c={parsed.confidence.overall as Confidence} />
                 )}
               </span>
               <pre className="font-mono text-[11.5px] text-ink whitespace-pre-wrap leading-relaxed max-h-[180px] overflow-auto">
@@ -453,13 +479,42 @@ export default function AnfrageNeu() {
               </pre>
             </div>
 
+            {/* Vorgangstyp */}
+            <div>
+              <label className="dd-eyebrow text-ink-2 block mb-1.5">
+                Vorgangstyp
+                {parsed?.confidence?.vorgang && (
+                  <ConfidenceDot c={parsed.confidence.vorgang as Confidence} />
+                )}
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {(["angebot","termin","reklamation","material","sonstiges"] as Vorgang[]).map((v) => {
+                  const active = vorgang === v;
+                  return (
+                    <button
+                      key={v}
+                      onClick={() => setVorgang(v)}
+                      className={`px-3.5 py-2 rounded-md text-[12.5px] font-display font-extrabold uppercase tracking-wide border-[1.5px] transition-colors ${
+                        active
+                          ? "text-white border-transparent"
+                          : "bg-bg-2 text-ink border-steel-line/45 hover:border-copper/60"
+                      }`}
+                      style={active ? { background: VORGANG_COLOR[v], borderColor: VORGANG_COLOR[v] } : undefined}
+                    >
+                      {VORGANG_LABEL[v]}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             <div className="grid md:grid-cols-2 gap-3.5">
-              <Field label="Kundenname" value={customerName} onChange={setCustomerName} required />
-              <Field label="Telefon" value={phone} onChange={setPhone} />
-              <Field label="E-Mail" value={email} onChange={setEmail} />
-              <Field label="Straße + Nr." value={street} onChange={setStreet} />
+              <Field label="Kundenname" value={customerName} onChange={setCustomerName} required confidence={parsed?.confidence?.customerName as Confidence | undefined} />
+              <Field label="Telefon" value={phone} onChange={setPhone} confidence={parsed?.confidence?.phone as Confidence | undefined} />
+              <Field label="E-Mail" value={email} onChange={setEmail} confidence={parsed?.confidence?.email as Confidence | undefined} />
+              <Field label="Straße + Nr." value={street} onChange={setStreet} confidence={parsed?.confidence?.street as Confidence | undefined} />
               <Field label="PLZ" value={zip} onChange={setZip} />
-              <Field label="Ort" value={city} onChange={setCity} />
+              <Field label="Ort" value={city} onChange={setCity} confidence={parsed?.confidence?.city as Confidence | undefined} />
             </div>
 
             <div>
@@ -558,18 +613,40 @@ export default function AnfrageNeu() {
 }
 
 function Field({
-  label, value, onChange, required,
-}: { label: string; value: string; onChange: (v: string) => void; required?: boolean }) {
+  label, value, onChange, required, confidence,
+}: { label: string; value: string; onChange: (v: string) => void; required?: boolean; confidence?: Confidence }) {
+  const ring =
+    confidence === "low"    ? "border-rust/70 bg-rust/5" :
+    confidence === "medium" ? "border-amber/70 bg-amber/5" :
+                              "border-steel-line/45 bg-bg-2";
   return (
     <div>
       <label className="dd-eyebrow text-ink-2 block mb-1.5">
         {label}{required && <span className="text-rust ml-0.5">*</span>}
+        {confidence && <ConfidenceDot c={confidence} />}
       </label>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-bg-2 border-[1.5px] border-steel-line/45 rounded-lg px-3 py-2.5 text-[13.5px] font-sans text-ink focus:outline-none focus:border-copper"
+        className={`w-full border-[1.5px] rounded-lg px-3 py-2.5 text-[13.5px] font-sans text-ink focus:outline-none focus:border-copper ${ring}`}
       />
     </div>
+  );
+}
+
+function ConfidenceDot({ c }: { c: Confidence }) {
+  const meta =
+    c === "high"   ? { color: "#1F7A3D", label: "sicher" } :
+    c === "medium" ? { color: "#C9852F", label: "prüfen" } :
+                     { color: "#B91C1C", label: "unsicher" };
+  return (
+    <span
+      className="ml-2 inline-flex items-center gap-1 align-middle font-mono text-[9.5px] uppercase tracking-wider"
+      style={{ color: meta.color }}
+      title={`LLM-Sicherheit: ${meta.label}`}
+    >
+      <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: meta.color }} />
+      {meta.label}
+    </span>
   );
 }
