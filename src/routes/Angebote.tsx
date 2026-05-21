@@ -66,6 +66,9 @@ export default function Angebote() {
   const [search, setSearch] = useState("");
   const [creating, setCreating] = useState(false);
   const [view, setView] = useState<"aktiv" | "archiv">("aktiv");
+  // Erledigte (Abgerechnet) standardmäßig ausblenden — sonst überfüllt das Board
+  // nach dem sevDesk-Import mit historischen Vorgängen.
+  const [hideClosed, setHideClosed] = useState(true);
   const [detail, setDetail] = useState<PipelineCard | null>(null);
   const dragId = useRef<string | null>(null);
   // Inhaber/Freigeber: darf reviewen/freigeben, aber nicht bearbeiten/löschen
@@ -237,6 +240,22 @@ export default function Angebote() {
               className="flex-1 bg-transparent border-0 text-[14px] text-white placeholder:text-steel focus:outline-none"
             />
           </div>
+          {!isArchiv && (() => {
+            const closedCount = cards.filter((c) => c.stage === "Abgerechnet").length;
+            return (
+              <button
+                onClick={() => setHideClosed((v) => !v)}
+                className="btn-ghost !min-h-[44px] !px-4 text-[12px] whitespace-nowrap"
+                title={hideClosed
+                  ? `${closedCount} abgerechnete Vorgänge ausgeblendet`
+                  : "Abgerechnete Vorgänge werden gezeigt"}
+              >
+                {hideClosed
+                  ? `Erledigte einblenden${closedCount ? ` (${closedCount})` : ""}`
+                  : "Erledigte ausblenden"}
+              </button>
+            );
+          })()}
           <button
             onClick={() => setView(isArchiv ? "aktiv" : "archiv")}
             className="btn-ghost !min-h-[44px] !px-4 text-[12px]"
@@ -290,7 +309,7 @@ export default function Angebote() {
         <ArchivList cards={filtered} onOpen={setDetail} onUnarchive={unarchive} />
       ) : (
         <div className="flex-1 flex gap-3.5 px-4 lg:px-8 py-5 overflow-x-auto board-scroll">
-          {STAGES.map((stage) => {
+          {STAGES.filter((s) => !(hideClosed && s === "Abgerechnet")).map((stage) => {
             const list = byStage(stage);
             const sum = list.reduce((t, c) => t + (c.valueEur ?? c.planEur ?? 0), 0);
             const meta = STAGE_META[stage];

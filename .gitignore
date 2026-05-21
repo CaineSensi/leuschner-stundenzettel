@@ -17,3 +17,8 @@ pnpm-debug.log*
 
 dev-dist
 .claude/
+
+# sevDesk-Import: API-Snapshots und generierte SQL-Blöcke
+scripts/sevdesk-import/data/
+scripts/sevdesk-import/out/
+
