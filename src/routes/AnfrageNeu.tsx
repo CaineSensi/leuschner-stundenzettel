@@ -80,6 +80,7 @@ export default function AnfrageNeu() {
   // Editier-Felder
   const [customerName, setCustomerName] = useState("");
   const [phone, setPhone] = useState("");
+  const [phoneMobile, setPhoneMobile] = useState("");
   const [email, setEmail] = useState("");
   const [street, setStreet] = useState("");
   const [zip, setZip] = useState("");
@@ -138,6 +139,7 @@ export default function AnfrageNeu() {
       setParsed(p);
       setCustomerName(normalizeName(p.customerName ?? ""));
       setPhone(normalizePhone(p.phone ?? ""));
+      setPhoneMobile(normalizePhone(p.phone_mobile ?? ""));
       setEmail((p.email ?? "").toLowerCase().trim());
       setStreet(p.street ?? "");
       setZip(p.zip ?? "");
@@ -320,7 +322,10 @@ export default function AnfrageNeu() {
       const inq = await createInquiry({
         source,
         rawText,
-        parsedJson: { ...(parsed ?? { parser: "heuristic" }), vorgang },
+        // Mobil hat keine eigene DB-Spalte: wir spiegeln sie in parsedJson,
+        // damit Drawer/Inbox/Pipeline-Karte sie sehen können. Bei Bedarf
+        // später als Migration in eigene Spalte ziehen.
+        parsedJson: { ...(parsed ?? { parser: "heuristic" }), vorgang, phone_mobile: phoneMobile || undefined },
         customerName, customerPhone: phone, customerEmail: email,
         street, zip, city, description, notes,
         customerId,
@@ -510,8 +515,9 @@ export default function AnfrageNeu() {
 
             <div className="grid md:grid-cols-2 gap-3.5">
               <Field label="Kundenname" value={customerName} onChange={setCustomerName} required confidence={parsed?.confidence?.customerName as Confidence | undefined} />
-              <Field label="Telefon" value={phone} onChange={setPhone} confidence={parsed?.confidence?.phone as Confidence | undefined} />
               <Field label="E-Mail" value={email} onChange={setEmail} confidence={parsed?.confidence?.email as Confidence | undefined} />
+              <Field label="Festnetz" value={phone} onChange={setPhone} confidence={parsed?.confidence?.phone as Confidence | undefined} />
+              <Field label="Mobil" value={phoneMobile} onChange={setPhoneMobile} confidence={parsed?.confidence?.phone_mobile as Confidence | undefined} />
               <Field label="Straße + Nr." value={street} onChange={setStreet} confidence={parsed?.confidence?.street as Confidence | undefined} />
               <Field label="PLZ" value={zip} onChange={setZip} />
               <Field label="Ort" value={city} onChange={setCity} confidence={parsed?.confidence?.city as Confidence | undefined} />

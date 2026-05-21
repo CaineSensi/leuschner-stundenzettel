@@ -38,7 +38,8 @@ interface Parsed {
   // Stammdaten (gleiche Feldnamen wie Frontend erwartet)
   customerName?: string;
   firma?: string;
-  phone?: string;
+  phone?: string;         // Festnetz primär
+  phone_mobile?: string;  // Mobil (Handy)
   email?: string;
   street?: string;
   zip?: string;
@@ -71,6 +72,7 @@ Schema:
   "customerName": string | null,
   "firma": string | null,
   "phone": string | null,
+  "phone_mobile": string | null,
   "email": string | null,
   "street": string | null,
   "zip": string | null,
@@ -85,6 +87,7 @@ Schema:
     "overall": "high" | "medium" | "low",
     "customerName": "high" | "medium" | "low" | null,
     "phone": "high" | "medium" | "low" | null,
+    "phone_mobile": "high" | "medium" | "low" | null,
     "email": "high" | "medium" | "low" | null,
     "street": "high" | "medium" | "low" | null,
     "city": "high" | "medium" | "low" | null,
@@ -103,6 +106,11 @@ Regeln:
 - Bei unsicheren Werten lieber null + confidence "low" statt zu raten
 - Mengen mit Einheit (m, m², qm, m³, lfm, Stk, t, Std)
 - Telefon im Originalformat lassen
+- WICHTIG: Wenn zwei Telefonnummern im Text stehen, gehört die mit Mobil-Vorwahl
+  (deutsche Handy-Vorwahlen 015x, 016x, 017x oder am Wort "Mobil", "Handy",
+  "Mobil-Nr") in "phone_mobile", die andere (Festnetz mit Ortsvorwahl 0xxxx
+  oder am Wort "Telefon", "Festnetz") in "phone". Ist nur eine Nummer da:
+  bei Mobil-Vorwahl → phone_mobile, sonst phone, das jeweils andere Feld null.
 - Wenn Name in Inline-Phrase steht ("mein Name ist X", "ich bin X", "hier spricht X"), übernehmen
 - Straße: nur die echte Adresse extrahieren, nicht den Fließtext
 - description: 1-2 Sätze, was der Kunde will, NICHT der ganze Originaltext
@@ -184,8 +192,14 @@ function safeJson(s: string): any {
 function normalize(p: any): Parsed {
   const out: Parsed = { parser: p.parser ?? 'workers-ai' };
   if (p.vorgang && ['angebot','termin','reklamation','material','sonstiges'].includes(p.vorgang)) out.vorgang = p.vorgang;
-  for (const k of ['customerName','firma','phone','email','street','zip','city','description','leistung','termin'] as const) {
+  for (const k of ['customerName','firma','phone','phone_mobile','email','street','zip','city','description','leistung','termin'] as const) {
     if (typeof p[k] === 'string' && p[k].trim().length) (out as any)[k] = p[k].trim();
+  }
+  // Sanity: wenn nur eine Nummer geliefert wurde aber sie eine Mobil-Vorwahl
+  // hat, korrigiere phone → phone_mobile (das LLM verwechselt das gelegentlich)
+  if (out.phone && !out.phone_mobile && /^\+?49?\s*0?1[5-7]\d/.test(out.phone.replace(/\s/g, ''))) {
+    out.phone_mobile = out.phone;
+    delete out.phone;
   }
   if (Array.isArray(p.mengen)) {
     out.mengen = p.mengen
@@ -212,9 +226,21 @@ function parseHeuristic(text: string): Parsed {
   const mail = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
   if (mail) out.email = mail[0];
 
-  // Telefon
-  const phone = text.match(/(?:Tel\.?|Telefon|Mobil|Phone)?[:\s]*((?:\+49|0)[\d\s\-/]{6,})/i);
-  if (phone) out.phone = phone[1].replace(/\s+/g, ' ').trim();
+  // Telefon — alle Nummern finden, dann nach Mobil vs. Festnetz sortieren
+  const phoneRe = /(?:(Tel\.?|Telefon|Festnetz|Mobil|Handy|Mobil-Nr\.?|Phone)?[:\s]*)?((?:\+49|0)[\d\s\-/]{6,})/gi;
+  const phones: { tag: string; value: string }[] = [];
+  let pm: RegExpExecArray | null;
+  while ((pm = phoneRe.exec(text)) !== null) {
+    const value = pm[2].replace(/\s+/g, ' ').trim();
+    const tag = (pm[1] || '').toLowerCase();
+    if (!phones.find((p) => p.value === value)) phones.push({ tag, value });
+  }
+  for (const p of phones) {
+    const isMobile = /mobil|handy/i.test(p.tag) || /^\+?49?\s*0?1[5-7]\d/.test(p.value.replace(/\s/g, ''));
+    if (isMobile && !out.phone_mobile) out.phone_mobile = p.value;
+    else if (!isMobile && !out.phone) out.phone = p.value;
+    else if (isMobile && !out.phone) out.phone = p.value; // Fallback
+  }
 
   // PLZ + Stadt — Stadt 1-3 Wörter, stoppt am Punkt/Komma
   const plzCity = text.match(/\b(\d{5})\s+([A-ZÄÖÜ][a-zäöüß][\wäöüß-]*(?:[\s/-][A-ZÄÖÜ][a-zäöüß][\wäöüß-]+){0,2})/);

@@ -12,7 +12,8 @@ export interface ParsedInquiry {
   // Stamm
   customerName?: string;
   firma?: string;
-  phone?: string;
+  phone?: string;          // Festnetz
+  phone_mobile?: string;   // Mobil/Handy
   email?: string;
   street?: string;
   zip?: string;

@@ -375,7 +375,8 @@ function InquiryRow({
               {i.customerName || <span className="text-ink-2 italic">ohne Namen</span>}
             </div>
             {i.city && <span className="font-sans text-[12px] text-ink-2">{i.city}</span>}
-            {i.customerPhone && <span className="font-mono text-[11px] text-ink-2">{i.customerPhone}</span>}
+            {i.customerPhone && <span className="font-mono text-[11px] text-ink-2" title="Festnetz">☏ {i.customerPhone}</span>}
+            {i.parsedJson?.phone_mobile && <span className="font-mono text-[11px] text-ink-2" title="Mobil">📱 {i.parsedJson.phone_mobile}</span>}
           </div>
           {i.description && (
             <div className="font-sans text-[12.5px] text-ink-2 line-clamp-2 mt-0.5">{i.description}</div>
@@ -401,6 +402,7 @@ function InquiryDrawer({
   const [edit, setEdit] = useState({
     customerName: inquiry.customerName ?? "",
     customerPhone: inquiry.customerPhone ?? "",
+    phoneMobile: (inquiry.parsedJson?.phone_mobile as string) ?? "",
     customerEmail: inquiry.customerEmail ?? "",
     street: inquiry.street ?? "",
     zip: inquiry.zip ?? "",
@@ -417,6 +419,7 @@ function InquiryDrawer({
     setEdit({
       customerName: inquiry.customerName ?? "",
       customerPhone: inquiry.customerPhone ?? "",
+      phoneMobile: (inquiry.parsedJson?.phone_mobile as string) ?? "",
       customerEmail: inquiry.customerEmail ?? "",
       street: inquiry.street ?? "",
       zip: inquiry.zip ?? "",
@@ -430,7 +433,12 @@ function InquiryDrawer({
   async function saveEdit() {
     setBusy(true);
     try {
-      await updateInquiry(inquiry.id, edit);
+      // Stamm-Felder gehen in eigene DB-Spalten, Mobil zusätzlich in parsedJson
+      // (kein DB-Schema-Change nötig). parsedJson mergen, damit Mengen/Termin
+      // erhalten bleiben.
+      const { phoneMobile, ...stamm } = edit;
+      const newParsed = { ...(inquiry.parsedJson ?? {}), phone_mobile: phoneMobile || undefined };
+      await updateInquiry(inquiry.id, { ...stamm, parsedJson: newParsed });
       await appendNote(inquiry.id, { kind: "system", text: "Stammdaten aktualisiert" });
       setEditing(false);
       onChange();
@@ -501,8 +509,13 @@ function InquiryDrawer({
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
             {inquiry.customerPhone && (
-              <a href={`tel:${phoneClean}`} className="font-sans text-[13px] text-white hover:text-copper-bright underline-offset-2 hover:underline">
+              <a href={`tel:${phoneClean}`} className="font-sans text-[13px] text-white hover:text-copper-bright underline-offset-2 hover:underline" title="Festnetz">
                 ☏ {inquiry.customerPhone}
+              </a>
+            )}
+            {inquiry.parsedJson?.phone_mobile && (
+              <a href={`tel:${String(inquiry.parsedJson.phone_mobile).replace(/[^\d+]/g, '')}`} className="font-sans text-[13px] text-white hover:text-copper-bright underline-offset-2 hover:underline" title="Mobil">
+                📱 {inquiry.parsedJson.phone_mobile}
               </a>
             )}
             {inquiry.customerEmail && (
@@ -542,7 +555,8 @@ function InquiryDrawer({
             {!editing ? (
               <dl className="grid grid-cols-[120px_1fr] gap-x-3 gap-y-1.5 text-[12.5px] font-sans">
                 <Dt>Name</Dt><Dd>{inquiry.customerName || "—"}</Dd>
-                <Dt>Telefon</Dt><Dd>{inquiry.customerPhone || "—"}</Dd>
+                <Dt>Festnetz</Dt><Dd>{inquiry.customerPhone || "—"}</Dd>
+                <Dt>Mobil</Dt><Dd>{inquiry.parsedJson?.phone_mobile || "—"}</Dd>
                 <Dt>E-Mail</Dt><Dd>{inquiry.customerEmail || "—"}</Dd>
                 <Dt>Straße</Dt><Dd>{inquiry.street || "—"}</Dd>
                 <Dt>PLZ · Ort</Dt><Dd>{[inquiry.zip, inquiry.city].filter(Boolean).join(" ") || "—"}</Dd>
@@ -552,8 +566,9 @@ function InquiryDrawer({
             ) : (
               <div className="grid grid-cols-2 gap-2.5">
                 <DField label="Name" value={edit.customerName} onChange={(v) => setEdit({ ...edit, customerName: v })} span={2} />
-                <DField label="Telefon" value={edit.customerPhone} onChange={(v) => setEdit({ ...edit, customerPhone: v })} />
-                <DField label="E-Mail" value={edit.customerEmail} onChange={(v) => setEdit({ ...edit, customerEmail: v })} />
+                <DField label="Festnetz" value={edit.customerPhone} onChange={(v) => setEdit({ ...edit, customerPhone: v })} />
+                <DField label="Mobil" value={edit.phoneMobile} onChange={(v) => setEdit({ ...edit, phoneMobile: v })} />
+                <DField label="E-Mail" value={edit.customerEmail} onChange={(v) => setEdit({ ...edit, customerEmail: v })} span={2} />
                 <DField label="Straße" value={edit.street} onChange={(v) => setEdit({ ...edit, street: v })} span={2} />
                 <DField label="PLZ" value={edit.zip} onChange={(v) => setEdit({ ...edit, zip: v })} />
                 <DField label="Ort" value={edit.city} onChange={(v) => setEdit({ ...edit, city: v })} />
