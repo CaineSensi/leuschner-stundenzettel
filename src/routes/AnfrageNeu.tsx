@@ -158,6 +158,7 @@ export default function AnfrageNeu() {
   function makeSteps(): SaveStep[] {
     const useExisting = !!chosenCustomerId;
     return [
+      { key: "precheck", label: "DB-Schema prüfen (inquiries-Tabelle)",  status: "pending" },
       { key: "parse",    label: "Strukturierung übernehmen",              status: "pending" },
       { key: "match",    label: useExisting ? "Bestandskunde verknüpft" : "Kundenstamm prüfen", status: useExisting ? "done" : "pending" },
       { key: "sevdesk",  label: createSevdesk && !useExisting ? "sevDesk-Contact anlegen" : "sevDesk übersprungen",
@@ -187,6 +188,31 @@ export default function AnfrageNeu() {
     let customerId: string | undefined = chosenCustomerId ?? undefined;
 
     try {
+      // 0) Pre-Check: gibt es die inquiries-Tabelle? Fail-fast bevor wir
+      //    Customer/Card halb anlegen und Karteileichen produzieren.
+      updateStep("precheck", { status: "running" });
+      try {
+        const r = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/inquiries?select=id&limit=1`,
+          {
+            headers: {
+              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
+              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
+            },
+          }
+        );
+        if (!r.ok) {
+          const body = await r.text();
+          if (/inquiries/.test(body)) throw new Error(`Tabelle 'public.inquiries' fehlt`);
+          throw new Error(`Pre-Check fehlgeschlagen (${r.status})`);
+        }
+        updateStep("precheck", { status: "done", detail: "Schema OK" });
+      } catch (e: any) {
+        const d = diagnoseError(e);
+        updateStep("precheck", { status: "error", detail: d.detail, errorHint: d.hint });
+        throw e;
+      }
+
       // 1) Strukturierung — synthetischer „Confirm"-Schritt
       updateStep("parse", { status: "running" });
       await new Promise((r) => setTimeout(r, 80));
