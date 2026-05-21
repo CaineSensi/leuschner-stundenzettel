@@ -13,6 +13,9 @@ import SiteDetail from "./routes/SiteDetail";
 import Hours from "./routes/Hours";
 import Zeiterfassung from "./routes/Zeiterfassung";
 import Angebote from "./routes/Angebote";
+import Anfragen from "./routes/Anfragen";
+import AnfrageNeu from "./routes/AnfrageNeu";
+import AngebotNeu from "./routes/AngebotNeu";
 import AuthCallback from "./routes/AuthCallback";
 import OfflineIndicator from "./components/OfflineIndicator";
 import InstallPrompt from "./components/InstallPrompt";
@@ -71,7 +74,10 @@ export default function App() {
         <Route path="/admin/sites"     element={<ProtectedRoute adminOnly><Sites /></ProtectedRoute>} />
         <Route path="/admin/sites/:id" element={<ProtectedRoute adminOnly><SiteDetail /></ProtectedRoute>} />
         <Route path="/admin/stunden"   element={<ProtectedRoute adminOnly><Hours /></ProtectedRoute>} />
-        <Route path="/admin/angebote"  element={<ProtectedRoute adminOnly><Angebote /></ProtectedRoute>} />
+        <Route path="/admin/angebote"     element={<ProtectedRoute adminOnly><Angebote /></ProtectedRoute>} />
+        <Route path="/admin/anfragen"     element={<ProtectedRoute adminOnly><Anfragen /></ProtectedRoute>} />
+        <Route path="/admin/anfrage-neu"  element={<ProtectedRoute adminOnly><AnfrageNeu /></ProtectedRoute>} />
+        <Route path="/admin/angebot-neu/:cardId" element={<ProtectedRoute adminOnly><AngebotNeu /></ProtectedRoute>} />
         <Route path="/entry"         element={<ProtectedRoute><Entry /></ProtectedRoute>} />
         <Route path="/day/:date"     element={<ProtectedRoute><Day /></ProtectedRoute>} />
         <Route path="*"              element={<Navigate to="/" replace />} />

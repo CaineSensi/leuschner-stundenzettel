@@ -193,6 +193,7 @@ export default function Admin() {
             <SbItem icon="◷" label="Zeiterfassung" to="/admin/zeiterfassung" />
             <SbItem icon="⌂" label="Baustellen" to="/admin/sites" />
             <SbItem icon="◇" label="Angebote" to="/admin/angebote" />
+            <SbItem icon="✉" label="Anfragen" to="/admin/anfragen" />
             <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
             <div className="h-px bg-white/8 my-3" />
             <SbItem icon="▮" label="Auswertung" disabled />
@@ -231,7 +232,9 @@ export default function Admin() {
               )}
             </div>
             <div className="flex gap-2 flex-wrap">
-              <button className="btn-ghost !min-h-[44px] !px-4 text-[12px]">Filter</button>
+              <Link to="/admin/anfrage-neu" className="btn-ghost !min-h-[44px] !px-4 text-[12px] flex items-center justify-center">
+                ＋ Anfrage
+              </Link>
               <button className="btn-ghost !min-h-[44px] !px-4 text-[12px]">PDF</button>
               <Link to="/admin/zeiterfassung" className="btn-primary !min-h-[44px] text-[12px] flex items-center justify-center">
                 DATEV ↗

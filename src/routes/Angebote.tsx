@@ -846,7 +846,14 @@ function DetailDrawer({
                 onClick={onPrev} disabled={i === 0}
                 className="btn-ghost flex-1 !min-h-[52px] text-[12px] disabled:opacity-30"
               >‹ Stufe zurück</button>
-              {card.stage === "Abgerechnet" ? (
+              {card.stage === "Anfrage" ? (
+                <a
+                  href={`/admin/angebot-neu/${card.id}`}
+                  className="btn-primary flex-1 !min-h-[52px] text-[12px] flex items-center justify-center"
+                >
+                  → Angebot draus machen
+                </a>
+              ) : card.stage === "Abgerechnet" ? (
                 <button onClick={onArchive} className="btn-primary flex-1 !min-h-[52px] text-[12px]">
                   ✓ Archivieren
                 </button>
