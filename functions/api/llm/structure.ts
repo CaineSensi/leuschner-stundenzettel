@@ -284,6 +284,12 @@ function parseHeuristic(text: string): Parsed {
 
 type Ctx = { request: Request; env: Env };
 export const onRequestPost = async ({ request, env }: Ctx) => {
+  // Debug-Header: zeigen welche Bindings die Function tatsächlich sieht
+  const debug = {
+    hasAI: !!env.AI,
+    hasAnthropic: !!env.ANTHROPIC_API_KEY,
+    aiError: '' as string,
+  };
   try {
     const body = (await request.json()) as { text?: string };
     const text = (body?.text ?? '').trim();
@@ -293,12 +299,17 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
 
     // 1) Workers AI (Default-Pfad)
     if (env.AI) {
-      const wa = await parseWithWorkersAI(text, env.AI);
-      if (wa) {
-        // Heuristik als Backfill für Felder, die das LLM eventuell weggelassen hat
-        const heur = parseHeuristic(text);
-        const merged = mergeBackfill(wa, heur);
-        return jsonResponse(merged);
+      try {
+        const wa = await parseWithWorkersAIVerbose(text, env.AI);
+        if (wa.parsed) {
+          const heur = parseHeuristic(text);
+          const merged = mergeBackfill(wa.parsed, heur);
+          return jsonResponse(merged, debug);
+        } else {
+          debug.aiError = wa.error || 'unknown';
+        }
+      } catch (e: any) {
+        debug.aiError = `throw: ${String(e?.message ?? e).slice(0, 200)}`;
       }
     }
 
@@ -307,20 +318,49 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
       const an = await parseWithAnthropic(text, env.ANTHROPIC_API_KEY);
       if (an) {
         const heur = parseHeuristic(text);
-        return jsonResponse(mergeBackfill(an, heur));
+        return jsonResponse(mergeBackfill(an, heur), debug);
       }
     }
 
     // 3) Heuristik (Notfall)
-    return jsonResponse(parseHeuristic(text));
+    return jsonResponse(parseHeuristic(text), debug);
   } catch (err: any) {
-    return new Response(JSON.stringify({ error: String(err?.message ?? err) }), { status: 500 });
+    return new Response(JSON.stringify({ error: String(err?.message ?? err), debug }), { status: 500 });
   }
 };
 
-function jsonResponse(p: Parsed): Response {
+async function parseWithWorkersAIVerbose(text: string, ai: AiBinding): Promise<{ parsed: Parsed | null; error?: string }> {
+  try {
+    const resp: any = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: text },
+      ],
+      max_tokens: 1024,
+      temperature: 0.1,
+      // response_format weggelassen: Cloudflare-Workers-AI verlangt für
+      // strict-JSON ein eigenes `json_schema`-Format. Stattdessen erzwingt
+      // der System-Prompt das JSON, safeJson räumt Codefences/Vorwort weg.
+    });
+    const raw: string = resp?.response ?? resp?.result?.response ?? '';
+    if (!raw) return { parsed: null, error: 'empty response: ' + JSON.stringify(resp).slice(0, 200) };
+    const cleaned = stripCodeFence(raw);
+    const json = safeJson(cleaned);
+    if (!json) return { parsed: null, error: 'json-parse-fail: ' + cleaned.slice(0, 200) };
+    return { parsed: normalize({ ...json, parser: 'workers-ai' }) };
+  } catch (e: any) {
+    return { parsed: null, error: 'ai.run threw: ' + String(e?.message ?? e).slice(0, 200) };
+  }
+}
+
+function jsonResponse(p: Parsed, debug: any): Response {
   return new Response(JSON.stringify(p), {
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      'x-ai-available': String(debug.hasAI),
+      'x-anthropic-available': String(debug.hasAnthropic),
+      'x-ai-error': debug.aiError || '',
+    },
   });
 }
 

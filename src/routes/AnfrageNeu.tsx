@@ -525,6 +525,52 @@ export default function AnfrageNeu() {
                 className="w-full min-h-[80px] bg-bg-2 border-[1.5px] border-steel-line/45 rounded-lg p-3 text-[13.5px] font-sans text-ink focus:outline-none focus:border-copper resize-y"
               />
             </div>
+
+            {/* Vom LLM erkannte Zusatz-Infos · read-only, werden in parsedJson
+                mit gespeichert. Leistung/Mengen/Termin nicht editierbar in der
+                Stammdaten-Sektion oben — hier sieht User trotzdem auf einen
+                Blick was zu tun ist. */}
+            {parsed && (parsed.leistung || parsed.mengen?.length || parsed.termin || (parsed.dringlichkeit && parsed.dringlichkeit !== "normal")) && (
+              <div className="bg-bg-2 border border-steel-line/45 rounded-lg p-3.5 space-y-2">
+                <span className="dd-eyebrow text-ink-2 block mb-1">Aus dem Text zusätzlich erkannt</span>
+                {parsed.leistung && (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Leistung</span>
+                    <span className="text-ink">{parsed.leistung}</span>
+                  </div>
+                )}
+                {parsed.mengen && parsed.mengen.length > 0 && (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Mengen</span>
+                    <span className="inline-flex flex-col gap-0.5 align-top">
+                      {parsed.mengen.map((m, idx) => (
+                        <span key={idx} className="text-ink">
+                          <b className="font-mono">{m.wert}{m.einheit ? ` ${m.einheit}` : ""}</b>
+                          {m.was && <span className="text-ink-2"> · {m.was}</span>}
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                )}
+                {parsed.termin && (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px]">Termin-Wunsch</span>
+                    <span className="text-ink">{parsed.termin}</span>
+                  </div>
+                )}
+                {parsed.dringlichkeit && parsed.dringlichkeit !== "normal" && (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px]">Dringlichkeit</span>
+                    <span className={`font-mono text-[11px] font-bold uppercase ${parsed.dringlichkeit === "hoch" ? "text-rust" : "text-ink-mute"}`}>
+                      {parsed.dringlichkeit}
+                    </span>
+                  </div>
+                )}
+                <p className="font-mono text-[10.5px] text-ink-mute mt-1">
+                  Diese Werte werden mit der Anfrage gespeichert, bleiben aber im Drawer und in der Pipeline-Notiz sichtbar.
+                </p>
+              </div>
+            )}
             <div>
               <label className="dd-eyebrow text-ink-2 block mb-1.5">Notizen / offene Punkte</label>
               <input

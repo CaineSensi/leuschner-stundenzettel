@@ -590,6 +590,62 @@ function InquiryDrawer({
             )}
           </section>
 
+          {/* Vom LLM erkannt — strukturierte Felder, die nicht in den
+              Stammdaten-Spalten liegen (Mengen, Termin-Wunsch, Leistung) */}
+          {inquiry.parsedJson && (inquiry.parsedJson.mengen?.length || inquiry.parsedJson.termin || inquiry.parsedJson.leistung || inquiry.parsedJson.vorgang || inquiry.parsedJson.dringlichkeit) && (
+            <section>
+              <div className="font-display font-extrabold uppercase text-[12.5px] tracking-widest text-ink mb-2">
+                Aus dem Text erkannt
+              </div>
+              <div className="bg-bg-2 border border-steel-line/45 rounded-lg p-3.5 space-y-2">
+                {inquiry.parsedJson.vorgang && (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px]">Vorgang</span>
+                    <span
+                      className="font-mono text-[10.5px] uppercase font-bold px-2 py-0.5 rounded-full"
+                      style={{ background: VORGANG_COLOR[inquiry.parsedJson.vorgang as Vorgang] + "22", color: VORGANG_COLOR[inquiry.parsedJson.vorgang as Vorgang], border: `1px solid ${VORGANG_COLOR[inquiry.parsedJson.vorgang as Vorgang]}55` }}
+                    >
+                      {VORGANG_LABEL[inquiry.parsedJson.vorgang as Vorgang]}
+                    </span>
+                  </div>
+                )}
+                {inquiry.parsedJson.leistung && (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Leistung</span>
+                    <span className="text-ink">{inquiry.parsedJson.leistung}</span>
+                  </div>
+                )}
+                {inquiry.parsedJson.mengen?.length > 0 && (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Mengen</span>
+                    <span className="inline-flex flex-col gap-0.5 align-top">
+                      {inquiry.parsedJson.mengen.map((m: any, idx: number) => (
+                        <span key={idx} className="text-ink">
+                          <b className="font-mono">{m.wert}{m.einheit ? ` ${m.einheit}` : ""}</b>
+                          {m.was && <span className="text-ink-2"> · {m.was}</span>}
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                )}
+                {inquiry.parsedJson.termin && (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px]">Termin-Wunsch</span>
+                    <span className="text-ink">{inquiry.parsedJson.termin}</span>
+                  </div>
+                )}
+                {inquiry.parsedJson.dringlichkeit && inquiry.parsedJson.dringlichkeit !== "normal" && (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px]">Dringlichkeit</span>
+                    <span className={`font-mono text-[11px] font-bold uppercase ${inquiry.parsedJson.dringlichkeit === "hoch" ? "text-rust" : "text-ink-mute"}`}>
+                      {inquiry.parsedJson.dringlichkeit}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           {/* Verlauf */}
           <section>
             <div className="font-display font-extrabold uppercase text-[12.5px] tracking-widest text-ink mb-2">
