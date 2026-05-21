@@ -1,58 +1,65 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import QRCode from "qrcode";
 import Logo from "../components/Logo";
-import type { WeeklySummary } from "../lib/mockData";
-import { listWorkers, listEntries, createInvitation, updateWorkerPhone, unlinkWorker } from "../lib/api";
+import {
+  listWorkers, listAllEntries, listSites,
+  listAssignmentsForCompany, createInvitation,
+  updateWorkerPhone, unlinkWorker
+} from "../lib/api";
+import { listCards, type PipelineCard, type Stage } from "../lib/pipeline";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { isBackendConnected } from "../lib/supabase";
-import { fmtDateLong, fmtHours, isoWeek, siteById, todayIso, weekDays, workMinutes } from "../lib/utils";
 import { currentUser, signOutFully } from "../lib/auth";
-import {
-  sendReminderToAll, workersWithoutEntry
-} from "../lib/notifications";
-import { isWorkEntry, type Entry, type Worker } from "../lib/types";
+import { isoWeek, todayIso, weekDays, fmtHours, workMinutes } from "../lib/utils";
+import { isWorkEntry, type Entry, type Site, type Worker, type Assignment } from "../lib/types";
+
+/* ────────────────────────────────────────────────────────────────────────
+   Admin-Dashboard · Konzept 9 „Module-Grid"
+   Allgemeiner Betriebs-Überblick: Belegschaft · Angebote · Baustellen ·
+   Finanzen · Aktionen · Wetter/Termine. Stunden = 1 Modul, Details im
+   Zeiterfassung-Tab. Schriftart/Look 1:1 aus Angebote-Tab.
+   ──────────────────────────────────────────────────────────────────────── */
 
 export default function Admin() {
   const navigate = useNavigate();
-  const [filter, setFilter] = useState<"all" | "submitted" | "open">("all");
-
-  const [team, setTeam] = useState<Worker[]>([]);
-  const [allWorkers, setAllWorkers] = useState<Worker[]>([]);
-  const [allEntries, setAllEntries] = useState<Entry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showInvite, setShowInvite] = useState(false);
-  const [showWorkers, setShowWorkers] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [preselectWorker, setPreselectWorker] = useState<Worker | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-
   const me = currentUser();
-  const adminLabel = me ? `${me.firstName.charAt(0)}. ${me.lastName} · Admin` : "Admin";
+  const adminLabel = me ? `${me.firstName.charAt(0)}. ${me.lastName} · Inhaber` : "Inhaber";
+
   const today = todayIso();
   const { year, week } = isoWeek(new Date());
-  const days = weekDays(year, week).slice(0, 5); // Mo–Fr
-  const todayInWeek = days.includes(today);
-  const refDate = todayInWeek ? today : "2026-05-08";
+  const days = weekDays(year, week).slice(0, 5);
+
+  const [workers, setWorkers] = useState<Worker[]>([]);
+  const [sites, setSites] = useState<Site[]>([]);
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [assignmentsToday, setAssignmentsToday] = useState<Assignment[]>([]);
+  const [cards, setCards] = useState<PipelineCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [showInvite, setShowInvite] = useState(false);
+  const [showWorkers, setShowWorkers] = useState(false);
+  const [preselectWorker, setPreselectWorker] = useState<Worker | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const workers = await listWorkers();
-        console.log("[admin] loaded workers:", workers);
+        const [w, s, e, a, c] = await Promise.all([
+          listWorkers(),
+          listSites().catch(() => [] as Site[]),
+          listAllEntries(days[0], days[days.length - 1]).catch(() => [] as Entry[]),
+          listAssignmentsForCompany(today, today).catch(() => [] as Assignment[]),
+          listCards({ archived: false }).catch(() => [] as PipelineCard[])
+        ]);
         if (cancelled) return;
-        setAllWorkers(workers);
-        const teamMembers = workers.filter((w) => !w.isAdmin);
-        setTeam(teamMembers);
-
-        const allEntriesArrays = await Promise.all(
-          teamMembers.map((w) => listEntries(w.id, days[0], days[days.length - 1]))
-        );
-        if (cancelled) return;
-        setAllEntries(allEntriesArrays.flat());
+        setWorkers(w);
+        setSites(s);
+        setEntries(e);
+        setAssignmentsToday(a);
+        setCards(c);
       } catch (err: any) {
-        console.error("[admin] load error:", err);
         if (!cancelled) setLoadError(err?.message ?? "Verbindung fehlgeschlagen");
       } finally {
         if (!cancelled) setLoading(false);
@@ -62,50 +69,111 @@ export default function Admin() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
-  // Echtzeit: bei Änderungen an Workers, Einträgen oder Zuweisungen sofort neu laden
-  useRealtime("admin-dashboard", ["workers", "entries", "assignments"], () => setRefreshKey((k) => k + 1));
+  useRealtime("admin-dashboard", ["workers", "entries", "assignments", "sites", "pipeline_cards"],
+    () => setRefreshKey((k) => k + 1));
   useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
 
-  const missingToday = workersWithoutEntry(refDate, allEntries, team);
+  const team = useMemo(() => workers.filter((w) => !w.isAdmin), [workers]);
 
-  // Echte Wochenstatistik aus den geladenen Einträgen
-  const summaries: WeeklySummary[] = team.map((w) => {
-    const myEntries = allEntries.filter((e) => e.workerId === w.id);
-    const minutes = myEntries.reduce((s, e) => s + workMinutes(e), 0);
-    const daysFilled = myEntries.length;
-    const daysExpected = days.filter((d) => d <= today).length;
-    const todayE = myEntries.find((e) => e.date === today && isWorkEntry(e));
-    return {
-      workerId: w.id,
-      minutes,
-      daysFilled,
-      daysExpected,
-      submitted: myEntries.length > 0 && days.every((d) =>
-        myEntries.some((e) => e.date === d) || d > today
-      ),
-      lastActivity: myEntries.length > 0 ? myEntries[myEntries.length - 1].date : "",
-      currentSite: todayE && isWorkEntry(todayE) ? todayE.siteId : undefined
-    };
-  });
+  // Heute · wer ist wo unterwegs (heutige Einträge + Tagesplan)
+  const todayLive = useMemo(() => {
+    const list: { worker: Worker; site?: Site; status: "live" | "vacation" | "sick" | "planned" | "off" }[] = [];
+    for (const w of team) {
+      const todayEntry = entries.find((e) => e.workerId === w.id && e.date === today);
+      if (todayEntry && isWorkEntry(todayEntry)) {
+        list.push({ worker: w, site: sites.find((s) => s.id === todayEntry.siteId), status: "live" });
+      } else if (todayEntry && todayEntry.type === "vacation") {
+        list.push({ worker: w, status: "vacation" });
+      } else if (todayEntry && todayEntry.type === "sick") {
+        list.push({ worker: w, status: "sick" });
+      } else {
+        const plan = assignmentsToday.find((a) => a.workerId === w.id);
+        list.push({
+          worker: w,
+          site: plan ? sites.find((s) => s.id === plan.siteId) : undefined,
+          status: plan ? "planned" : "off"
+        });
+      }
+    }
+    return list;
+  }, [team, entries, sites, assignmentsToday, today]);
 
-  const totalMinutes = summaries.reduce((s, w) => s + w.minutes, 0);
-  const submitted = summaries.filter((w) => w.submitted).length;
-  const onSite = summaries.filter((w) => w.currentSite).length;
+  const liveCount = todayLive.filter((r) => r.status === "live").length;
+  const plannedCount = todayLive.filter((r) => r.status === "planned").length;
 
-  const filtered = summaries.filter((s) => {
-    if (filter === "submitted") return s.submitted;
-    if (filter === "open") return !s.submitted;
-    return true;
-  });
+  // Stunden-Snapshot KW
+  const weekMinutesAll = entries.reduce((s, e) => s + workMinutes(e), 0);
+  const gaps = useMemo(() => {
+    let count = 0;
+    for (const w of team) {
+      for (const d of days) {
+        if (d > today) continue;
+        const e = entries.find((x) => x.workerId === w.id && x.date === d);
+        if (!e) count += 1;
+      }
+    }
+    return count;
+  }, [team, days, entries, today]);
 
-  // Echter Live-Feed: zeigt die letzten Einträge der Woche, frischeste oben
-  const liveFeed = [...allEntries]
-    .sort((a, b) => b.date.localeCompare(a.date))
-    .slice(0, 8);
+  // Pipeline-Counts
+  const stageCount = (stage: Stage) => cards.filter((c) => c.stage === stage).length;
+  const sumStage = (stage: Stage) =>
+    cards.filter((c) => c.stage === stage).reduce((t, c) => t + (c.valueEur ?? c.planEur ?? 0), 0);
+  const pipelineValue = cards.reduce(
+    (t, c) => t + (c.stage !== "Abgerechnet" ? (c.valueEur ?? c.planEur ?? 0) : 0),
+    0
+  );
+  const versendetOverdue = cards.filter((c) => {
+    if (c.stage !== "Versendet" || !c.sentAt) return false;
+    return (Date.now() - new Date(c.sentAt).getTime()) / 86_400_000 >= 7;
+  }).length;
+  const releasesOpen = cards.filter((c) => c.stage === "Angebot" && !c.freigabe?.releasedAt).length;
 
-  function handleRemindAll() {
-    sendReminderToAll(missingToday);
-  }
+  // Baustellen-Status: aktive (Einträge dieser Woche) vs. ruhend
+  const activeSiteIds = new Set(
+    entries.filter(isWorkEntry).map((e) => e.siteId).filter((id): id is string => !!id)
+  );
+  const activeSites = sites.filter((s) => activeSiteIds.has(s.id));
+  const restingSites = sites.filter((s) => !activeSiteIds.has(s.id));
+
+  // Aktionen: cross-bereich
+  const actions = useMemo(() => {
+    const list: { kind: "gap" | "release" | "followup" | "address"; severity: "r" | "c" | "g"; title: string; sub: string; href?: string }[] = [];
+    if (gaps > 0) {
+      list.push({
+        kind: "gap", severity: "r",
+        title: `${gaps} Stunden-Lücke${gaps === 1 ? "" : "n"} diese Woche`,
+        sub: "Mitarbeiter ohne Eintrag · Push erinnern oder nachtragen",
+        href: "/admin/zeiterfassung"
+      });
+    }
+    if (releasesOpen > 0) {
+      list.push({
+        kind: "release", severity: "c",
+        title: `${releasesOpen} Angebot${releasesOpen === 1 ? "" : "e"} zur Freigabe`,
+        sub: "Chef-Freigabe nötig bevor versendet werden kann",
+        href: "/admin/angebote"
+      });
+    }
+    if (versendetOverdue > 0) {
+      list.push({
+        kind: "followup", severity: "c",
+        title: `${versendetOverdue} Angebot${versendetOverdue === 1 ? "" : "e"} nachfassen`,
+        sub: "Seit >7 Tagen versendet, keine Kundenrückmeldung",
+        href: "/admin/angebote"
+      });
+    }
+    const noAddr = sites.filter((s) => !s.street || !s.city).length;
+    if (noAddr > 0) {
+      list.push({
+        kind: "address", severity: "g",
+        title: `${noAddr} Baustelle${noAddr === 1 ? "" : "n"} ohne vollständige Adresse`,
+        sub: "Aus sevDesk übernehmen oder manuell ergänzen",
+        href: "/admin/sites"
+      });
+    }
+    return list;
+  }, [gaps, releasesOpen, versendetOverdue, sites]);
 
   async function handleLogout() {
     await signOutFully();
@@ -115,225 +183,266 @@ export default function Admin() {
   return (
     <div className="min-h-screen safe-top safe-bottom">
       <div className="lg:flex">
-        <aside className="hidden lg:flex flex-col w-64 surface-steel px-5 py-6 sticky top-0 h-screen">
+        {/* SIDEBAR · konsolidiert auf 5 Top-Einträge */}
+        <aside className="hidden lg:flex flex-col w-60 surface-steel px-5 py-6 sticky top-0 h-screen">
           <Logo tone="light" />
-          <p className="h-mono text-steel text-[11px] mt-1.5">{adminLabel}</p>
+          <p className="dd-eyebrow text-steel mt-1.5">{adminLabel}</p>
 
-          <nav className="mt-10 flex flex-col gap-1 text-[12px]">
-            <NavItem icon="▦" label="Übersicht" active />
-            <NavItem icon="●" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
-            <NavItem icon="◷" label="Wochenplan" to="/admin/plan" />
-            <NavItem icon="⌂" label="Baustellen" to="/admin/sites" />
-            <NavItem icon="≡" label="Stunden" to="/admin/stunden" />
-            <NavItem icon="▤" label="Angebote" to="/admin/angebote" />
-            <NavItem icon="▮" label="Auswertung" disabled />
-            <NavItem icon="↗" label="DATEV-Export" disabled />
+          <nav className="mt-10 flex flex-col gap-1">
+            <SbItem icon="●" label="Übersicht" active />
+            <SbItem icon="◷" label="Zeiterfassung" to="/admin/zeiterfassung" />
+            <SbItem icon="⌂" label="Baustellen" to="/admin/sites" />
+            <SbItem icon="◇" label="Angebote" to="/admin/angebote" />
+            <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
+            <div className="h-px bg-white/8 my-3" />
+            <SbItem icon="▮" label="Auswertung" disabled />
           </nav>
 
-          <button onClick={handleLogout} className="mt-auto h-mono text-steel text-[12px] text-left hover:text-copper-bright transition-colors">
+          <button onClick={handleLogout} className="mt-auto dd-eyebrow text-steel text-left hover:text-copper-bright transition-colors">
             ← Abmelden
           </button>
         </aside>
 
-        <main className="flex-1 px-5 py-5 lg:px-12 xl:px-16 lg:py-8 w-full">
+        <main className="flex-1 px-5 py-5 lg:px-10 xl:px-14 lg:py-8 w-full">
+          {/* Mobile-Header */}
           <header className="lg:hidden mb-6 flex items-center justify-between">
             <div>
               <Logo />
-              <p className="h-mono text-ink-mute text-[11px] mt-1">{adminLabel}</p>
+              <p className="dd-eyebrow text-ink-mute mt-1">{adminLabel}</p>
             </div>
-            <button onClick={handleLogout} className="h-mono text-ink-mute text-[12px]">
-              Abmelden
-            </button>
+            <button onClick={handleLogout} className="dd-eyebrow text-ink-mute">Abmelden</button>
           </header>
 
-          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-6 pb-5 border-b border-ink/10">
+          {/* TOP-ROW: Titel + Live-Status + Aktions-Buttons */}
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 mb-7 pb-5 border-b border-ink/10">
             <div>
-              <p className="h-mono text-copper">
-                KW {week} / {year} · Mitarbeiter
-                {todayInWeek && <span className="text-ink-mute"> · Heute {fmtDateLong(today)}</span>}
-              </p>
-              <h1 className="h-display text-3xl lg:text-4xl mt-1">
-                {new Date(days[0]).toLocaleDateString("de-DE", { day: "2-digit", month: "long" })}
-                {" bis "}
-                {new Date(days[days.length - 1]).toLocaleDateString("de-DE", { day: "2-digit", month: "long" })}
+              <span className="dd-eyebrow text-copper block">
+                {new Date().toLocaleDateString("de-DE", { weekday: "long", day: "2-digit", month: "long" })} · KW {week}
+              </span>
+              <h1 className="font-display font-black uppercase text-3xl lg:text-4xl mt-1.5 leading-none">
+                Übersicht · So läuft dein Betrieb
               </h1>
               {!loading && (
-                <p className={`h-mono text-[11px] mt-1.5 ${isBackendConnected() ? "text-good" : "text-ink-mute"}`}>
+                <p className={`font-mono text-[11.5px] mt-2 tracking-wide ${isBackendConnected() ? "text-good" : "text-ink-mute"}`}>
                   {isBackendConnected()
-                    ? `● Live · ${team.length} Mitarbeiter · ${allEntries.length} Einträge aus Frankfurt`
+                    ? `● Live · ${liveCount} Mitarbeiter aktiv · ${activeSites.length} Baustelle${activeSites.length === 1 ? "" : "n"} · ${cards.length} Vorgänge`
                     : "○ Mock-Modus"}
                 </p>
               )}
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Link to="/admin/plan" className="btn-ghost text-[12px] lg:hidden">
-                Wochenplan
+              <button className="btn-ghost !min-h-[44px] !px-4 text-[12px]">Filter</button>
+              <button className="btn-ghost !min-h-[44px] !px-4 text-[12px]">PDF</button>
+              <Link to="/admin/zeiterfassung" className="btn-primary !min-h-[44px] text-[12px] flex items-center justify-center">
+                DATEV ↗
               </Link>
-              <Link to="/admin/angebote" className="btn-ghost text-[12px] lg:hidden">
-                Angebote
-              </Link>
-              <button className="btn-ghost text-[12px]">Filter</button>
-              <button className="btn-ghost text-[12px]">PDF</button>
-              <button className="btn-primary text-[11px]">DATEV-Export ↗</button>
             </div>
           </div>
 
-          {/* Error-Banner falls listWorkers fehlschlägt */}
           {loadError && (
             <div className="mb-5 bg-rust/15 border border-rust/40 rounded-xl p-4">
-              <div className="h-mono text-rust text-[12px]">Fehler beim Laden</div>
+              <div className="dd-eyebrow text-rust">Fehler beim Laden</div>
               <p className="text-sm text-paper mt-1">{loadError}</p>
-              <p className="h-mono text-ink-2 text-[11px] mt-2">
-                Öffne Browser-Console (F12) für Details.
-              </p>
             </div>
           )}
 
-          {/* Hinweis falls Workers geladen aber Liste leer */}
-          {!loading && !loadError && team.length === 0 && (
-            <div className="mb-5 bg-copper/10 border border-copper/40 rounded-xl p-4">
-              <div className="h-mono text-copper text-[12px]">Liste leer</div>
-              <p className="text-sm text-paper mt-1">
-                Keine Mitarbeiter aus der DB geladen. Mögliche Ursachen:
-              </p>
-              <ul className="text-[12px] text-ink-body mt-2 list-disc list-inside space-y-1">
-                <li>RLS blockiert Zugriff (Demo-Policies nicht aktiv?)</li>
-                <li>Alle Workers sind als Admin markiert</li>
-                <li>Workers-Tabelle ist leer</li>
-              </ul>
-            </div>
-          )}
-
-          {/* Eigene Wochenübersicht für Admin */}
-          {me && (
-            <Link
-              to="/"
-              className="block mb-5 bg-gradient-to-br from-copper/15 to-bg-2 border border-copper/30 rounded-xl p-4 lg:p-5 flex items-center gap-4 active:scale-[0.99] transition-transform"
+          {/* MODULE-GRID */}
+          <div className="grid grid-cols-12 gap-4 lg:gap-5">
+            {/* ── PIPELINE · volle Breite oben ────────────────────────────── */}
+            <Module
+              span="full"
+              eyebrow="Pipeline"
+              title="Angebote · Geld in der Mache"
+              moreLabel="Alle ansehen"
+              moreTo="/admin/angebote"
             >
-              <div className="w-12 h-12 rounded-full bg-gradient-to-br from-copper-bright to-copper text-bg-deep flex items-center justify-center font-display font-extrabold text-base flex-shrink-0">
-                {me.initials}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="h-mono text-copper text-[11px]">Mein Wochenzettel</div>
-                <div className="font-semibold text-sm mt-0.5">{me.firstName} {me.lastName}</div>
-                <div className="h-mono text-ink-2 text-[11px] mt-0.5">
-                  Eigene Stunden eintragen, wie ein Mitarbeiter
+              <div className="px-4 lg:px-5 pb-4 pt-2">
+                <div className="flex items-stretch border border-steel-line/60 rounded-lg overflow-hidden">
+                  <PipeStage label="Anfrage"     value={stageCount("Anfrage")} />
+                  <PipeStage label="Angebot"     value={stageCount("Angebot")}     tone="copper" />
+                  <PipeStage label="Versendet"   value={stageCount("Versendet")}   tone="copper-soft" />
+                  <PipeStage label="Auftrag"     value={stageCount("Auftrag")}     tone="copper-bright" />
+                  <PipeStage label="In Arbeit"   value={stageCount("In Arbeit")}   tone="bronze" />
+                  <PipeStage label="Abgerechnet" value={stageCount("Abgerechnet")} tone="good" />
+                </div>
+                <div className="mt-3 flex justify-between items-center flex-wrap gap-3 font-mono text-[11.5px] tracking-wide text-ink-2">
+                  <span>
+                    Σ in der Pipeline ~
+                    <b className="font-display font-black text-base text-ink ml-1">{fmtEur(pipelineValue)}</b>
+                    <span className="text-ink-mute"> · </span>
+                    <b className="font-display font-black text-base text-ink">{cards.length}</b> Vorgänge
+                  </span>
+                  {versendetOverdue > 0 && (
+                    <span className="text-rust font-bold">
+                      <b className="font-display font-black text-base">{versendetOverdue}</b> Angebot{versendetOverdue === 1 ? "" : "e"} länger als 7 Tage ohne Antwort
+                    </span>
+                  )}
                 </div>
               </div>
-              <span className="text-copper text-2xl flex-shrink-0">→</span>
-            </Link>
-          )}
+            </Module>
 
-          {/* Notification-Banner ist global (AdminPushBanner) — hier kein doppeltes Element */}
-
-          {/* Wer fehlt heute */}
-          {missingToday.length > 0 && (
-            <div className="mb-5 bg-rust/10 border border-rust/35 rounded-xl px-5 py-4 lg:flex items-center gap-5">
-              <div className="flex items-center gap-4 flex-1">
-                <span className="text-3xl">⚠</span>
-                <div>
-                  <div className="font-semibold text-sm">
-                    {missingToday.length} {missingToday.length === 1 ? "Mitarbeiter" : "Mitarbeiter"} ohne Eintrag heute
-                  </div>
-                  <div className="h-mono text-ink-2 text-[12px] mt-0.5">
-                    {missingToday.map((w) => `${w.firstName} ${w.lastName.charAt(0)}.`).join(" · ")}
-                  </div>
-                </div>
+            {/* ── BELEGSCHAFT · 1/3 ──────────────────────────────────────── */}
+            <Module
+              span="third"
+              eyebrow="Belegschaft"
+              title="Heute auf der Baustelle"
+              moreLabel="Zeiterfassung →"
+              moreTo="/admin/zeiterfassung"
+            >
+              <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
+                {loading ? (
+                  <div className="font-mono text-[11px] text-ink-mute text-center py-4">Lädt …</div>
+                ) : todayLive.length === 0 ? (
+                  <div className="font-mono text-[11px] text-ink-mute text-center py-4">Kein Mitarbeiter im Team</div>
+                ) : todayLive.map((row) => (
+                  <CrewRow key={row.worker.id} row={row} />
+                ))}
               </div>
-              <button
-                onClick={handleRemindAll}
-                className="mt-3 lg:mt-0 btn-primary text-[11px] whitespace-nowrap"
-              >
-                Alle erinnern · Push senden
-              </button>
-            </div>
-          )}
+            </Module>
 
-          <section className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-8">
-            <Stat
-              kicker={`Gesamt KW ${week}`}
-              value={`${fmtHours(totalMinutes)} h`}
-              sub={`${team.length} Mitarbeiter`}
-              tone="primary"
-            />
-            <Stat
-              kicker="Wochenstatus"
-              value={`${submitted} / ${team.length}`}
-              sub="Wochen komplett"
-              tone={submitted === team.length ? "good" : "neutral"}
-            />
-            <Stat
-              kicker="Heute aktiv"
-              value={`${onSite}`}
-              sub={`auf ${new Set(summaries.filter(s => s.currentSite).map(s => s.currentSite)).size} Baustellen`}
-            />
-            <Stat
-              kicker="Abwesend"
-              value={`${allEntries.filter(e => e.type !== "work").length}`}
-              sub="Krank · Urlaub · Feiertag"
-              tone="rust"
-            />
-          </section>
-
-          <section className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-6">
-            <div>
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="h-mono text-copper">Mitarbeiter</h2>
-                <div className="flex gap-1.5 text-[12px]">
-                  <FilterChip active={filter === "all"}       onClick={() => setFilter("all")}>Alle</FilterChip>
-                  <FilterChip active={filter === "submitted"} onClick={() => setFilter("submitted")}>Komplett</FilterChip>
-                  <FilterChip active={filter === "open"}      onClick={() => setFilter("open")}>Nachtrag</FilterChip>
-                </div>
-              </div>
-
-              <ul className="space-y-2">
-                {filtered.map((summary) => {
-                  const worker = team.find((w) => w.id === summary.workerId);
-                  if (!worker) return null;
+            {/* ── BAUSTELLEN · 1/3 ───────────────────────────────────────── */}
+            <Module
+              span="third"
+              eyebrow="Baustellen"
+              title={`${activeSites.length} aktiv${restingSites.length > 0 ? " · " + restingSites.length + " ruht" : ""}`}
+              moreLabel="Alle →"
+              moreTo="/admin/sites"
+            >
+              <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
+                {loading ? (
+                  <div className="font-mono text-[11px] text-ink-mute text-center py-4">Lädt …</div>
+                ) : sites.slice(0, 4).length === 0 ? (
+                  <div className="font-mono text-[11px] text-ink-mute text-center py-4">Noch keine Baustellen</div>
+                ) : sites.slice(0, 4).map((s) => {
+                  const active = activeSiteIds.has(s.id);
                   return (
-                    <TeamRow
-                      key={summary.workerId}
-                      summary={summary}
-                      worker={worker}
-                      entries={allEntries}
-                      refDate={refDate}
-                      missing={missingToday}
-                      onInvite={() => { setPreselectWorker(worker); setShowInvite(true); }}
-                    />
+                    <Link
+                      key={s.id}
+                      to={`/admin/sites/${s.id}`}
+                      className="flex items-center justify-between gap-3 py-1.5 border-b border-ink/8 last:border-0 hover:bg-bg-2/40 -mx-1 px-1 rounded"
+                    >
+                      <div className="min-w-0">
+                        {s.projectNumber && (
+                          <div className="font-mono text-[10px] tracking-wider text-copper leading-none">Auftrag {s.projectNumber}</div>
+                        )}
+                        <div className="text-[13px] font-bold text-ink truncate mt-0.5">{s.name}</div>
+                        <div className="font-mono text-[10px] tracking-wide text-ink-mute uppercase mt-0.5 truncate">{s.city || s.street || "Adresse offen"}</div>
+                      </div>
+                      <span className={`font-mono text-[10px] tracking-wider px-2 py-0.5 rounded-full font-bold whitespace-nowrap flex-shrink-0 ${
+                        active ? "bg-good/15 text-good" : "bg-bg-3 text-ink-mute"
+                      }`}>
+                        {active ? "aktiv" : "ruht"}
+                      </span>
+                    </Link>
                   );
                 })}
-              </ul>
+              </div>
+            </Module>
 
-              <button
-                onClick={() => { setPreselectWorker(null); setShowInvite(true); }}
-                className="mt-3 w-full bg-bg-2 border border-dashed border-copper/40 rounded-xl px-4 py-3 flex items-center gap-3 active:bg-bg-3 transition-colors text-left"
-              >
-                <span className="text-2xl">＋</span>
-                <div className="flex-1">
-                  <div className="font-semibold text-sm">Mitarbeiter einladen</div>
-                  <div className="h-mono text-ink-2 text-[11px] mt-0.5">Code per WhatsApp senden · 24 h gültig</div>
+            {/* ── FINANZEN · 1/3 · Stub mit echtem Frame ──────────────────── */}
+            <Module
+              span="third"
+              eyebrow="Finanzen"
+              title="Geld diese Woche"
+              moreLabel="sevDesk ↗"
+              moreTo="/admin/angebote"
+            >
+              <div className="px-4 lg:px-5 pb-4 pt-3 grid grid-cols-3 gap-3">
+                <Kpi label="abgerechnet KW" value={fmtEur(sumStage("Abgerechnet"))} tone="good" />
+                <Kpi label="offen brutto" value={fmtEur(sumStage("Versendet") + sumStage("Angebot"))} />
+                <Kpi label="Σ Pipeline" value={fmtEur(pipelineValue)} tone="copper" />
+                <div className="col-span-3 font-mono text-[10.5px] tracking-wider text-ink-mute uppercase pt-2 border-t border-ink/8">
+                  Zahlen aus sevDesk-Pipeline · Mahnungs-Modul folgt
                 </div>
-                <span className="text-copper text-xl">→</span>
-              </button>
-            </div>
+              </div>
+            </Module>
 
-            <div>
-              <h2 className="h-mono text-copper mb-3">Letzte Einträge · KW {week}</h2>
-              {liveFeed.length === 0 ? (
-                <div className="dd-card px-4 py-6 text-center" style={{ ["--c" as any]: "#A9AEB3" }}>
-                  <div className="h-mono text-ink-2 text-[11px]">Noch keine Einträge</div>
-                  <div className="text-[12px] text-ink-2 mt-1">Sobald jemand Stunden speichert, taucht hier eine Live-Meldung auf.</div>
+            {/* ── HEUTE ZU TUN · 1/2 ──────────────────────────────────────── */}
+            <Module
+              span="half"
+              eyebrow="Heute zu tun"
+              title={`${actions.length} Sache${actions.length === 1 ? "" : "n"} warten auf dich`}
+              moreLabel="Alle Aktionen →"
+              moreTo="/admin/angebote"
+            >
+              <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
+                {loading ? (
+                  <div className="font-mono text-[11px] text-ink-mute text-center py-4">Lädt …</div>
+                ) : actions.length === 0 ? (
+                  <div className="text-center py-6">
+                    <div className="font-display font-black uppercase text-base text-good tracking-tight">✓ Inbox leer</div>
+                    <div className="font-mono text-[10.5px] tracking-wider text-ink-mute uppercase mt-1.5">
+                      keine offenen Aktionen · Kaffee verdient
+                    </div>
+                  </div>
+                ) : actions.map((a, i) => (
+                  <ActionRow key={i} action={a} />
+                ))}
+              </div>
+            </Module>
+
+            {/* ── STUNDEN-SNAPSHOT · 1/4 ──────────────────────────────────── */}
+            <Module
+              span="quarter"
+              eyebrow="Stunden"
+              title={`KW ${week} · Snapshot`}
+              moreLabel="Zeiterfassung →"
+              moreTo="/admin/zeiterfassung"
+            >
+              <div className="px-4 lg:px-5 pb-4 pt-3 grid grid-cols-3 gap-3">
+                <Kpi label={`Σ bis ${todayShort(today)}`} value={`${fmtHours(weekMinutesAll)} h`} />
+                <Kpi label="aktiv jetzt" value={`${liveCount}${plannedCount > 0 ? ` / ${liveCount + plannedCount}` : ""}`} tone="good" />
+                <Kpi label="Lücken" value={String(gaps)} tone={gaps > 0 ? "rust" : "neutral"} />
+              </div>
+            </Module>
+
+            {/* ── WETTER · 1/4 · Stub mit Live-Optik ──────────────────────── */}
+            <Module
+              span="quarter"
+              eyebrow="Wetter · Weener"
+              title="3-Tage-Outlook"
+              moreLabel="DWD ↗"
+            >
+              <div className="px-4 lg:px-5 pb-4 pt-3 flex gap-2">
+                <WeatherDay d="Heute" t="14°" icon="◐" sub="bewölkt" today />
+                <WeatherDay d="Fr" t="17°" icon="☀" sub="sonnig" />
+                <WeatherDay d="Sa" t="12°" icon="☂" sub="Regen" />
+                <WeatherDay d="So" t="10°" icon="☂" sub="Regen" />
+              </div>
+              <div className="px-4 lg:px-5 pb-3 -mt-1 font-mono text-[10px] tracking-wider text-ink-mute uppercase">
+                Demo-Werte · DWD-Anbindung folgt
+              </div>
+            </Module>
+
+            {/* ── TERMINE · 1/2 ───────────────────────────────────────────── */}
+            <Module
+              span="half"
+              eyebrow="Termine"
+              title="Diese Woche"
+              moreLabel="Kalender ↗"
+            >
+              <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
+                <DateRow when="Fr 22.05. · 08:00" what="Materiallieferung Borgmann" where="Bunde · Hauptstr. 17" />
+                <DateRow when="Mo 25.05. · 14:00" what="Aufmaß Diakoniestation" where="Weener" />
+                <div className="font-mono text-[10px] tracking-wider text-ink-mute uppercase pt-2 border-t border-ink/8">
+                  Demo-Termine · Kalender-Modul folgt
                 </div>
-              ) : (
-                <ul className="space-y-2">
-                  {liveFeed.map((entry) => {
-                    const w = allWorkers.find((wo) => wo.id === entry.workerId);
-                    return <EntryFeedRow key={entry.id} entry={entry} worker={w} />;
-                  })}
-                </ul>
-              )}
-            </div>
-          </section>
+              </div>
+            </Module>
+          </div>
+
+          {/* QUICK-AKTION: Mitarbeiter einladen */}
+          <div className="mt-7 pt-5 border-t border-ink/10 flex items-center justify-between gap-4 flex-wrap">
+            <p className="font-mono text-[11.5px] tracking-wide text-ink-mute uppercase">
+              {team.length} Mitarbeiter im Team · {team.filter((w) => !w.linked).length} ohne Verknüpfung
+            </p>
+            <button
+              onClick={() => { setPreselectWorker(null); setShowInvite(true); }}
+              className="btn-ghost !min-h-[44px] !px-5 text-[12px]"
+            >
+              ＋ Mitarbeiter einladen
+            </button>
+          </div>
         </main>
       </div>
 
@@ -346,11 +455,10 @@ export default function Admin() {
       )}
       {showWorkers && (
         <WorkersModal
-          workers={allWorkers}
+          workers={workers}
           onClose={() => setShowWorkers(false)}
           onUpdated={(updated) => {
-            setAllWorkers((prev) => prev.map((w) => w.id === updated.id ? updated : w));
-            setTeam((prev) => prev.map((w) => w.id === updated.id ? updated : w));
+            setWorkers((prev) => prev.map((w) => w.id === updated.id ? updated : w));
           }}
           onInvite={(worker) => {
             setShowWorkers(false);
@@ -363,48 +471,199 @@ export default function Admin() {
   );
 }
 
-function WorkersModal({
-  workers, onClose, onUpdated, onInvite
-}: {
-  workers: Worker[];
-  onClose: () => void;
-  onUpdated: (w: Worker) => void;
-  onInvite: (w: Worker) => void;
+/* ──────── kleine Building-Blocks ──────── */
+
+function SbItem({ icon, label, active, disabled, onClick, to }: {
+  icon: string; label: string; active?: boolean; disabled?: boolean;
+  onClick?: () => void; to?: string;
+}) {
+  const cls = `flex items-center gap-3 px-3 py-2.5 rounded-lg text-left dd-eyebrow tracking-[.10em] transition-colors ${
+    active ? "bg-copper/22 text-copper-bright"
+    : disabled ? "text-white/30 cursor-not-allowed"
+    : "text-steel hover:bg-white/5 hover:text-white"
+  }`;
+  const content = (
+    <>
+      <span className="w-4 text-center text-base">{icon}</span>
+      <span>{label}</span>
+      {disabled && <span className="ml-auto font-mono text-[9px] text-white/25 lowercase tracking-wider">bald</span>}
+    </>
+  );
+  if (to && !disabled) return <Link to={to} className={cls}>{content}</Link>;
+  return <button onClick={onClick} disabled={disabled} className={cls}>{content}</button>;
+}
+
+function Module({ span, eyebrow, title, moreLabel, moreTo, children }: {
+  span: "full" | "half" | "third" | "quarter";
+  eyebrow: string; title: string;
+  moreLabel?: string; moreTo?: string;
+  children: React.ReactNode;
+}) {
+  const spanCls =
+    span === "full"    ? "col-span-12" :
+    span === "half"    ? "col-span-12 lg:col-span-6" :
+    span === "third"   ? "col-span-12 sm:col-span-6 lg:col-span-4" :
+    /* quarter */        "col-span-12 sm:col-span-6 lg:col-span-3";
+  return (
+    <section className={`${spanCls} dd-card overflow-hidden`} style={{ ["--c" as any]: "#A9AEB3" }}>
+      <header className="px-4 lg:px-5 pt-3.5 pb-2.5 flex items-end justify-between gap-3 border-b border-ink/8">
+        <div className="min-w-0">
+          <div className="dd-eyebrow text-copper">{eyebrow}</div>
+          <h3 className="font-display font-black uppercase text-[17px] tracking-tight text-ink leading-none mt-1 truncate">{title}</h3>
+        </div>
+        {moreLabel && (moreTo
+          ? <Link to={moreTo} className="font-mono text-[10.5px] tracking-wider text-ink-2 hover:text-copper uppercase whitespace-nowrap">{moreLabel}</Link>
+          : <span className="font-mono text-[10.5px] tracking-wider text-ink-mute uppercase whitespace-nowrap">{moreLabel}</span>
+        )}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+function PipeStage({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "neutral" | "copper" | "copper-soft" | "copper-bright" | "bronze" | "good" }) {
+  const styles: Record<string, { bg: string; fg: string }> = {
+    neutral:        { bg: "linear-gradient(180deg,#FFFFFF,#ECEEF0)", fg: "#15171A" },
+    copper:         { bg: "linear-gradient(180deg,#FFFAF1,#F8EAD2)", fg: "#DC6E2D" },
+    "copper-soft":  { bg: "linear-gradient(180deg,#FBF3E6,#F2DEB6)", fg: "#C9852F" },
+    "copper-bright":{ bg: "linear-gradient(180deg,#FFE9D5,#F8C99E)", fg: "#C95F22" },
+    bronze:         { bg: "linear-gradient(180deg,#F4ECDD,#E5D5B0)", fg: "#8C6E45" },
+    good:           { bg: "linear-gradient(180deg,#E2F0E6,#CFE5D7)", fg: "#1F7A3D" }
+  };
+  const t = styles[tone];
+  return (
+    <div className="flex-1 px-3 py-2.5 border-r border-steel-line/40 last:border-0" style={{ background: t.bg }}>
+      <div className="font-mono text-[9.5px] tracking-wider text-ink-mute uppercase">{label}</div>
+      <div className="font-display font-black text-xl leading-none tabular-nums mt-1" style={{ color: t.fg }}>{value}</div>
+    </div>
+  );
+}
+
+function CrewRow({ row }: { row: { worker: Worker; site?: Site; status: "live" | "vacation" | "sick" | "planned" | "off" } }) {
+  const { worker: w, site, status } = row;
+  const colorRing = status === "live" ? "border-good"
+                  : status === "vacation" ? "border-moss"
+                  : status === "sick" ? "border-rust"
+                  : status === "planned" ? "border-copper" : "border-steel-line";
+  const label = status === "live"      ? site?.name ?? "auf der Baustelle"
+              : status === "vacation"  ? "Urlaub"
+              : status === "sick"      ? "Krank"
+              : status === "planned"   ? `geplant: ${site?.name ?? "Baustelle"}`
+              :                          "kein Plan heute";
+  const tone  = status === "live"      ? "text-good"
+              : status === "vacation"  ? "text-moss-bright"
+              : status === "sick"      ? "text-rust"
+              : status === "planned"   ? "text-copper" : "text-ink-mute";
+  return (
+    <div className="flex items-center gap-3 py-1.5">
+      <div className={`w-9 h-9 rounded-full bg-bg-deep text-copper-bright font-display font-black text-[11px] flex items-center justify-center border-2 ${colorRing}`}>
+        {w.initials}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-bold text-ink truncate">{w.firstName} {w.lastName.charAt(0)}.</div>
+        <div className={`font-mono text-[10px] tracking-wider uppercase mt-0.5 truncate ${tone}`}>{label}</div>
+      </div>
+    </div>
+  );
+}
+
+function ActionRow({ action }: { action: { kind: string; severity: "r" | "c" | "g"; title: string; sub: string; href?: string } }) {
+  const dotCls = action.severity === "r" ? "bg-rust"
+              : action.severity === "g" ? "bg-good"
+              : "bg-copper";
+  const inner = (
+    <div className="flex items-start gap-3 py-2 border-b border-ink/8 last:border-0">
+      <span className={`w-2 h-2 rounded-full ${dotCls} mt-1.5 flex-shrink-0`} />
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-bold text-ink leading-snug">{action.title}</div>
+        <div className="text-[11.5px] text-ink-body leading-snug mt-0.5">{action.sub}</div>
+      </div>
+      {action.href && <span className="font-mono text-[10px] tracking-wider text-copper uppercase font-bold whitespace-nowrap self-center">→</span>}
+    </div>
+  );
+  return action.href
+    ? <Link to={action.href} className="block hover:bg-bg-2/40 -mx-1 px-1 rounded">{inner}</Link>
+    : inner;
+}
+
+function Kpi({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "good" | "copper" | "rust" }) {
+  const fg = tone === "good" ? "text-good" : tone === "copper" ? "text-copper" : tone === "rust" ? "text-rust" : "text-ink";
+  return (
+    <div>
+      <div className="font-mono text-[9.5px] tracking-wider text-ink-mute uppercase">{label}</div>
+      <div className={`font-display font-black text-xl leading-none tabular-nums mt-1 ${fg}`}>{value}</div>
+    </div>
+  );
+}
+
+function WeatherDay({ d, t, icon, sub, today: isToday }: { d: string; t: string; icon: string; sub: string; today?: boolean }) {
+  return (
+    <div className={`flex-1 text-center py-2 rounded-md border ${isToday ? "border-copper bg-copper/8" : "border-steel-line/40 bg-bg-3/40"}`}>
+      <div className={`font-mono text-[9.5px] tracking-wider uppercase ${isToday ? "text-copper font-bold" : "text-ink-mute"}`}>{d}</div>
+      <div className="text-xl mt-1 leading-none" style={{ color: isToday ? "#DC6E2D" : "#3E7196" }}>{icon}</div>
+      <div className="font-display font-black text-base tabular-nums mt-1 leading-none">{t}</div>
+      <div className="font-mono text-[9px] tracking-wide uppercase text-ink-mute mt-1">{sub}</div>
+    </div>
+  );
+}
+
+function DateRow({ when, what, where }: { when: string; what: string; where: string }) {
+  return (
+    <div className="flex items-start gap-3 py-1.5 border-b border-ink/8 last:border-0">
+      <span className="w-2 h-2 rounded-full bg-copper mt-1.5 flex-shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-bold text-ink leading-snug">{what}</div>
+        <div className="font-mono text-[10px] tracking-wider text-ink-mute uppercase mt-0.5">{when} · {where}</div>
+      </div>
+    </div>
+  );
+}
+
+/* ──────── Helpers ──────── */
+
+function fmtEur(n: number): string {
+  if (!n || n === 0) return "—";
+  if (n >= 1000) return `${(n / 1000).toLocaleString("de-DE", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}k €`;
+  return n.toLocaleString("de-DE", { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + " €";
+}
+
+function todayShort(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString("de-DE", { weekday: "short" }).replace(".", "");
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Modals (unverändert aus Vorgänger-Admin, nur Imports angepasst)
+   ──────────────────────────────────────────────────────────────────────── */
+
+function WorkersModal({ workers, onClose, onUpdated, onInvite }: {
+  workers: Worker[]; onClose: () => void;
+  onUpdated: (w: Worker) => void; onInvite: (w: Worker) => void;
 }) {
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-end lg:items-center justify-center p-0 lg:p-6" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-bg-2 rounded-t-3xl lg:rounded-2xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto"
-      >
+      <div onClick={(e) => e.stopPropagation()}
+           className="bg-bg-2 rounded-t-3xl lg:rounded-2xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto">
         <div className="flex items-baseline justify-between mb-4">
-          <span className="h-mono text-copper text-[12px]">Mitarbeiter · {workers.length}</span>
-          <button onClick={onClose} className="h-mono text-ink-2 text-[12px]">Schließen</button>
+          <span className="dd-eyebrow text-copper">Mitarbeiter · {workers.length}</span>
+          <button onClick={onClose} className="dd-eyebrow text-ink-2">Schließen</button>
         </div>
-
-        <h2 className="h-display text-2xl mb-5">Stamm-Daten</h2>
-
+        <h2 className="font-display font-black uppercase text-2xl mb-5">Stamm-Daten</h2>
         <ul className="space-y-2">
           {workers.map((w) => (
             <WorkerRow key={w.id} worker={w} onUpdated={onUpdated} onInvite={() => onInvite(w)} />
           ))}
         </ul>
-
-        <p className="h-mono text-ink-mute text-[11px] mt-5 text-center leading-relaxed">
-          Telefonnummer wird für den WhatsApp-Code-Versand verwendet.<br />
-          Verknüpft = Mitarbeiter hat Code eingelöst und ist auf einem Gerät angemeldet.
+        <p className="dd-eyebrow text-ink-mute mt-5 text-center leading-relaxed">
+          Telefon für WhatsApp-Code · Verknüpft = auf Gerät angemeldet
         </p>
       </div>
     </div>
   );
 }
 
-function WorkerRow({
-  worker, onUpdated, onInvite
-}: {
-  worker: Worker;
-  onUpdated: (w: Worker) => void;
-  onInvite: () => void;
+function WorkerRow({ worker, onUpdated, onInvite }: {
+  worker: Worker; onUpdated: (w: Worker) => void; onInvite: () => void;
 }) {
   const [phone, setPhone] = useState(worker.phone ?? "");
   const [editing, setEditing] = useState(false);
@@ -413,115 +672,68 @@ function WorkerRow({
   const [error, setError] = useState<string | null>(null);
 
   async function save() {
-    setSaving(true);
-    setError(null);
+    setSaving(true); setError(null);
     try {
       await updateWorkerPhone(worker.id, phone.trim() || null);
       onUpdated({ ...worker, phone: phone.trim() || undefined });
       setEditing(false);
-    } catch (err: any) {
-      setError(err?.message ?? "Speichern fehlgeschlagen");
-    } finally {
-      setSaving(false);
-    }
+    } catch (err: any) { setError(err?.message ?? "Speichern fehlgeschlagen"); }
+    finally { setSaving(false); }
   }
 
   async function unlink() {
-    if (!confirm(
-      `Verknüpfung von ${worker.firstName} ${worker.lastName} mit dem aktuellen Gerät wirklich lösen?\n\n` +
-      `Danach kannst du einen neuen Code/QR ausgeben, z.B. wenn das Handy gewechselt wurde.\n\n` +
-      `Bisherige Einträge bleiben erhalten.`
-    )) return;
-    setUnlinking(true);
-    setError(null);
+    if (!confirm(`Verknüpfung von ${worker.firstName} ${worker.lastName} lösen?`)) return;
+    setUnlinking(true); setError(null);
     try {
       await unlinkWorker(worker.id);
       onUpdated({ ...worker, linked: false });
-    } catch (err: any) {
-      setError(err?.message ?? "Verknüpfung konnte nicht gelöst werden");
-    } finally {
-      setUnlinking(false);
-    }
+    } catch (err: any) { setError(err?.message ?? "Lösen fehlgeschlagen"); }
+    finally { setUnlinking(false); }
   }
 
   return (
     <li className="bg-bg-3 rounded-xl p-3.5">
       <div className="flex items-center gap-3">
-        <div className={`w-11 h-11 rounded-full flex items-center justify-center font-display font-extrabold text-base flex-shrink-0 ${
-          worker.isAdmin
-            ? "bg-gradient-to-br from-copper-bright to-copper text-bg-deep"
-            : "bg-bg-4 text-copper-bright"
-        }`}>
-          {worker.initials}
-        </div>
+        <div className={`w-11 h-11 rounded-full flex items-center justify-center font-display font-black text-base flex-shrink-0 ${
+          worker.isAdmin ? "bg-gradient-to-br from-copper-bright to-copper text-bg-deep" : "bg-bg-4 text-copper-bright"
+        }`}>{worker.initials}</div>
         <div className="flex-1 min-w-0">
           <div className="flex items-baseline gap-2 flex-wrap">
-            <div className="font-semibold text-[14px]">{worker.firstName} {worker.lastName}</div>
-            {worker.isAdmin && <span className="h-mono text-copper text-[10px]">ADMIN</span>}
+            <div className="font-bold text-[14px]">{worker.firstName} {worker.lastName}</div>
+            {worker.isAdmin && <span className="dd-eyebrow text-copper">ADMIN</span>}
             {worker.linked
-              ? <span className="h-mono text-good text-[10px]">● VERKNÜPFT</span>
-              : !worker.isAdmin && <span className="h-mono text-ink-mute text-[10px]">○ OFFEN</span>}
+              ? <span className="dd-eyebrow text-good">● VERKNÜPFT</span>
+              : !worker.isAdmin && <span className="dd-eyebrow text-ink-mute">○ OFFEN</span>}
           </div>
-          <div className="h-mono text-ink-2 text-[11px] mt-0.5">{worker.role}</div>
+          <div className="dd-eyebrow text-ink-2 mt-0.5">{worker.role}</div>
         </div>
         {!worker.isAdmin && !worker.linked && (
-          <button
-            onClick={onInvite}
-            className="h-mono text-[10px] text-copper hover:underline whitespace-nowrap"
-          >
-            📱 Code →
-          </button>
+          <button onClick={onInvite} className="dd-eyebrow text-copper hover:underline whitespace-nowrap">📱 Code →</button>
         )}
         {!worker.isAdmin && worker.linked && (
-          <button
-            onClick={unlink}
-            disabled={unlinking}
-            className="h-mono text-[10px] text-rust hover:underline whitespace-nowrap disabled:opacity-50"
-            title="Trennung des Mitarbeiters vom aktuell verknüpften Gerät"
-          >
+          <button onClick={unlink} disabled={unlinking}
+                  className="dd-eyebrow text-rust hover:underline whitespace-nowrap disabled:opacity-50">
             {unlinking ? "Lösche …" : "× Verknüpfung lösen"}
           </button>
         )}
       </div>
-
       <div className="mt-3 pt-3 border-t border-ink/10">
         <div className="flex items-center gap-2">
-          <span className="h-mono text-copper text-[10px] flex-shrink-0">TEL</span>
+          <span className="dd-eyebrow text-copper flex-shrink-0">TEL</span>
           {editing ? (
             <>
-              <input
-                type="tel"
-                autoFocus
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+49 1520 …"
-                className="flex-1 bg-bg-2 border border-copper/40 rounded-md px-2 py-1 text-[13px] focus:outline-none focus:border-copper font-mono"
-              />
-              <button
-                onClick={save}
-                disabled={saving}
-                className="h-mono text-[10px] text-copper px-2 py-1 disabled:opacity-50"
-              >
-                {saving ? "…" : "OK"}
-              </button>
-              <button
-                onClick={() => { setPhone(worker.phone ?? ""); setEditing(false); setError(null); }}
-                className="h-mono text-[10px] text-ink-2 px-2 py-1"
-              >
-                ✕
-              </button>
+              <input type="tel" autoFocus value={phone} onChange={(e) => setPhone(e.target.value)}
+                     placeholder="+49 1520 …"
+                     className="flex-1 bg-bg-2 border border-copper/40 rounded-md px-2 py-1 text-[13px] focus:outline-none focus:border-copper font-mono" />
+              <button onClick={save} disabled={saving} className="dd-eyebrow text-copper px-2 py-1 disabled:opacity-50">{saving ? "…" : "OK"}</button>
+              <button onClick={() => { setPhone(worker.phone ?? ""); setEditing(false); setError(null); }} className="dd-eyebrow text-ink-2 px-2 py-1">✕</button>
             </>
           ) : (
             <>
               <span className="flex-1 text-[13px] font-mono text-ink-body">
                 {worker.phone || <span className="text-ink-mute italic">nicht hinterlegt</span>}
               </span>
-              <button
-                onClick={() => setEditing(true)}
-                className="h-mono text-[10px] text-copper hover:underline"
-              >
-                Bearbeiten
-              </button>
+              <button onClick={() => setEditing(true)} className="dd-eyebrow text-copper hover:underline">Bearbeiten</button>
             </>
           )}
         </div>
@@ -531,13 +743,7 @@ function WorkerRow({
   );
 }
 
-function InviteModal({
-  team, preselect, onClose
-}: {
-  team: Worker[];
-  preselect: Worker | null;
-  onClose: () => void;
-}) {
+function InviteModal({ team, preselect, onClose }: { team: Worker[]; preselect: Worker | null; onClose: () => void; }) {
   const [worker, setWorker] = useState<Worker | null>(preselect ?? team[0] ?? null);
   const [code, setCode] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
@@ -545,381 +751,89 @@ function InviteModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // QR-Code rendern, sobald Code da ist
   useEffect(() => {
     if (!code) { setQrDataUrl(null); return; }
     const url = window.location.origin + "/onboarding?code=" + code;
-    QRCode.toDataURL(url, {
-      errorCorrectionLevel: "M",
-      width: 480,
-      margin: 1,
-      color: { dark: "#000000", light: "#FFFFFF" }
-    })
+    QRCode.toDataURL(url, { errorCorrectionLevel: "M", width: 480, margin: 1, color: { dark: "#000000", light: "#FFFFFF" } })
       .then(setQrDataUrl)
       .catch((err) => console.error("[invite] QR generation failed", err));
   }, [code]);
 
   async function generate() {
     if (!worker) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const c = await createInvitation(worker.id);
-      setCode(c);
-    } catch (err: any) {
-      setError(err?.message ?? "Code konnte nicht erzeugt werden");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function printQr() {
-    if (!qrDataUrl || !worker || !code) return;
-    const html = `<!doctype html><html><head><title>${worker.firstName} ${worker.lastName} · Einladung</title>
-      <style>
-        body { font-family: -apple-system, system-ui, sans-serif; padding: 32px; text-align: center; }
-        h1 { font-size: 32px; margin: 0 0 4px; }
-        .role { color: #6B7280; font-size: 14px; margin-bottom: 28px; }
-        img { max-width: 320px; }
-        .code { font-family: 'Courier New', monospace; font-size: 28px; letter-spacing: 6px; margin-top: 18px; }
-        .hint { color: #6B7280; font-size: 13px; margin-top: 18px; line-height: 1.5; }
-      </style></head>
-      <body>
-        <h1>${worker.firstName} ${worker.lastName}</h1>
-        <div class="role">${worker.role}</div>
-        <img src="${qrDataUrl}" alt="QR-Code"/>
-        <div class="code">${code}</div>
-        <div class="hint">QR mit der iPhone-Kamera scannen<br/>oder Code manuell eingeben<br/><br/>24 Stunden gültig</div>
-      </body></html>`;
-    const w = window.open("", "_blank");
-    if (w) {
-      w.document.write(html);
-      w.document.close();
-      w.onload = () => w.print();
-    }
+    setLoading(true); setError(null);
+    try { setCode(await createInvitation(worker.id)); }
+    catch (err: any) { setError(err?.message ?? "Code-Erzeugung fehlgeschlagen"); }
+    finally { setLoading(false); }
   }
 
   function whatsAppUrl(): string {
     if (!worker) return "https://wa.me/";
     const appUrl = window.location.origin + "/onboarding?code=" + (code ?? "");
-    const msg =
-      `👋 Moin ${worker.firstName}!%0A%0A` +
-      `Hier dein Anmelde-Code für die Leuschner-App:%0A%0A` +
-      `*${code}*%0A%0A` +
-      `App öffnen:%0A${encodeURIComponent(appUrl)}%0A%0A` +
-      `Code ist 24 h gültig.`;
+    const msg = `👋 Moin ${worker.firstName}!%0A%0AHier dein Anmelde-Code für die Leuschner-App:%0A%0A*${code}*%0A%0AApp öffnen:%0A${encodeURIComponent(appUrl)}%0A%0ACode ist 24 h gültig.`;
     const cleanPhone = phone.replace(/[^0-9]/g, "");
-    return cleanPhone
-      ? `https://wa.me/${cleanPhone}?text=${msg}`
-      : `https://wa.me/?text=${msg}`;
+    return cleanPhone ? `https://wa.me/${cleanPhone}?text=${msg}` : `https://wa.me/?text=${msg}`;
   }
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-50 flex items-end lg:items-center justify-center p-0 lg:p-6" onClick={onClose}>
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="bg-bg-2 rounded-t-3xl lg:rounded-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto"
-      >
+      <div onClick={(e) => e.stopPropagation()} className="bg-bg-2 rounded-t-3xl lg:rounded-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
         <div className="flex items-baseline justify-between mb-4">
-          <span className="h-mono text-copper text-[12px]">Mitarbeiter einladen</span>
-          <button onClick={onClose} className="h-mono text-ink-2 text-[12px]">Schließen</button>
+          <span className="dd-eyebrow text-copper">Mitarbeiter einladen</span>
+          <button onClick={onClose} className="dd-eyebrow text-ink-2">Schließen</button>
         </div>
-
-        <h2 className="h-display text-2xl mb-4">Wer wird eingeladen?</h2>
-
+        <h2 className="font-display font-black uppercase text-2xl mb-4">Wer wird eingeladen?</h2>
         {team.length === 0 ? (
           <div className="bg-bg-3 rounded-xl p-5 text-center">
-            <p className="h-mono text-ink-2 text-[12px]">Mitarbeiter wird geladen …</p>
-            <p className="text-sm text-ink-2 mt-2">Falls die Liste leer bleibt, ist die DB-Verbindung nicht aktiv.</p>
+            <p className="dd-eyebrow text-ink-2">Mitarbeiter wird geladen …</p>
           </div>
         ) : (
           <div className="space-y-1.5 mb-5 max-h-48 overflow-y-auto">
             {team.map((w) => (
-              <button
-                key={w.id}
-                onClick={() => { setCode(null); setWorker(w); }}
-                className={`w-full text-left rounded-lg px-3 py-2.5 flex items-center gap-3 ${
-                  worker && w.id === worker.id ? "bg-copper/15 border border-copper" : "bg-bg-3 border border-transparent"
-                }`}
-              >
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-display font-extrabold text-xs ${
+              <button key={w.id} onClick={() => { setCode(null); setWorker(w); }}
+                      className={`w-full text-left rounded-lg px-3 py-2.5 flex items-center gap-3 ${
+                worker && w.id === worker.id ? "bg-copper/15 border border-copper" : "bg-bg-3 border border-transparent"
+              }`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-display font-black text-xs ${
                   worker && w.id === worker.id ? "bg-copper text-bg-deep" : "bg-bg-4 text-copper-bright"
-                }`}>
-                  {w.initials}
-                </div>
+                }`}>{w.initials}</div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm">{w.firstName} {w.lastName}</div>
-                  <div className="h-mono text-ink-2 text-[11px]">{w.role}</div>
+                  <div className="font-bold text-sm">{w.firstName} {w.lastName}</div>
+                  <div className="dd-eyebrow text-ink-2">{w.role}</div>
                 </div>
               </button>
             ))}
           </div>
         )}
-
         {worker && !code ? (
-          <button
-            onClick={generate}
-            disabled={loading}
-            className="btn-primary w-full disabled:opacity-50"
-          >
+          <button onClick={generate} disabled={loading} className="btn-primary w-full disabled:opacity-50">
             {loading ? "Erzeuge Code …" : `Code für ${worker.firstName} erzeugen`}
           </button>
         ) : code ? (
           <div className="space-y-4">
             <div className="bg-bg-DEFAULT border-2 border-copper rounded-xl p-5 text-center">
-              <div className="h-mono text-copper text-[11px] mb-3">QR-Code · scannen mit iPhone-Kamera</div>
-              {qrDataUrl ? (
-                <img
-                  src={qrDataUrl}
-                  alt={`QR-Code für ${worker?.firstName}`}
-                  className="mx-auto w-64 h-64 rounded-lg"
-                />
-              ) : (
-                <div className="w-64 h-64 mx-auto bg-bg-2 rounded-lg flex items-center justify-center text-ink-2 text-[12px]">
-                  QR wird erzeugt …
-                </div>
-              )}
-              <div className="h-mono text-ink-2 text-[11px] mt-3">oder Code manuell eingeben</div>
+              <div className="dd-eyebrow text-copper mb-3">QR-Code · scannen mit iPhone-Kamera</div>
+              {qrDataUrl ? <img src={qrDataUrl} alt="QR" className="mx-auto w-64 h-64 rounded-lg" />
+                         : <div className="w-64 h-64 mx-auto bg-bg-2 rounded-lg flex items-center justify-center text-ink-2">QR …</div>}
+              <div className="dd-eyebrow text-ink-2 mt-3">oder Code manuell eingeben</div>
               <div className="font-mono font-bold text-2xl tracking-widest mt-1.5">{code}</div>
-              <div className="h-mono text-ink-mute text-[11px] mt-2">24 Stunden gültig</div>
+              <div className="dd-eyebrow text-ink-mute mt-2">24 Stunden gültig</div>
             </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={printQr}
-                disabled={!qrDataUrl}
-                className="btn-ghost text-[12px] disabled:opacity-50"
-              >
-                🖨 Drucken
-              </button>
-              <button
-                onClick={() => navigator.clipboard.writeText(code)}
-                className="btn-ghost text-[12px]"
-              >
-                Code kopieren
-              </button>
-            </div>
-
             <details className="bg-bg-3 rounded-xl">
-              <summary className="px-4 py-3 cursor-pointer h-mono text-copper text-[11px]">
-                Per WhatsApp schicken (optional)
-              </summary>
+              <summary className="px-4 py-3 cursor-pointer dd-eyebrow text-copper">Per WhatsApp schicken</summary>
               <div className="px-4 pb-4 pt-2 space-y-3">
-                <input
-                  type="tel"
-                  placeholder="+49 152 …"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full bg-bg-DEFAULT border border-ink/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-copper"
-                />
-                <a
-                  href={whatsAppUrl()}
-                  target="_blank"
-                  rel="noopener"
-                  className="block text-center w-full px-4 py-2.5 rounded-lg bg-[#25D366] text-bg-deep font-bold text-[13px]"
-                >
+                <input type="tel" placeholder="+49 152 …" value={phone} onChange={(e) => setPhone(e.target.value)}
+                       className="w-full bg-bg-DEFAULT border border-ink/15 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-copper" />
+                <a href={whatsAppUrl()} target="_blank" rel="noopener"
+                   className="block text-center w-full px-4 py-2.5 rounded-lg bg-[#25D366] text-bg-deep font-bold text-[13px]">
                   📱 Per WhatsApp senden
                 </a>
               </div>
             </details>
           </div>
         ) : null}
-
-        {error && (
-          <p className="text-rust text-[11px] mt-3">{error}</p>
-        )}
+        {error && <p className="text-rust text-[11px] mt-3">{error}</p>}
       </div>
     </div>
   );
 }
-
-function NavItem({
-  icon, label, active, disabled, onClick, to
-}: {
-  icon: string;
-  label: string;
-  active?: boolean;
-  disabled?: boolean;
-  onClick?: () => void;
-  to?: string;
-}) {
-  const className = `flex items-center gap-3 px-3 py-2.5 rounded-lg text-left h-mono transition-colors ${
-    active
-      ? "bg-copper/25 text-copper-bright"
-      : disabled
-        ? "text-white/30 cursor-not-allowed"
-        : "text-steel hover:bg-white/5 hover:text-white"
-  }`;
-  const content = (
-    <>
-      <span className="w-4 text-center">{icon}</span>
-      <span>{label}</span>
-      {disabled && <span className="ml-auto h-mono text-[9px] text-white/30">bald</span>}
-    </>
-  );
-  if (to && !disabled) {
-    return <Link to={to} className={className}>{content}</Link>;
-  }
-  return (
-    <button onClick={onClick} disabled={disabled} className={className}>
-      {content}
-    </button>
-  );
-}
-
-function Stat({
-  kicker, value, sub, tone = "neutral"
-}: {
-  kicker: string;
-  value: string;
-  sub?: string;
-  tone?: "primary" | "good" | "rust" | "neutral";
-}) {
-  const c =
-    tone === "primary" ? "#DC6E2D" :
-    tone === "good"    ? "#1F7A3D" :
-    tone === "rust"    ? "#B91C1C" :
-    "#A9AEB3";
-  return (
-    <div className="dd-card px-4 py-4 lg:px-5" style={{ ["--c" as any]: c }}>
-      <div className="h-mono text-copper text-[11px]">{kicker}</div>
-      <div className="h-display text-3xl lg:text-4xl mt-1 text-ink tabular-nums">{value}</div>
-      {sub && <div className="text-[12px] text-ink-2 mt-1">{sub}</div>}
-    </div>
-  );
-}
-
-function FilterChip({
-  active, onClick, children
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`h-mono px-2.5 py-1 rounded-md transition-colors ${
-        active ? "bg-copper text-bg-deep font-bold" : "text-ink-2 hover:text-paper"
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function TeamRow({
-  summary, worker, entries, refDate, missing, onInvite
-}: {
-  summary: WeeklySummary;
-  worker: Worker;
-  entries: Entry[];
-  refDate: string;
-  missing: Worker[];
-  onInvite: () => void;
-}) {
-  const site = summary.currentSite ? siteById(summary.currentSite) : null;
-  const completion = (summary.daysFilled / summary.daysExpected) * 100;
-  const isMissingToday = missing.some((w) => w.id === worker.id);
-
-  const todayEntry = entries.find(
-    (e) => e.workerId === worker.id && e.date === refDate && e.type !== "work"
-  ) as { type: "sick" | "vacation" | "holiday" } | undefined;
-
-  return (
-    <li
-      className="dd-card px-4 py-3 grid grid-cols-[44px_1fr_auto_auto] gap-3 lg:gap-4 items-center"
-      style={{ ["--c" as any]: summary.submitted ? "#1F7A3D" : isMissingToday ? "#B91C1C" : "#DC6E2D" }}
-    >
-      <div className="w-11 h-11 rounded-full bg-bg-deep text-copper-bright flex items-center justify-center font-display font-extrabold text-base">
-        {worker.initials}
-      </div>
-      <div className="min-w-0">
-        <div className="font-semibold text-sm">{worker.firstName} {worker.lastName}</div>
-        <div className="h-mono text-ink-2 text-[11px] mt-0.5">
-          {todayEntry
-            ? <span className="text-rust">{ABSENCE_LABEL[todayEntry.type].label}</span>
-            : site
-            ? <><span className="text-good">●</span> auf {site.name}</>
-            : worker.role}
-        </div>
-        <div className="mt-1.5 h-1 bg-bg-3 rounded-full overflow-hidden">
-          <div
-            className={`h-full ${summary.submitted ? "bg-good" : isMissingToday ? "bg-rust" : "bg-copper"}`}
-            style={{ width: `${completion}%` }}
-          />
-        </div>
-      </div>
-      <div className="text-right">
-        <div className="h-display text-2xl">{fmtHours(summary.minutes)}</div>
-        <div className="h-mono text-ink-mute text-[11px]">Std.</div>
-      </div>
-      <div className="flex flex-col items-end gap-1">
-        <span className={`h-mono text-[11px] px-2 py-1 rounded-md font-bold ${
-          summary.submitted
-            ? "bg-good/20 text-good"
-            : isMissingToday
-            ? "bg-rust/25 text-rust"
-            : "bg-copper/20 text-copper"
-        }`}>
-          {summary.submitted ? "Komplett" : isMissingToday ? "Heute fehlt" : "Nachtrag nötig"}
-        </span>
-        <button
-          onClick={onInvite}
-          className="h-mono text-[8px] text-copper hover:underline"
-        >
-          📱 Code senden
-        </button>
-      </div>
-    </li>
-  );
-}
-
-function EntryFeedRow({ entry, worker }: { entry: Entry; worker?: Worker }) {
-  if (!worker) return null;
-  const dateLabel = new Date(entry.date).toLocaleDateString("de-DE", { weekday: "short", day: "2-digit", month: "2-digit" });
-
-  if (isWorkEntry(entry)) {
-    const site = siteById(entry.siteId);
-    const min = (entry.endMin - entry.startMin) - entry.pauseMin;
-    return (
-      <li className="dd-card px-3 py-2.5 flex gap-3 items-start" style={{ ["--c" as any]: "#DC6E2D" }}>
-        <span className="w-2 h-2 rounded-full mt-1.5 bg-copper flex-shrink-0" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-baseline justify-between gap-2">
-            <span className="font-semibold text-[13px]">{worker.firstName} {worker.lastName.charAt(0)}.</span>
-            <span className="h-mono text-ink-2 text-[11px] flex-shrink-0">{dateLabel}</span>
-          </div>
-          <div className="h-mono text-copper text-[11px] mt-0.5">{entry.discipline} · {fmtHours(Math.max(0, min))} h</div>
-          <div className="text-[12px] text-ink-body mt-1 leading-snug truncate">
-            {site?.name ?? "Baustelle"}
-          </div>
-        </div>
-      </li>
-    );
-  }
-
-  const meta = ABSENCE_LABEL[entry.type];
-  const ac = entry.type === "sick" ? "#B91C1C" : entry.type === "vacation" ? "#1F7A3D" : "#8C6E45";
-  return (
-    <li className="dd-card px-3 py-2.5 flex gap-3 items-start" style={{ ["--c" as any]: ac }}>
-      <span className={`w-2 h-2 rounded-full mt-1.5 ${meta.dot} flex-shrink-0`} />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="font-semibold text-[13px]">{worker.firstName} {worker.lastName.charAt(0)}.</span>
-          <span className="h-mono text-ink-2 text-[11px] flex-shrink-0">{dateLabel}</span>
-        </div>
-        <div className={`h-mono text-[11px] mt-0.5 ${meta.fg}`}>{meta.label}</div>
-        {entry.note && (
-          <div className="text-[12px] text-ink-body mt-1 leading-snug truncate">„{entry.note}"</div>
-        )}
-      </div>
-    </li>
-  );
-}
-
-const ABSENCE_LABEL = {
-  sick:     { label: "🏥 Krank",    dot: "bg-rust",   fg: "text-rust" },
-  vacation: { label: "🏖 Urlaub",   dot: "bg-moss",   fg: "text-moss-bright" },
-  holiday:  { label: "🎉 Feiertag", dot: "bg-bronze", fg: "text-bronze" }
-} as const;

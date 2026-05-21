@@ -11,6 +11,7 @@ import Plan from "./routes/Plan";
 import Sites from "./routes/Sites";
 import SiteDetail from "./routes/SiteDetail";
 import Hours from "./routes/Hours";
+import Zeiterfassung from "./routes/Zeiterfassung";
 import Angebote from "./routes/Angebote";
 import AuthCallback from "./routes/AuthCallback";
 import OfflineIndicator from "./components/OfflineIndicator";
@@ -65,6 +66,7 @@ export default function App() {
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/"              element={<ProtectedRoute><RoleRoot /></ProtectedRoute>} />
         <Route path="/admin"         element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+        <Route path="/admin/zeiterfassung" element={<ProtectedRoute adminOnly><Zeiterfassung /></ProtectedRoute>} />
         <Route path="/admin/plan"    element={<ProtectedRoute adminOnly><Plan /></ProtectedRoute>} />
         <Route path="/admin/sites"     element={<ProtectedRoute adminOnly><Sites /></ProtectedRoute>} />
         <Route path="/admin/sites/:id" element={<ProtectedRoute adminOnly><SiteDetail /></ProtectedRoute>} />
