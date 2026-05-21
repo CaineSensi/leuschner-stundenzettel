@@ -197,10 +197,10 @@ function ProfileStep({ worker, onNext }: { worker: Worker; onNext: () => void })
 
       <div className="mt-10 pt-6 border-t border-ink/10 text-center">
         <p className="h-mono text-ink-2">
-          {worker.isAdmin ? "Inhaber-Account" : "Eingeladen von"}
+          {worker.isAdmin ? "Admin-Account" : "Eingeladen von"}
         </p>
         <p className="font-semibold text-paper mt-1">
-          {worker.isAdmin ? "Rund um's Haus Leuschner e.K." : "Rick Kohlberg"}
+          {worker.isAdmin ? "Rund um's Haus Leuschner e.K." : "dem Büro · Leuschner"}
         </p>
         <p className="h-mono text-ink-mute mt-1">Weener · Ostfriesland</p>
       </div>

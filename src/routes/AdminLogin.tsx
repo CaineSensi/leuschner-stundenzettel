@@ -119,7 +119,7 @@ export default function AdminLogin() {
         )}
 
         <p className="font-sans text-ink-mute text-center text-[11px] leading-relaxed mt-6">
-          Der Link-Weg ist für den Inhaber gedacht (kein Passwort nötig).<br />
+          Der Link-Weg ist für Inhaber und Admin gedacht (kein Passwort nötig).<br />
           Passwort vergessen? Im Supabase-Dashboard zurücksetzen.
         </p>
       </section>

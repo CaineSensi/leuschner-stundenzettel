@@ -18,7 +18,7 @@ export default function AuthCallback() {
       if (cancelled) return;
 
       if (!worker) {
-        setError("Konnte deinen Account nicht finden. Frage Rick, ob deine Email hinterlegt ist.");
+        setError("Konnte deinen Account nicht finden. Frage im Büro, ob deine Email hinterlegt ist.");
         return;
       }
 

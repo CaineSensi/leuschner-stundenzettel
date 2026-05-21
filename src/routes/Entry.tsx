@@ -405,7 +405,7 @@ function NoWorkScreen({ date, onBack }: { date: string; onBack: () => void }) {
         <p className="mt-4 text-ink-body text-sm leading-relaxed max-w-xs">
           {isToday
             ? "Für heute wurde dir vom Büro noch keine Baustelle zugewiesen."
-            : "Für diesen Tag wurde dir keine Baustelle zugewiesen, Rick muss das im Wochenplan nachtragen."}
+            : "Für diesen Tag wurde dir keine Baustelle zugewiesen, das Büro muss das im Wochenplan nachtragen."}
         </p>
         <p className="mt-4 text-ink-2 text-[13px] leading-relaxed max-w-xs">
           Frag kurz im Büro, sobald die Zuweisung steht, taucht hier die Baustelle automatisch auf.

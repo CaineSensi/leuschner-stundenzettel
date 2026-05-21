@@ -46,7 +46,16 @@ const STAGE_HINT: Record<string, string> = {
 export default function Admin() {
   const navigate = useNavigate();
   const me = currentUser();
-  const adminLabel = me ? `${me.firstName.charAt(0)}. ${me.lastName} · Inhaber` : "Inhaber";
+  // Rolle dynamisch aus dem worker-role-Feld: Leuschner & Wilken = Inhaber,
+  // Rick (Doll(ART)) = Admin/Coder, sonstige Admins = Admin.
+  const roleSuffix = (() => {
+    if (!me) return "Admin";
+    const r = (me.role ?? "").toLowerCase();
+    if (/inhaber|geschäftsführer|gesellschafter/.test(r)) return "Inhaber";
+    if (/büro|verwaltung|coder|doll/.test(r)) return "Admin · Doll(ART)";
+    return "Admin";
+  })();
+  const adminLabel = me ? `${me.firstName.charAt(0)}. ${me.lastName} · ${roleSuffix}` : "Admin";
 
   const today = todayIso();
   const { year, week } = isoWeek(new Date());
@@ -601,8 +610,9 @@ function SbItem({ icon, label, active, disabled, onClick, to, hint }: {
       {disabled && <span className="ml-auto font-mono text-[9px] text-white/25 lowercase tracking-wider">bald</span>}
     </>
   );
-  if (to && !disabled) return <Link to={to} className={cls} title={hint}>{content}</Link>;
-  return <button onClick={onClick} disabled={disabled} className={cls} title={hint}>{content}</button>;
+  // KEIN title-Attribut — InfoTip im content macht das schon, sonst doppeltes Fenster
+  if (to && !disabled) return <Link to={to} className={cls}>{content}</Link>;
+  return <button onClick={onClick} disabled={disabled} className={cls}>{content}</button>;
 }
 
 function Module({ span, eyebrow, title, moreLabel, moreTo, hint, children }: {
@@ -657,7 +667,6 @@ function PipeStage({ label, value, tone = "neutral" }: { label: string; value: n
     <div
       className="flex-1 px-3 py-2.5 border-r border-steel-line/40 last:border-0"
       style={{ background: t.bg }}
-      title={hint}
     >
       <div className="font-mono text-[9.5px] tracking-wider text-ink-mute uppercase flex items-center">
         {label}
