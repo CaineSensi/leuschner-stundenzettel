@@ -304,15 +304,28 @@ export default function AnfrageNeu() {
         updateStep("customer", { status: "done", detail: customerName });
       }
 
-      // 5) Pipeline-Card
+      // 5) Pipeline-Card — openPoints automatisch um Eckdaten anreichern
+      //    damit Rick im Kanban-Board nicht erst klicken muss
       updateStep("card", { status: "running" });
       const place = [zip, city].filter(Boolean).join(" ").trim() || street || undefined;
+      const tags: string[] = [];
+      // Leistungs-Chips: bis zu 3 Stichworte vom LLM (komma-getrennt)
+      if (parsed?.leistung) {
+        parsed.leistung.split(/,\s*/).slice(0, 3).forEach((l) => { if (l.trim()) tags.push(l.trim()); });
+      }
+      // Mengen-Hint
+      if (parsed?.mengen?.length) tags.push(`${parsed.mengen.length} Positionen`);
+      // Termin-Wunsch
+      if (parsed?.termin) tags.push(`Termin: ${parsed.termin}`);
+      // User-Notes ans Ende
+      if (notes.trim()) tags.push(notes.trim());
+
       const card = await createCard({
         stage: "Anfrage",
         customerName,
         place,
         description: description || undefined,
-        openPoints: notes || undefined,
+        openPoints: tags.length > 0 ? tags.join(" · ") : undefined,
       });
       updateStep("card", { status: "done", detail: place ? `${customerName} · ${place}` : customerName });
       setCreatedCardId(card.id);
