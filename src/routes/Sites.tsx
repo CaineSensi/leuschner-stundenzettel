@@ -5,6 +5,7 @@ import {
 } from "../lib/api";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import SiteEditor from "../components/SiteEditor";
+import BackButton from "../components/BackButton";
 import type { Site } from "../lib/types";
 
 type SiteRow = Site & { archived?: boolean };
@@ -61,12 +62,7 @@ export default function Sites() {
   return (
     <div className="min-h-screen safe-bottom bg-bg-DEFAULT">
       <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
-        <button
-          onClick={() => navigate("/admin")}
-          className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-3 flex items-center gap-2"
-        >
-          <span aria-hidden>←</span><span>Zurück zum Dashboard</span>
-        </button>
+        <BackButton title="Zurück zur Betriebs-Übersicht (Dashboard)" />
 
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>

@@ -14,6 +14,27 @@ import { isBackendConnected } from "../lib/supabase";
 import { currentUser, signOutFully } from "../lib/auth";
 import { isoWeek, todayIso, weekDays, fmtHours, workMinutes } from "../lib/utils";
 import { isWorkEntry, type Entry, type Site, type Worker, type Assignment } from "../lib/types";
+import InfoTip from "../components/InfoTip";
+
+/* Erklär-Texte je Sidebar/Modul/Stage. Sollen für jemand klingen, der die
+ * App zum ersten Mal sieht: kurz, konkret, ohne Insider-Slang. */
+const SB_HINT: Record<string, string> = {
+  uebersicht:    "Diese Seite. Zeigt den Tages-Stand: wer ist heute auf Baustelle, was steht in der Pipeline, welche Aktionen sind offen.",
+  zeiterfassung: "Wochenplanung, erfasste Stunden je Mitarbeiter, Urlaub/Krank und der DATEV-Export für den Steuerberater.",
+  baustellen:    "Liste aller Baustellen — aktive, ruhende, archivierte. Pro Baustelle Adresse, Auftragsnummer, Foto-Galerie, Karte.",
+  angebote:      "Pipeline-Board: Anfrage → Angebot → Versendet → Auftrag → In Arbeit → Abgerechnet. Verknüpft mit sevDesk.",
+  anfragen:      "Eingangsbox für neue Kundenanfragen (Mail, WhatsApp, Telefon). KI strukturiert die Rohnachricht in Felder.",
+  mitarbeiter:   "Mitarbeiter einladen (QR-Code/Link), Telefonnummern pflegen, Geräte-Verknüpfungen verwalten.",
+  auswertung:    "Kommt später: Umsatz pro Baustelle, Stundenproduktivität, saisonale Auslastung.",
+};
+const STAGE_HINT: Record<string, string> = {
+  "Anfrage":     "Roh eingegangen, noch nicht beziffert. Liegt in der Inbox, wartet auf Aufmaß/Bewertung.",
+  "Angebot":     "Angebot in Vorbereitung in sevDesk. Material- und Lohn-Positionen werden kalkuliert.",
+  "Versendet":   "Angebot ist beim Kunden raus. Nach 7 Tagen ohne Antwort wird zum Nachfassen erinnert.",
+  "Auftrag":     "Kunde hat zugesagt, Baustelle ist angelegt, Auftragsnummer vergeben.",
+  "In Arbeit":   "Mitarbeiter sind dran, Stunden werden gebucht. Sichtbar in der Zeiterfassung.",
+  "Abgerechnet": "Rechnung in sevDesk ist gestellt und bezahlt — der Vorgang ist abgeschlossen.",
+};
 
 /* ────────────────────────────────────────────────────────────────────────
    Admin-Dashboard · Konzept 9 „Module-Grid"
@@ -193,14 +214,14 @@ export default function Admin() {
           <p className="dd-eyebrow text-steel mt-1.5">{adminLabel}</p>
 
           <nav className="mt-10 flex flex-col gap-1">
-            <SbItem icon="●" label="Übersicht" active />
-            <SbItem icon="◷" label="Zeiterfassung" to="/admin/zeiterfassung" />
-            <SbItem icon="⌂" label="Baustellen" to="/admin/sites" />
-            <SbItem icon="◇" label="Angebote" to="/admin/angebote" />
-            <SbItem icon="✉" label="Anfragen" to="/admin/anfragen" />
-            <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
+            <SbItem icon="●" label="Übersicht" active hint={SB_HINT.uebersicht} />
+            <SbItem icon="◷" label="Zeiterfassung" to="/admin/zeiterfassung" hint={SB_HINT.zeiterfassung} />
+            <SbItem icon="⌂" label="Baustellen" to="/admin/sites" hint={SB_HINT.baustellen} />
+            <SbItem icon="◇" label="Angebote" to="/admin/angebote" hint={SB_HINT.angebote} />
+            <SbItem icon="✉" label="Anfragen" to="/admin/anfragen" hint={SB_HINT.anfragen} />
+            <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} hint={SB_HINT.mitarbeiter} />
             <div className="h-px bg-white/8 my-3" />
-            <SbItem icon="▮" label="Auswertung" disabled />
+            <SbItem icon="▮" label="Auswertung" disabled hint={SB_HINT.auswertung} />
           </nav>
 
           <button onClick={handleLogout} className="mt-auto dd-eyebrow text-steel text-left hover:text-copper-bright transition-colors">
@@ -236,11 +257,22 @@ export default function Admin() {
               )}
             </div>
             <div className="flex gap-2 flex-wrap">
-              <Link to="/admin/anfrage-neu" className="btn-ghost !min-h-[44px] !px-4 text-[12px] flex items-center justify-center">
+              <Link
+                to="/admin/anfrage-neu"
+                className="btn-ghost !min-h-[44px] !px-4 text-[12px] flex items-center justify-center"
+                title="Neue Kundenanfrage in die Eingangsbox einfügen — Mail/Telefon/WhatsApp-Text reinpasten, KI strukturiert die Felder"
+              >
                 ＋ Anfrage
               </Link>
-              <button className="btn-ghost !min-h-[44px] !px-4 text-[12px]">PDF</button>
-              <Link to="/admin/zeiterfassung" className="btn-primary !min-h-[44px] text-[12px] flex items-center justify-center">
+              <button
+                className="btn-ghost !min-h-[44px] !px-4 text-[12px]"
+                title="PDF-Export der aktuellen Wochen-Übersicht — kommt noch"
+              >PDF</button>
+              <Link
+                to="/admin/zeiterfassung?tab=datev"
+                className="btn-primary !min-h-[44px] text-[12px] flex items-center justify-center"
+                title="DATEV-Stundenexport: CSV für den Steuerberater (alle Mitarbeiter, alle Lohnarten der Woche)"
+              >
                 DATEV ↗
               </Link>
             </div>
@@ -262,6 +294,7 @@ export default function Admin() {
               title="Angebote · Geld in der Mache"
               moreLabel="Alle ansehen"
               moreTo="/admin/angebote"
+              hint="Übersicht aller offenen Vorgänge in den 6 Stufen. Die Zahl in jeder Stufe = wie viele Karten gerade dort liegen. Klick auf 'Alle ansehen' öffnet das Kanban-Board."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2">
                 <div className="flex items-stretch border border-steel-line/60 rounded-lg overflow-hidden">
@@ -295,6 +328,7 @@ export default function Admin() {
               title="Heute auf der Baustelle"
               moreLabel="Zeiterfassung →"
               moreTo="/admin/zeiterfassung"
+              hint="Wer ist heute wo. Live aktualisiert aus den Tageseinträgen — kein Eintrag bedeutet 'kein Plan heute'."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
                 {loading ? (
@@ -314,6 +348,7 @@ export default function Admin() {
               title={`${activeSites.length} aktiv${restingSites.length > 0 ? " · " + restingSites.length + " ruht" : ""}`}
               moreLabel="Alle →"
               moreTo="/admin/sites"
+              hint="Aktive Baustellen sind die, auf denen diese Woche Stunden gebucht wurden. 'Ruht' = im System, aber gerade kein Mitarbeiter dran."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
                 {loading ? (
@@ -353,6 +388,7 @@ export default function Admin() {
               title="Geld diese Woche"
               moreLabel="sevDesk ↗"
               moreTo="/admin/angebote"
+              hint="Drei Zahlen auf einen Blick: bereits berechnet, schon raus aber noch nicht bezahlt, und insgesamt in der Mache. Werte stammen aus sevDesk."
             >
               <div className="px-4 lg:px-5 pb-4 pt-3 grid grid-cols-3 gap-3">
                 <Kpi label="abgerechnet KW" value={fmtEur(sumStage("Abgerechnet"))} tone="good" />
@@ -373,6 +409,7 @@ export default function Admin() {
                 : `${inquiries.length} offene Anfrage${inquiries.length === 1 ? "" : "n"}`}
               moreLabel="Alle Anfragen →"
               moreTo="/admin/anfragen"
+              hint="Neue Kundenanfragen, die du noch nicht beantwortet hast. KI macht aus rohem Mail-/WhatsApp-Text strukturierte Felder. Roter Strich = hohe Priorität."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
                 {loading ? (
@@ -428,6 +465,7 @@ export default function Admin() {
               title={`${actions.length} Sache${actions.length === 1 ? "" : "n"} warten auf dich`}
               moreLabel="Alle Aktionen →"
               moreTo="/admin/angebote"
+              hint="Automatisch erkannte 'Du-musst-was-tun'-Punkte: fehlende Stunden, Angebote zur Freigabe, überfällige Nachfass-Mails, unvollständige Adressen. Klick auf eine Zeile springt direkt zur Lösung."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
                 {loading ? (
@@ -452,6 +490,7 @@ export default function Admin() {
               title={`KW ${week} · Snapshot`}
               moreLabel="Zeiterfassung →"
               moreTo="/admin/zeiterfassung"
+              hint="Schnell-Zahlen zur aktuellen Woche: bisher gebuchte Stunden, wer gerade live arbeitet, wie viele Lücken im Wochenplan sind."
             >
               <div className="px-4 lg:px-5 pb-4 pt-3 grid grid-cols-3 gap-3">
                 <Kpi label={`Σ bis ${todayShort(today)}`} value={`${fmtHours(weekMinutesAll)} h`} />
@@ -466,6 +505,7 @@ export default function Admin() {
               eyebrow="Wetter · Weener"
               title="3-Tage-Outlook"
               moreLabel="DWD ↗"
+              hint="Wetter-Outlook für Weener — wichtig für Bagger-/Pflasterarbeiten und Tagesplanung. Aktuell Demo-Werte, DWD-Live-Anbindung folgt."
             >
               <div className="px-4 lg:px-5 pb-4 pt-3 flex gap-2">
                 <WeatherDay d="Heute" t="14°" icon="◐" sub="bewölkt" today />
@@ -484,6 +524,7 @@ export default function Admin() {
               eyebrow="Termine"
               title="Diese Woche"
               moreLabel="Kalender ↗"
+              hint="Materiallieferungen, Aufmaß-Termine, Behördentermine. Aktuell Demo-Daten, Anbindung an einen echten Kalender (Google/iCloud) folgt."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
                 <DateRow when="Fr 22.05. · 08:00" what="Materiallieferung Borgmann" where="Bunde · Hauptstr. 17" />
@@ -537,9 +578,9 @@ export default function Admin() {
 
 /* ──────── kleine Building-Blocks ──────── */
 
-function SbItem({ icon, label, active, disabled, onClick, to }: {
+function SbItem({ icon, label, active, disabled, onClick, to, hint }: {
   icon: string; label: string; active?: boolean; disabled?: boolean;
-  onClick?: () => void; to?: string;
+  onClick?: () => void; to?: string; hint?: string;
 }) {
   const cls = `flex items-center gap-3 px-3 py-2.5 rounded-lg text-left dd-eyebrow tracking-[.10em] transition-colors ${
     active ? "bg-copper/22 text-copper-bright"
@@ -550,17 +591,19 @@ function SbItem({ icon, label, active, disabled, onClick, to }: {
     <>
       <span className="w-4 text-center text-base">{icon}</span>
       <span>{label}</span>
+      {hint && <span className="ml-auto" onClick={(e) => e.stopPropagation()}><InfoTip text={hint} placement="right" tone="light" size={13} /></span>}
       {disabled && <span className="ml-auto font-mono text-[9px] text-white/25 lowercase tracking-wider">bald</span>}
     </>
   );
-  if (to && !disabled) return <Link to={to} className={cls}>{content}</Link>;
-  return <button onClick={onClick} disabled={disabled} className={cls}>{content}</button>;
+  if (to && !disabled) return <Link to={to} className={cls} title={hint}>{content}</Link>;
+  return <button onClick={onClick} disabled={disabled} className={cls} title={hint}>{content}</button>;
 }
 
-function Module({ span, eyebrow, title, moreLabel, moreTo, children }: {
+function Module({ span, eyebrow, title, moreLabel, moreTo, hint, children }: {
   span: "full" | "half" | "third" | "quarter";
   eyebrow: string; title: string;
   moreLabel?: string; moreTo?: string;
+  hint?: string;
   children: React.ReactNode;
 }) {
   const spanCls =
@@ -572,7 +615,10 @@ function Module({ span, eyebrow, title, moreLabel, moreTo, children }: {
     <section className={`${spanCls} dd-card overflow-hidden`} style={{ ["--c" as any]: "#A9AEB3" }}>
       <header className="px-4 lg:px-5 pt-3.5 pb-2.5 flex items-end justify-between gap-3 border-b border-ink/8">
         <div className="min-w-0">
-          <div className="dd-eyebrow text-copper">{eyebrow}</div>
+          <div className="dd-eyebrow text-copper flex items-center">
+            {eyebrow}
+            {hint && <InfoTip text={hint} placement="bottom" tone="copper" />}
+          </div>
           <h3 className="font-display font-black uppercase text-[17px] tracking-tight text-ink leading-none mt-1 truncate">{title}</h3>
         </div>
         {moreLabel && (moreTo
@@ -595,9 +641,17 @@ function PipeStage({ label, value, tone = "neutral" }: { label: string; value: n
     good:           { bg: "linear-gradient(180deg,#E2F0E6,#CFE5D7)", fg: "#1F7A3D" }
   };
   const t = styles[tone];
+  const hint = STAGE_HINT[label];
   return (
-    <div className="flex-1 px-3 py-2.5 border-r border-steel-line/40 last:border-0" style={{ background: t.bg }}>
-      <div className="font-mono text-[9.5px] tracking-wider text-ink-mute uppercase">{label}</div>
+    <div
+      className="flex-1 px-3 py-2.5 border-r border-steel-line/40 last:border-0"
+      style={{ background: t.bg }}
+      title={hint}
+    >
+      <div className="font-mono text-[9.5px] tracking-wider text-ink-mute uppercase flex items-center">
+        {label}
+        {hint && <InfoTip text={hint} placement="bottom" size={11} />}
+      </div>
       <div className="font-display font-black text-xl leading-none tabular-nums mt-1" style={{ color: t.fg }}>{value}</div>
     </div>
   );

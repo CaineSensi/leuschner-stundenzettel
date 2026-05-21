@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   listAssignmentsForCompany, listAllEntries, listSites, listWorkers,
   upsertAssignment, deleteAssignment, publishWeek
@@ -8,13 +7,12 @@ import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { getHoliday } from "../lib/holidays";
 import { isWorkEntry, type Assignment, type Entry, type Site, type Worker } from "../lib/types";
 import { isoWeek, todayIso, weekDays } from "../lib/utils";
+import BackButton from "../components/BackButton";
 
 const MONTH_LONG = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
 const DAY_LONG = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
 
 export default function Plan() {
-  const navigate = useNavigate();
-
   const [weekOffset, setWeekOffset] = useState(0);
   const refDate = useMemo(() => {
     const d = new Date();
@@ -245,13 +243,7 @@ export default function Plan() {
     <div className="min-h-screen safe-bottom bg-bg-DEFAULT">
       {/* HEADER — wie Sites/Hours */}
       <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
-        <button
-          onClick={() => navigate("/admin")}
-          className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-3 flex items-center gap-2"
-        >
-          <span aria-hidden>←</span>
-          <span>Zurück zum Dashboard</span>
-        </button>
+        <BackButton title="Zurück zur Betriebs-Übersicht (Dashboard)" />
 
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-3 lg:gap-4 flex-wrap">

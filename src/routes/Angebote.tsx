@@ -9,6 +9,7 @@ import {
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { isBackendConnected } from "../lib/supabase";
 import { currentUser } from "../lib/auth";
+import BackButton from "../components/BackButton";
 
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
@@ -194,12 +195,7 @@ export default function Angebote() {
     <div className="min-h-screen flex flex-col safe-top">
       {/* ---- App-Bar (Stahl-Oberfläche) ---- */}
       <header className="surface-steel px-4 lg:px-8 pt-4 pb-4">
-        <button
-          onClick={() => navigate("/admin")}
-          className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-2 flex items-center gap-2"
-        >
-          <span aria-hidden>←</span><span>Zurück zum Dashboard</span>
-        </button>
+        <BackButton title="Zurück zur Betriebs-Übersicht (Dashboard)" />
 
         <div className="flex items-end justify-between gap-4 flex-wrap">
           <div>

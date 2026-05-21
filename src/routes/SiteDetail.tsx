@@ -11,6 +11,7 @@ import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { supabase, isBackendConnected } from "../lib/supabase";
 import { geocodeAddress } from "../lib/geocode";
 import SiteEditor from "../components/SiteEditor";
+import BackButton from "../components/BackButton";
 import type { PhotoWithContext, Site, Worker, WorkEntry } from "../lib/types";
 import type { PipelinePosition } from "../lib/pipeline";
 
@@ -171,9 +172,7 @@ export default function SiteDetail() {
     <div className="min-h-screen safe-bottom">
       {/* App-Bar — Stahl, sticky */}
       <header className="sticky top-0 z-[1100] surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
-        <button onClick={() => navigate("/admin/sites")} className="dd-eyebrow text-steel hover:text-copper-bright transition-colors mb-3 flex items-center gap-2">
-          <span aria-hidden>←</span><span>Zurück zur Baustellen-Liste</span>
-        </button>
+        <BackButton to="/admin/sites" label="Zur Baustellen-Liste" title="Zurück zur Übersicht aller Baustellen" />
         <div className="flex items-end justify-between gap-3 flex-wrap">
           <div>
             <span className="dd-eyebrow text-copper-bright block">Baustelle · Detail</span>
