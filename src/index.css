@@ -11,9 +11,17 @@
     max-width: 100vw;
   }
   body {
-    /* Beton-Verlauf · gehört zur Stahl-&-Beton-Optik, fix damit beim
-       Scrollen kein Sprung entsteht */
-    background: linear-gradient(180deg, #D9DCDF 0%, #C4C8CC 100%) fixed;
+    /* Schiefer-zu-Schwarz · dunkle Stahl-Bühne mit dezentem Hairline-Grid.
+       Grid in 32px-Raster, sehr feine helle Linien (rgba weiß 4%/6%).
+       Verläufe + Grid alle fixed, damit beim Scrollen nichts wandert. */
+    background-color: #0E1012;
+    background-image:
+      linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px),
+      radial-gradient(ellipse at 50% -10%, rgba(220,110,45,.06), transparent 55%),
+      linear-gradient(180deg, #2A2D31 0%, #16181A 55%, #0A0B0D 100%);
+    background-size: 32px 32px, 32px 32px, auto, auto;
+    background-attachment: fixed, fixed, fixed, fixed;
     @apply text-paper font-sans antialiased;
   }
   ::selection { background: theme('colors.copper.DEFAULT'); color: #FFFFFF; }

@@ -311,14 +311,27 @@ export default function Admin() {
               hint="Übersicht aller offenen Vorgänge in den 6 Stufen. Die Zahl in jeder Stufe = wie viele Karten gerade dort liegen. Klick auf 'Alle ansehen' öffnet das Kanban-Board."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2">
-                <div className="flex items-stretch border border-steel-line/60 rounded-lg overflow-hidden">
-                  <PipeStage label="Anfrage"     value={stageCount("Anfrage")} />
-                  <PipeStage label="Angebot"     value={stageCount("Angebot")}     tone="copper" />
-                  <PipeStage label="Versendet"   value={stageCount("Versendet")}   tone="copper-soft" />
-                  <PipeStage label="Auftrag"     value={stageCount("Auftrag")}     tone="copper-bright" />
-                  <PipeStage label="In Arbeit"   value={stageCount("In Arbeit")}   tone="bronze" />
-                  <PipeStage label="Abgerechnet" value={stageCount("Abgerechnet")} tone="good" />
-                </div>
+                {(() => {
+                  // Aktive Stage = die mit den meisten Karten, "Abgerechnet" ausgenommen
+                  const stages = ["Anfrage","Angebot","Versendet","Auftrag","In Arbeit"] as const;
+                  let active: string = "";
+                  let max = -1;
+                  for (const s of stages) {
+                    const v = stageCount(s);
+                    if (v > max) { max = v; active = s; }
+                  }
+                  if (max <= 0) active = "";
+                  return (
+                    <div className="flex items-stretch border border-white/10 rounded-lg overflow-hidden shadow-[0_8px_22px_-12px_rgba(0,0,0,.6)]">
+                      <PipeStage label="Anfrage"     value={stageCount("Anfrage")}     active={active === "Anfrage"} />
+                      <PipeStage label="Angebot"     value={stageCount("Angebot")}     active={active === "Angebot"} />
+                      <PipeStage label="Versendet"   value={stageCount("Versendet")}   active={active === "Versendet"} />
+                      <PipeStage label="Auftrag"     value={stageCount("Auftrag")}     active={active === "Auftrag"} />
+                      <PipeStage label="In Arbeit"   value={stageCount("In Arbeit")}   active={active === "In Arbeit"} />
+                      <PipeStage label="Abgerechnet" value={stageCount("Abgerechnet")} />
+                    </div>
+                  );
+                })()}
                 <div className="mt-3 flex justify-between items-center flex-wrap gap-3 font-mono text-[11.5px] tracking-wide text-ink-2">
                   <span>
                     Σ in der Pipeline ~
@@ -654,27 +667,38 @@ function Module({ span, eyebrow, title, moreLabel, moreTo, hint, children }: {
   );
 }
 
-function PipeStage({ label, value, tone = "neutral" }: { label: string; value: number; tone?: "neutral" | "copper" | "copper-soft" | "copper-bright" | "bronze" | "good" }) {
-  const styles: Record<string, { bg: string; fg: string }> = {
-    neutral:        { bg: "linear-gradient(180deg,#FFFFFF,#ECEEF0)", fg: "#15171A" },
-    copper:         { bg: "linear-gradient(180deg,#FFFAF1,#F8EAD2)", fg: "#DC6E2D" },
-    "copper-soft":  { bg: "linear-gradient(180deg,#FBF3E6,#F2DEB6)", fg: "#C9852F" },
-    "copper-bright":{ bg: "linear-gradient(180deg,#FFE9D5,#F8C99E)", fg: "#C95F22" },
-    bronze:         { bg: "linear-gradient(180deg,#F4ECDD,#E5D5B0)", fg: "#8C6E45" },
-    good:           { bg: "linear-gradient(180deg,#E2F0E6,#CFE5D7)", fg: "#1F7A3D" }
-  };
-  const t = styles[tone];
+/* Pipeline-Stage · K1 Stahl-Skala (dunkle Header-Variante).
+ * Grauverlauf vom hellsten Stahl (Anfrage) bis tiefen Anthrazit (Abgerechnet),
+ * die aktive Stage wird in Kupfer hervorgehoben. */
+const K1_STAGE_BG: Record<string, string> = {
+  "Anfrage":     "#2B2E31",
+  "Angebot":     "#363A3D",
+  "Versendet":   "#42464A",
+  "Auftrag":     "#4E5359",
+  "In Arbeit":   "#5B5F64",
+  "Abgerechnet": "#686D72",
+};
+
+function PipeStage({ label, value, active = false }: { label: string; value: number; active?: boolean }) {
+  const bg = active ? "#DC6E2D" : K1_STAGE_BG[label] ?? "#42464A";
+  const fg = active ? "#FFFFFF" : "#E7E9EB";
+  const labelTone = active ? "rgba(255,255,255,0.85)" : "rgba(231,233,235,0.6)";
   const hint = STAGE_HINT[label];
   return (
     <div
-      className="flex-1 px-3 py-2.5 border-r border-steel-line/40 last:border-0"
-      style={{ background: t.bg }}
+      className="flex-1 px-3 py-3 border-r border-white/10 last:border-0 transition-colors relative"
+      style={{ background: bg }}
     >
-      <div className="font-mono text-[9.5px] tracking-wider text-ink-mute uppercase flex items-center">
+      <div className="font-mono text-[9.5px] tracking-wider uppercase flex items-center leading-none" style={{ color: labelTone }}>
         {label}
-        {hint && <InfoTip text={hint} placement="bottom" size={16} />}
+        {hint && <InfoTip text={hint} placement="bottom" tone="light" size={14} />}
       </div>
-      <div className="font-display font-black text-xl leading-none tabular-nums mt-1" style={{ color: t.fg }}>{value}</div>
+      <div className="font-display font-black text-2xl leading-none tabular-nums mt-1.5" style={{ color: fg }}>
+        {String(value).padStart(2, "0")}
+      </div>
+      {active && (
+        <span aria-hidden className="absolute left-0 right-0 bottom-0 h-[2px] bg-copper-bright" />
+      )}
     </div>
   );
 }

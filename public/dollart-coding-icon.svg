@@ -1,1 +1,94 @@
-<svg viewBox="0 0 200 200" width="100%" xmlns="http://www.w3.org/2000/svg"><defs><mask id="iz"><rect x="0" y="0" width="120" height="200" fill="#fff"/><rect x="120" y="40" width="9" height="9" fill="#fff"/><rect x="120" y="50" width="9" height="9" fill="#fff"/><rect x="120" y="60" width="9" height="9" fill="#fff"/><rect x="120" y="70" width="9" height="9" fill="#fff"/><rect x="120" y="80" width="9" height="9" fill="#fff"/><rect x="120" y="90" width="9" height="9" fill="#fff"/><rect x="120" y="100" width="9" height="9" fill="#fff"/><rect x="120" y="110" width="9" height="9" fill="#fff"/><rect x="120" y="120" width="9" height="9" fill="#fff"/><rect x="120" y="130" width="9" height="9" fill="#fff"/><rect x="120" y="140" width="9" height="9" fill="#fff"/><rect x="120" y="150" width="9" height="9" fill="#fff"/><rect x="120" y="160" width="9" height="9" fill="#fff"/><rect x="130" y="40" width="9" height="9" fill="#fff"/><rect x="130" y="50" width="9" height="9" fill="#fff"/><rect x="130" y="60" width="9" height="9" fill="#fff"/><rect x="130" y="80" width="9" height="9" fill="#fff"/><rect x="130" y="100" width="9" height="9" fill="#fff"/><rect x="130" y="110" width="9" height="9" fill="#fff"/><rect x="130" y="120" width="9" height="9" fill="#fff"/><rect x="130" y="130" width="9" height="9" fill="#fff"/><rect x="130" y="140" width="9" height="9" fill="#fff"/><rect x="130" y="150" width="9" height="9" fill="#fff"/><rect x="130" y="160" width="9" height="9" fill="#fff"/><rect x="140" y="50" width="9" height="9" fill="#fff"/><rect x="140" y="60" width="9" height="9" fill="#fff"/><rect x="140" y="70" width="9" height="9" fill="#fff"/><rect x="140" y="80" width="9" height="9" fill="#fff"/><rect x="140" y="90" width="9" height="9" fill="#fff"/><rect x="140" y="100" width="9" height="9" fill="#fff"/><rect x="140" y="130" width="9" height="9" fill="#fff"/><rect x="140" y="150" width="9" height="9" fill="#fff"/><rect x="140" y="160" width="9" height="9" fill="#fff"/><rect x="150" y="40" width="9" height="9" fill="#fff"/><rect x="150" y="50" width="9" height="9" fill="#fff"/><rect x="150" y="60" width="9" height="9" fill="#fff"/><rect x="150" y="70" width="9" height="9" fill="#fff"/><rect x="150" y="80" width="9" height="9" fill="#fff"/><rect x="150" y="90" width="9" height="9" fill="#fff"/><rect x="150" y="110" width="9" height="9" fill="#fff"/><rect x="150" y="150" width="9" height="9" fill="#fff"/><rect x="150" y="160" width="9" height="9" fill="#fff"/><rect x="160" y="40" width="9" height="9" fill="#fff"/><rect x="160" y="50" width="9" height="9" fill="#fff"/><rect x="160" y="60" width="9" height="9" fill="#fff"/><rect x="160" y="100" width="9" height="9" fill="#fff"/><rect x="160" y="130" width="9" height="9" fill="#fff"/><rect x="160" y="160" width="9" height="9" fill="#fff"/><rect x="170" y="40" width="9" height="9" fill="#fff"/><rect x="170" y="80" width="9" height="9" fill="#fff"/><rect x="170" y="90" width="9" height="9" fill="#fff"/><rect x="170" y="120" width="9" height="9" fill="#fff"/><rect x="170" y="130" width="9" height="9" fill="#fff"/><rect x="170" y="140" width="9" height="9" fill="#fff"/><rect x="180" y="140" width="9" height="9" fill="#fff"/></mask></defs><g mask="url(#iz)"><text x="100" y="140" text-anchor="middle" font-family="'DM Sans',sans-serif" font-weight="800" font-size="124" fill="#c8e58c">(a)</text></g><rect x="180" y="136" width="7" height="7" fill="#c8e58c" opacity="0.50"/><rect x="183" y="107" width="7" height="7" fill="#c8e58c" opacity="0.45"/><rect x="186" y="84" width="7" height="7" fill="#c8e58c" opacity="0.40"/><rect x="189" y="114" width="7" height="7" fill="#c8e58c" opacity="0.35"/><rect x="192" y="84" width="7" height="7" fill="#c8e58c" opacity="0.30"/><rect x="195" y="87" width="7" height="7" fill="#c8e58c" opacity="0.25"/><rect x="198" y="98" width="7" height="7" fill="#c8e58c" opacity="0.20"/><rect x="201" y="134" width="7" height="7" fill="#c8e58c" opacity="0.15"/><rect x="204" y="73" width="7" height="7" fill="#c8e58c" opacity="0.10"/></svg>
+<svg viewBox="0 0 200 200" width="100%" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Doll(ART) — Coding-Sub-Marke">
+  <title>Doll(ART) Liquid Pixel</title>
+  <!-- Reduzierte Bewegung respektieren: in @media (prefers-reduced-motion) wird Animation pausiert. -->
+  <style>
+    .pixel { fill: #FFFFFF; }
+    .a-mark { fill: #FFFFFF; font-family: 'DM Sans','Helvetica Neue',Arial,sans-serif; font-weight: 800; font-size: 124px; }
+    @media (prefers-reduced-motion: reduce) {
+      .drop { animation: none !important; }
+    }
+  </style>
+
+  <!-- Hauptzeichen (a) in Weiß -->
+  <text class="a-mark" x="100" y="140" text-anchor="middle">(a)</text>
+
+  <!--
+    Liquid-Pixel-Zerfall: Tropfen lösen sich am unteren Rand des (a) und fallen
+    nach unten ins Nichts. Jedes Pixel hat eigenes Timing/Größe, damit es
+    organisch und nicht maschinell wirkt.
+    SMIL-Animation (breit unterstützt in modernen Browsern inkl. Safari/Edge).
+  -->
+
+  <!-- Tropfen 1 -->
+  <rect class="pixel" x="84" y="128" width="6" height="6">
+    <animate attributeName="y" from="128" to="208" dur="2.4s" begin="0s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.7;1" dur="2.4s" begin="0s" repeatCount="indefinite" />
+    <animate attributeName="height" values="6;9;6" dur="2.4s" begin="0s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Tropfen 2 -->
+  <rect class="pixel" x="98" y="130" width="7" height="7">
+    <animate attributeName="y" from="130" to="210" dur="2.8s" begin="0.4s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.65;1" dur="2.8s" begin="0.4s" repeatCount="indefinite" />
+    <animate attributeName="height" values="7;11;7" dur="2.8s" begin="0.4s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Tropfen 3 -->
+  <rect class="pixel" x="112" y="128" width="5" height="5">
+    <animate attributeName="y" from="128" to="208" dur="2.2s" begin="0.9s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.7;1" dur="2.2s" begin="0.9s" repeatCount="indefinite" />
+    <animate attributeName="height" values="5;8;5" dur="2.2s" begin="0.9s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Tropfen 4 — klein, schnell -->
+  <rect class="pixel" x="92" y="132" width="4" height="4">
+    <animate attributeName="y" from="132" to="206" dur="1.9s" begin="1.3s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.7;1" dur="1.9s" begin="1.3s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Tropfen 5 — Mitte, langsam -->
+  <rect class="pixel" x="104" y="130" width="6" height="6">
+    <animate attributeName="y" from="130" to="210" dur="3.2s" begin="1.7s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.08;0.7;1" dur="3.2s" begin="1.7s" repeatCount="indefinite" />
+    <animate attributeName="height" values="6;10;6" dur="3.2s" begin="1.7s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Tropfen 6 — am linken (a)-Rand -->
+  <rect class="pixel" x="78" y="126" width="5" height="5">
+    <animate attributeName="y" from="126" to="206" dur="2.6s" begin="2.1s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.7;1" dur="2.6s" begin="2.1s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Tropfen 7 — am rechten (a)-Rand -->
+  <rect class="pixel" x="118" y="126" width="5" height="5">
+    <animate attributeName="y" from="126" to="206" dur="2.5s" begin="0.7s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.7;1" dur="2.5s" begin="0.7s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Tropfen 8 — winziges Mikropixel -->
+  <rect class="pixel" x="100" y="134" width="3" height="3">
+    <animate attributeName="y" from="134" to="204" dur="1.7s" begin="0.2s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;0.85;0.85;0" keyTimes="0;0.15;0.7;1" dur="1.7s" begin="0.2s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Tropfen 9 -->
+  <rect class="pixel" x="90" y="128" width="4" height="4">
+    <animate attributeName="y" from="128" to="208" dur="2.3s" begin="2.6s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.7;1" dur="2.3s" begin="2.6s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Tropfen 10 -->
+  <rect class="pixel" x="108" y="132" width="4" height="4">
+    <animate attributeName="y" from="132" to="208" dur="2.1s" begin="3.0s" repeatCount="indefinite" />
+    <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.1;0.7;1" dur="2.1s" begin="3.0s" repeatCount="indefinite" />
+  </rect>
+
+  <!-- Standpfütze: zwei dünne Reflex-Pixel sehr dezent unten,
+       wirken wie restliche Tropfen-Spritzer. -->
+  <rect class="pixel" x="96" y="172" width="3" height="2" opacity="0.4">
+    <animate attributeName="opacity" values="0.15;0.45;0.15" dur="3s" repeatCount="indefinite" />
+  </rect>
+  <rect class="pixel" x="105" y="174" width="2" height="2" opacity="0.35">
+    <animate attributeName="opacity" values="0.1;0.4;0.1" dur="3.4s" repeatCount="indefinite" />
+  </rect>
+</svg>
