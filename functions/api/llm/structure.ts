@@ -477,6 +477,13 @@ function parseHeuristic(text: string): Parsed {
 
 type Ctx = { request: Request; env: Env };
 export const onRequestPost = async ({ request, env }: Ctx) => {
+  // M13: Wenn Client SSE will, streamen wir Schritt-für-Schritt-Events.
+  // Sonst klassische JSON-Response (Backwards-Compat).
+  const wantsStream = request.headers.get('accept')?.includes('text/event-stream');
+  if (wantsStream) {
+    return streamResponse(request, env);
+  }
+
   // Debug-Header: zeigen welche Bindings die Function tatsächlich sieht
   const debug = {
     hasAI: !!env.AI,
@@ -635,6 +642,150 @@ ${JSON.stringify({
   } catch {
     return undefined;
   }
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   M13 · SSE-Streaming
+   ────────────────────────────────────────────────────────────────────────
+   Sendet Schritt-Events während der Verarbeitung. Frontend zeigt jeden
+   Schritt live (○ pending → ⏳ running → ✓ done) mit echten Millisekunden.
+
+   Event-Format:
+     event: step
+     data: {"id":"preclean","status":"done","ms":47,"info":"3 Schritte"}
+
+   Letztes Event:
+     event: result
+     data: <komplette Parsed-JSON>
+
+   Bei Fehler:
+     event: error
+     data: {"message": "..."}
+   ──────────────────────────────────────────────────────────────────────── */
+
+async function streamResponse(request: Request, env: Env): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as { text?: string; skipSelfCheck?: boolean };
+  const rawText = (body?.text ?? '').trim();
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      const t0 = Date.now();
+      const send = (event: string, data: any) => {
+        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
+      };
+      const step = (id: string, status: 'start' | 'done' | 'skipped', extra: Record<string, any> = {}) => {
+        send('step', { id, status, ms: Date.now() - t0, ...extra });
+      };
+
+      try {
+        if (!rawText) {
+          send('error', { message: 'no text' });
+          controller.close();
+          return;
+        }
+
+        // 1) Pre-Cleaning
+        step('preclean', 'start');
+        const pre = preClean(rawText);
+        step('preclean', 'done', {
+          applied: pre.applied,
+          shrunkBy: pre.shrunkBy,
+          info: pre.applied.length ? pre.applied.join(' · ') : 'nichts zu tun',
+        });
+
+        // 2) Heuristik (Regex)
+        step('heuristik', 'start');
+        const heur = parseHeuristic(rawText);
+        const heurFields = ['email', 'phone', 'phone_mobile', 'zip', 'city', 'street', 'customerName', 'leistung']
+          .filter((f) => !!(heur as any)[f]).length;
+        step('heuristik', 'done', { info: `${heurFields} Felder erkannt` });
+
+        const llmInput = pre.headers ? buildLlmInputWithHeaders(pre.cleaned, pre.headers) : pre.cleaned;
+
+        // 3) LLM Primary (70B) — Fallbacks 8B + Anthropic
+        let merged: Parsed | null = null;
+        let usedPath = '';
+
+        if (env.AI) {
+          step('llm', 'start', { model: 'Llama 3.3 70B' });
+          const wa70 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+          if (wa70.parsed) {
+            usedPath = 'llama-3.3-70b';
+            step('llm', 'done', { model: 'Llama 3.3 70B', info: 'JSON erfolgreich geparst' });
+            // 4) Cross-Validate
+            step('crossvalidate', 'start');
+            merged = mergeCrossValidate(wa70.parsed, heur);
+            attachPrecleanMeta(merged, pre);
+            const conflicts = merged.meta?.conflicts?.length ?? 0;
+            step('crossvalidate', 'done', { info: conflicts ? `${conflicts} Konflikte gelöst` : 'keine Konflikte' });
+          } else {
+            step('llm', 'done', { model: 'Llama 3.3 70B', info: 'fehlgeschlagen, versuche 8B-Fallback' });
+            step('llm', 'start', { model: 'Llama 3.1 8B' });
+            const wa8 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.1-8b-instruct');
+            if (wa8.parsed) {
+              usedPath = 'llama-3.1-8b-fallback';
+              step('llm', 'done', { model: 'Llama 3.1 8B', info: 'Fallback erfolgreich' });
+              step('crossvalidate', 'start');
+              merged = mergeCrossValidate(wa8.parsed, heur);
+              attachPrecleanMeta(merged, pre);
+              const conflicts = merged.meta?.conflicts?.length ?? 0;
+              step('crossvalidate', 'done', { info: conflicts ? `${conflicts} Konflikte gelöst` : 'keine Konflikte' });
+            }
+          }
+        }
+
+        if (!merged && env.ANTHROPIC_API_KEY) {
+          step('llm', 'start', { model: 'Claude Haiku' });
+          const an = await parseWithAnthropic(llmInput, env.ANTHROPIC_API_KEY);
+          if (an) {
+            usedPath = 'anthropic-haiku';
+            step('llm', 'done', { model: 'Claude Haiku' });
+            merged = mergeCrossValidate(an, heur);
+            attachPrecleanMeta(merged, pre);
+          }
+        }
+
+        if (!merged) {
+          step('llm', 'skipped', { info: 'alle LLM-Pfade gescheitert' });
+          usedPath = 'heuristic-only';
+          merged = heur;
+          attachPrecleanMeta(merged, pre);
+        }
+
+        // 5) Self-Check (nur 70B-Pfad + lange Texte)
+        if (env.AI && usedPath === 'llama-3.3-70b' && shouldSelfCheck(rawText, body?.skipSelfCheck)) {
+          step('selfcheck', 'start');
+          const hints = await selfCheck(rawText, merged, env.AI);
+          if (hints) {
+            merged.meta = { ...(merged.meta ?? {}), review_hints: hints };
+            const found = (hints.missing?.length ?? 0) + (hints.potentially_wrong?.length ?? 0);
+            step('selfcheck', 'done', { info: found ? `${found} Hinweise gefunden` : 'alles passt' });
+          } else {
+            step('selfcheck', 'done', { info: 'kein Befund' });
+          }
+        } else {
+          step('selfcheck', 'skipped', { info: 'übersprungen (kurzer Text oder Fallback-Pfad)' });
+        }
+
+        // 6) Done
+        step('done', 'done', { totalMs: Date.now() - t0, path: usedPath });
+        send('result', merged);
+        controller.close();
+      } catch (err: any) {
+        send('error', { message: String(err?.message ?? err).slice(0, 300) });
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'content-type': 'text/event-stream; charset=utf-8',
+      'cache-control': 'no-cache, no-transform',
+      'x-accel-buffering': 'no',
+    },
+  });
 }
 
 function jsonResponse(p: Parsed, debug: any): Response {

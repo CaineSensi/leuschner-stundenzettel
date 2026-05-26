@@ -91,3 +91,92 @@ export async function llmStructure(text: string): Promise<ParsedInquiry> {
   if (!r.ok) throw new Error(`Structure-Call fehlgeschlagen (${r.status})`);
   return (await r.json()) as ParsedInquiry;
 }
+
+/* ──────────────────────────────────────────────────────────────────────
+   M13 · SSE-Streaming-Variante
+   ────────────────────────────────────────────────────────────────────── */
+
+export type StepStatus = 'start' | 'done' | 'skipped';
+
+export interface StreamStep {
+  id: string;              // 'preclean' | 'heuristik' | 'llm' | 'crossvalidate' | 'selfcheck' | 'done'
+  status: StepStatus;
+  ms: number;              // Millisekunden seit Beginn
+  info?: string;           // kurze Erklärung
+  model?: string;          // bei 'llm': Modellname
+  applied?: string[];      // bei 'preclean': angewendete Schritte
+  shrunkBy?: number;
+  totalMs?: number;
+  path?: string;
+}
+
+export type StreamEvent =
+  | { kind: 'step'; step: StreamStep }
+  | { kind: 'result'; parsed: ParsedInquiry }
+  | { kind: 'error'; message: string };
+
+/** Streamt die Strukturierung Schritt für Schritt. `onEvent` wird für jedes
+ *  SSE-Event aufgerufen. Resolved mit dem finalen `ParsedInquiry` sobald
+ *  das `result`-Event eintrifft. Wirft bei `error`-Event. */
+export async function llmStructureStream(
+  text: string,
+  onEvent: (e: StreamEvent) => void,
+): Promise<ParsedInquiry> {
+  const r = await fetch('/api/llm/structure', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+    body: JSON.stringify({ text }),
+  });
+  if (!r.ok || !r.body) throw new Error(`Structure-Stream fehlgeschlagen (${r.status})`);
+
+  const reader = r.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  let finalResult: ParsedInquiry | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+
+    // SSE-Frames sind durch \n\n getrennt
+    let nl: number;
+    while ((nl = buf.indexOf('\n\n')) !== -1) {
+      const frame = buf.slice(0, nl);
+      buf = buf.slice(nl + 2);
+      const ev = parseSseFrame(frame);
+      if (!ev) continue;
+
+      if (ev.event === 'step') {
+        try { onEvent({ kind: 'step', step: JSON.parse(ev.data) as StreamStep }); } catch {}
+      } else if (ev.event === 'result') {
+        try {
+          finalResult = JSON.parse(ev.data) as ParsedInquiry;
+          onEvent({ kind: 'result', parsed: finalResult });
+        } catch {}
+      } else if (ev.event === 'error') {
+        try {
+          const e = JSON.parse(ev.data) as { message: string };
+          onEvent({ kind: 'error', message: e.message });
+          throw new Error(e.message);
+        } catch (err) {
+          throw err instanceof Error ? err : new Error(String(err));
+        }
+      }
+    }
+  }
+
+  if (!finalResult) throw new Error('Stream endete ohne result-Event');
+  return finalResult;
+}
+
+function parseSseFrame(frame: string): { event: string; data: string } | null {
+  let event = 'message';
+  const dataLines: string[] = [];
+  for (const line of frame.split('\n')) {
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim());
+  }
+  if (dataLines.length === 0) return null;
+  return { event, data: dataLines.join('\n') };
+}

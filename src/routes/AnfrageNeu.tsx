@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  llmStructure, VORGANG_LABEL, VORGANG_COLOR, PARSER_LABEL,
-  type ParsedInquiry, type Vorgang, type Confidence,
+  llmStructureStream, VORGANG_LABEL, VORGANG_COLOR, PARSER_LABEL,
+  type ParsedInquiry, type Vorgang, type Confidence, type StreamStep,
 } from "../lib/llm";
 import {
   listCustomers, matchCustomers, createCustomerLocal,
@@ -74,6 +74,11 @@ export default function AnfrageNeu() {
   const [rawText, setRawText] = useState("");
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState<ParsedInquiry | null>(null);
+  // M13: Live-Stream-Steps. Map von step.id → latest StreamStep.
+  // Bei mehrfachem 'llm' (70B-Fail + 8B-Fallback) wird nur das letzte
+  // Event je id behalten — wir loggen den finalen Pfad.
+  const [streamSteps, setStreamSteps] = useState<Record<string, StreamStep>>({});
+  const [parseElapsed, setParseElapsed] = useState(0); // ms-Counter beim Tippen
   const [error, setError] = useState<string | null>(null);
   const [similar, setSimilar] = useState<Inquiry[]>([]);
   const parseTimer = useRef<number | null>(null);
@@ -144,8 +149,16 @@ export default function AnfrageNeu() {
     }
     setError(null);
     setParsing(true);
+    setStreamSteps({});
+    setParseElapsed(0);
+    const startedAt = Date.now();
+    const ticker = window.setInterval(() => setParseElapsed(Date.now() - startedAt), 100);
     try {
-      const p = await llmStructure(rawText);
+      const p = await llmStructureStream(rawText, (ev) => {
+        if (ev.kind === "step") {
+          setStreamSteps((prev) => ({ ...prev, [ev.step.id]: ev.step }));
+        }
+      });
       setParsed(p);
       const cn = normalizeName(p.customerName ?? "");
       const ph = normalizePhone(p.phone ?? "");
@@ -171,6 +184,7 @@ export default function AnfrageNeu() {
     } catch (e: any) {
       setError(e?.message ?? "Parse-Fehler");
     } finally {
+      window.clearInterval(ticker);
       setParsing(false);
     }
   }
@@ -538,12 +552,17 @@ export default function AnfrageNeu() {
               </button>
               <button
                 onClick={skipParse}
-                disabled={!rawText.trim()}
+                disabled={!rawText.trim() || parsing}
                 className="btn-ghost !min-h-[48px] !px-4 text-[12px] disabled:opacity-50"
               >
                 Manuell weiter (ohne Auto-Parse)
               </button>
             </div>
+
+            {/* M13 · Live-Pipeline während des Parsings */}
+            {(parsing || Object.keys(streamSteps).length > 0) && (
+              <StreamPipelineView steps={streamSteps} elapsedMs={parseElapsed} active={parsing} />
+            )}
           </div>
         )}
 
@@ -903,6 +922,84 @@ function Field({
         <p className="font-mono text-[10.5px] text-rust mt-1">
           KI ist sich nicht sicher — bitte prüfen, anpassen oder bestätigen.
         </p>
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   M13 · Live-Pipeline-Anzeige
+   ──────────────────────────────────────────────────────────────────────
+   Zeigt während der Strukturierung Schritt für Schritt, was passiert.
+   Jeder Schritt: ○ (pending) → ⏳ (running) → ✓ (done) bzw. → (skipped).
+   Pro Schritt: Label, Status-Icon, Millisekunden-Wert, optionaler Info-Text. */
+
+const PIPELINE_STEPS: { id: string; label: string }[] = [
+  { id: "preclean",      label: "Pre-Cleaning" },
+  { id: "heuristik",     label: "Heuristik (Regex)" },
+  { id: "llm",           label: "Llama 3.3 70B" },
+  { id: "crossvalidate", label: "Cross-Validation" },
+  { id: "selfcheck",     label: "Self-Check" },
+  { id: "done",          label: "fertig" },
+];
+
+function StreamPipelineView({
+  steps,
+  elapsedMs,
+  active,
+}: {
+  steps: Record<string, StreamStep>;
+  elapsedMs: number;
+  active: boolean;
+}) {
+  return (
+    <div className="bg-bg-deep text-white rounded-xl p-4 lg:p-5 font-mono text-[12px] shadow-lg border border-steel-line/35">
+      <div className="flex items-center justify-between mb-3">
+        <span className="font-display font-extrabold uppercase tracking-wide text-copper text-[13px]">
+          Strukturiere · live
+        </span>
+        <span className="text-steel tabular-nums text-[11px]">
+          {(elapsedMs / 1000).toFixed(1)} s
+        </span>
+      </div>
+      <ul className="space-y-1.5">
+        {PIPELINE_STEPS.map(({ id, label }) => {
+          const step = steps[id];
+          const status = step?.status;
+          const isStart = status === "start";
+          const isDone = status === "done";
+          const isSkip = status === "skipped";
+
+          let icon = "○";
+          let iconClass = "text-steel/50";
+          if (isStart && active) { icon = "⏳"; iconClass = "text-amber"; }
+          else if (isDone) { icon = "✓"; iconClass = "text-moss-bright"; }
+          else if (isSkip) { icon = "→"; iconClass = "text-steel"; }
+
+          const ms = step?.ms;
+          const info = step?.info;
+          const model = step?.model;
+
+          return (
+            <li key={id} className="flex items-baseline gap-3 leading-snug">
+              <span className={`text-[14px] w-4 inline-block text-center ${iconClass}`}>{icon}</span>
+              <span className={`flex-1 ${isDone || isSkip ? "text-white" : isStart ? "text-amber" : "text-steel/65"}`}>
+                {label}
+                {model && <span className="text-copper/80 ml-1.5">· {model}</span>}
+                {info && <span className="text-steel ml-2">· {info}</span>}
+              </span>
+              {typeof ms === "number" && (isDone || isSkip) && (
+                <span className="text-steel tabular-nums text-[10.5px]">{ms} ms</span>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      {steps.done?.totalMs != null && (
+        <div className="mt-3 pt-2.5 border-t border-steel-line/30 text-steel text-[10.5px] flex justify-between">
+          <span>Pfad: <b className="text-copper">{steps.done.path ?? "—"}</b></span>
+          <span>Total: <b className="text-white tabular-nums">{steps.done.totalMs} ms</b></span>
+        </div>
       )}
     </div>
   );
