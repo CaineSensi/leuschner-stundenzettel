@@ -46,7 +46,7 @@ export default function SiteDetail() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [openModal, setOpenModal] = useState<ModalKind>(null);
-  const [mapView, setMapView] = useState<"satellite" | "map">("satellite");
+  const [mapView, setMapView] = useState<"satellite" | "map">("map");
   // Auto-Geocoding wenn die Baustelle nur Adresse hat, keine GPS-Koordinaten
   const [geocoded, setGeocoded] = useState<{ lat: number; lng: number } | null>(null);
   const [geocoding, setGeocoding] = useState(false);
@@ -194,7 +194,29 @@ export default function SiteDetail() {
 
         {/* HERO · Karte + Side-Panel */}
         <section className="grid gap-4 lg:grid-cols-[1fr_300px]">
-          <div className="relative rounded-2xl overflow-hidden border border-steel-line/45 bg-bg-3 min-h-[240px]">
+          <div className="flex flex-col gap-2">
+            {/* Toggle Karte / Satellit / Google Earth · links oben, AUSSERHALB der Karte */}
+            {effectiveGeo && (
+              <div className="self-start bg-bg-deep rounded-md flex overflow-hidden text-[10.5px] font-mono uppercase tracking-wider shadow-md">
+                <button
+                  onClick={() => setMapView("map")}
+                  className={`px-3 py-1.5 transition-colors ${mapView === "map" ? "bg-copper text-white" : "text-white/70 hover:text-white"}`}
+                >🗺 Karte</button>
+                <button
+                  onClick={() => setMapView("satellite")}
+                  className={`px-3 py-1.5 transition-colors ${mapView === "satellite" ? "bg-copper text-white" : "text-white/70 hover:text-white"}`}
+                >🛰 Satellit</button>
+                <a
+                  href={`https://earth.google.com/web/@${effectiveGeo.lat},${effectiveGeo.lng},250a,500d,35y,0h,45t,0r`}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="px-3 py-1.5 transition-colors text-white/70 hover:text-white"
+                  title="In Google Earth öffnen (neuer Tab)"
+                >🌍 Google Earth ↗</a>
+              </div>
+            )}
+
+            <div className="relative rounded-2xl overflow-hidden border border-steel-line/45 bg-bg-3 min-h-[240px]">
             {mapView === "satellite" && effectiveGeo ? (
               <LeafletSatellite
                 lat={effectiveGeo.lat}
@@ -217,21 +239,6 @@ export default function SiteDetail() {
               </div>
             )}
 
-            {/* Toggle Karte / Satellit (oben rechts) — z-[1100] damit über Leaflet-Controls */}
-            {effectiveGeo && (
-              <div className="absolute right-3 top-3 z-[1100] bg-bg-deep/92 backdrop-blur rounded-md flex overflow-hidden text-[10.5px] font-mono uppercase tracking-wider shadow-lg">
-                <button
-                  onClick={() => setMapView("satellite")}
-                  className={`px-2.5 py-1.5 transition-colors ${mapView === "satellite" ? "bg-copper text-white" : "text-white/70 hover:text-white"}`}
-                >🛰 Satellit</button>
-                <button
-                  onClick={() => setMapView("map")}
-                  className={`px-2.5 py-1.5 transition-colors ${mapView === "map" ? "bg-copper text-white" : "text-white/70 hover:text-white"}`}
-                >🗺 Karte</button>
-              </div>
-            )}
-
-
             {/* Geocoding-Hinweis */}
             {geocoding && (
               <div className="absolute inset-x-0 top-0 z-[1100] bg-copper/90 text-white text-center font-mono text-[10.5px] uppercase tracking-wider py-1.5 shadow">
@@ -253,6 +260,7 @@ export default function SiteDetail() {
                   {!site.geo && geocoded && <span className="ml-1 text-copper-bright">(geocoded)</span>}
                 </span>
               )}
+            </div>
             </div>
           </div>
 
