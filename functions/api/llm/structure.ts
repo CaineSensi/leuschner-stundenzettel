@@ -1,18 +1,28 @@
 // Strukturiert rohen Anfrage-Text in Felder.
 //
 // Eskalations-Reihenfolge:
-//   1) Cloudflare Workers AI (Llama 3.1 8B) — Default, EU-Edge, im Account
-//      schon enthalten. Binding `AI` aus dem Cloudflare-Pages-Dashboard.
-//   2) Anthropic Claude Haiku — nur wenn ANTHROPIC_API_KEY gesetzt UND
-//      Workers AI eine niedrige Confidence liefert (Hybrid-Eskalation,
-//      derzeit nicht scharfgeschaltet, vorbereitet).
-//   3) Heuristik (Regex/Pattern) — Notfall-Fallback ohne externe Calls,
+//   1) Cloudflare Workers AI · Llama 3.3 70B fp8-fast — Default (Sprint-1-Upgrade
+//      26.05.2026, vorher 8B). EU-Edge, im Account inkludiert (Free-Tier
+//      ~150–200 große Anfragen/Tag). Binding `AI` aus dem Cloudflare-Pages-Dashboard.
+//   2) Workers AI · Llama 3.1 8B — schneller Fallback wenn 70B in Auslastung
+//      läuft oder einen Fehler wirft.
+//   3) Anthropic Claude Haiku — nur wenn ANTHROPIC_API_KEY gesetzt UND beide
+//      Workers-AI-Pfade scheitern (Premium-Notfall, derzeit nicht aktiv).
+//   4) Heuristik (Regex/Pattern) — Notfall-Fallback ohne externe Calls,
 //      damit das Anfragen-Modul nie komplett tot ist.
 //
-// Antwort-Schema (verträglich mit altem Frontend, neue Felder optional):
-//   { vorgang, stamm{...}, inhalt{...}, dringlichkeit, source_guess,
-//     confidence, parser, customerName, phone, email, street, zip, city,
-//     description, leistung, mengen[] }
+// Sprint-1-Maßnahmen (26.05.2026) im Detail:
+//   M1  Modell-Upgrade 8B → 70B (siehe oben)
+//   M2  Drei Few-Shot-Beispiele im SYSTEM_PROMPT (Mail / Telefon-Notiz / WhatsApp)
+//   M4  Cross-Validation Heuristik ↔ LLM in `mergeCrossValidate`:
+//       - Bei Mail/Telefon/PLZ/Hausnummer gewinnt die Heuristik bei Konflikt
+//         (Regex ist deterministisch präziser)
+//       - Bei Name/Leistung/Beschreibung gewinnt das LLM (semantisch besser)
+//       - Konflikte werden in `meta.conflicts` mitgeloggt (Diagnose)
+//   M6  Kalibrierte Confidence `scoreConfidence()`:
+//       - Feld wörtlich im Originaltext? → high
+//       - Heuristik bestätigt LLM-Wert? → +1 Stufe
+//       - Sonst LLM-Selbstauskunft als Ausgangspunkt
 
 interface AiBinding {
   run(model: string, input: any): Promise<any>;
@@ -59,9 +69,27 @@ interface Parsed {
   confidence?: Partial<Record<keyof Parsed | 'overall', Confidence>>;
 
   /** Welcher Pfad hat strukturiert — fürs Debugging im Frontend. */
-  parser: 'workers-ai' | 'anthropic' | 'heuristic';
+  parser: 'workers-ai-70b' | 'workers-ai-8b' | 'anthropic' | 'heuristic';
+
+  /** Diagnose: Felder mit divergierenden Werten zwischen LLM und Heuristik.
+   *  Wird im Frontend für Re-Parse-Anzeige / Debugging genutzt. */
+  meta?: {
+    conflicts?: { field: string; llm: string; heuristic: string; chosen: string; reason: string }[];
+    model?: string;
+  };
 }
 
+/** System-Prompt mit Schema + Regeln + Few-Shot-Examples (M2).
+ *
+ *  Die drei Beispiele decken die drei häufigsten Anfrage-Stile ab:
+ *  - lange Mail mit Adressblock und Signatur
+ *  - kurze Telefon-Notiz (oft nur 1–2 Sätze, mehrteilig)
+ *  - WhatsApp-Stil (informell, Tippfehler, Mobilnummer)
+ *
+ *  Bei 70B-Modellen ist Few-Shot der höchste Hebel — das Modell lernt im
+ *  Kontext, wie unsere konkrete JSON-Form aussieht und welche Felder bei
+ *  welchem Input-Stil typisch füllen.
+ */
 const SYSTEM_PROMPT = `Du strukturierst Kunden-Anfragen für einen Garten- und Landschaftsbau-Betrieb in Ostfriesland (Rund um's Haus Leuschner). Typische Leistungen: Doppelstabmattenzaun, Pflasterarbeiten (Hofeinfahrt, Terrasse), Erdarbeiten, Bagger-/Transportarbeiten, Drainage, Rasen anlegen, Mutterboden, Gartenmauer, Rasenbord, Sichtschutz, Tore.
 
 Extrahiere die Felder unten als striktes JSON. Antworte AUSSCHLIESSLICH mit dem JSON-Objekt, ohne Erklärung, ohne Markdown-Codefence.
@@ -104,7 +132,7 @@ Regeln:
 - vorgang "sonstiges" sonst
 - Bei Tippfehlern oder informellem Stil: trotzdem extrahieren, confidence "medium" setzen
 - Bei unsicheren Werten lieber null + confidence "low" statt zu raten
-- Mengen mit Einheit (m, m², qm, m³, lfm, Stk, t, Std)
+- Mengen mit Einheit (m, m², qm, m³, lfm, Stk, t, Std) und IMMER "was" füllen (was ist gemeint, z.B. "Zaun", "Pflasterfläche", "Mutterboden")
 - Telefon im Originalformat lassen
 - WICHTIG: Wenn zwei Telefonnummern im Text stehen, gehört die mit Mobil-Vorwahl
   (deutsche Handy-Vorwahlen 015x, 016x, 017x oder am Wort "Mobil", "Handy",
@@ -114,35 +142,75 @@ Regeln:
 - Wenn Name in Inline-Phrase steht ("mein Name ist X", "ich bin X", "hier spricht X"), übernehmen
 - Straße: nur die echte Adresse extrahieren, nicht den Fließtext
 - description: 1-2 Sätze, was der Kunde will, NICHT der ganze Originaltext
-- Antworte AUSSCHLIESSLICH mit dem JSON-Objekt`;
+- Antworte AUSSCHLIESSLICH mit dem JSON-Objekt
+
+Drei Beispiele zur Orientierung:
+
+BEISPIEL 1 — Mail
+Eingabe:
+"Von: m.borgmann@web.de
+Betreff: Anfrage Zaun
+
+Sehr geehrte Damen und Herren,
+
+ich hätte gerne ein Angebot für einen Doppelstabmattenzaun, anthrazit, ca. 80 m, Höhe 1,80 m, dazu zwei Tore. Mein Grundstück ist in der Tunxdorferstraße 46, 26871 Papenburg.
+
+Mit freundlichen Grüßen
+Josef Borgmann
+Tel: 04961 / 12345"
+
+Ausgabe:
+{"vorgang":"angebot","customerName":"Josef Borgmann","firma":null,"phone":"04961 / 12345","phone_mobile":null,"email":"m.borgmann@web.de","street":"Tunxdorferstraße 46","zip":"26871","city":"Papenburg","description":"Angebot für Doppelstabmattenzaun anthrazit, ca. 80 m Höhe 1,80 m, plus zwei Tore.","leistung":"Doppelstabmattenzaun","mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"termin":null,"dringlichkeit":"normal","source_guess":"mail","confidence":{"overall":"high","customerName":"high","phone":"high","phone_mobile":null,"email":"high","street":"high","city":"high","leistung":"high","vorgang":"high"}}
+
+BEISPIEL 2 — Telefon-Notiz (kurz, mehrteilig)
+Eingabe:
+"Frau Hainke aus Bunde, 0171 2345678, will Hofeinfahrt gepflastert ca 45 qm und Drainage davor. Bittet um Rückruf."
+
+Ausgabe:
+{"vorgang":"angebot","customerName":"Hainke","firma":null,"phone":null,"phone_mobile":"0171 2345678","email":null,"street":null,"zip":null,"city":"Bunde","description":"Hofeinfahrt pflastern ca. 45 m² plus Drainage davor. Bittet um Rückruf.","leistung":"Pflasterarbeiten","mengen":[{"wert":"45","einheit":"qm","was":"Pflasterfläche"}],"termin":"Rückruf gewünscht","dringlichkeit":"normal","source_guess":"phone","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
+
+BEISPIEL 3 — WhatsApp (informell, Tippfehler)
+Eingabe:
+"moin, hier de haan aus leer. brauch dringen mutterboden ca 70 kubik fürn neuen garten. wann könnt ihr liefern? 015112345678"
+
+Ausgabe:
+{"vorgang":"material","customerName":"De Haan","firma":null,"phone":null,"phone_mobile":"015112345678","email":null,"street":null,"zip":null,"city":"Leer","description":"Lieferung Mutterboden ca. 70 m³ für neuen Garten. Liefertermin gesucht.","leistung":"Mutterboden","mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"termin":"so schnell wie möglich","dringlichkeit":"hoch","source_guess":"whatsapp","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
+
+Jetzt strukturiere die folgende Anfrage nach demselben Schema. Antworte AUSSCHLIESSLICH mit dem JSON-Objekt.`;
 
 /**
- * Workers AI · Llama 3.1 8B Instruct.
- * Edge-Run im Cloudflare-Account, inkludiert (10k Neuronen/Tag im Free-Tier).
+ * Workers AI · Modell-Aufruf (universell für 70B + 8B).
+ * Gemeinsame Logik, nur Modellname unterschiedlich.
  */
-async function parseWithWorkersAI(text: string, ai: AiBinding): Promise<Parsed | null> {
+async function runWorkersAi(text: string, ai: AiBinding, model: string): Promise<{ parsed: Parsed | null; error?: string }> {
   try {
-    const resp: any = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
+    const resp: any = await ai.run(model, {
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: text },
       ],
-      max_tokens: 1024,
+      max_tokens: 1500, // 70B liefert ausführlichere confidence-Blöcke
       temperature: 0.1,
-      response_format: { type: 'json_object' },
+      // response_format weggelassen: Cloudflare-Workers-AI verlangt für
+      // strict-JSON ein eigenes `json_schema`-Format. Stattdessen erzwingt
+      // der System-Prompt das JSON, safeJson räumt Codefences/Vorwort weg.
     });
     const raw: string = resp?.response ?? resp?.result?.response ?? '';
-    if (!raw) return null;
+    if (!raw) return { parsed: null, error: 'empty response: ' + JSON.stringify(resp).slice(0, 200) };
     const cleaned = stripCodeFence(raw);
     const json = safeJson(cleaned);
-    if (!json) return null;
-    return normalize({ ...json, parser: 'workers-ai' });
-  } catch {
-    return null;
+    if (!json) return { parsed: null, error: 'json-parse-fail: ' + cleaned.slice(0, 200) };
+    const parserTag: Parsed['parser'] = model.includes('70b') ? 'workers-ai-70b' : 'workers-ai-8b';
+    const out = normalize({ ...json, parser: parserTag });
+    out.meta = { ...(out.meta ?? {}), model };
+    return { parsed: out };
+  } catch (e: any) {
+    return { parsed: null, error: 'ai.run threw: ' + String(e?.message ?? e).slice(0, 200) };
   }
 }
 
-/** Optional: Anthropic Haiku. Erst aktiv wenn ANTHROPIC_API_KEY gesetzt. */
+/** Optional: Anthropic Haiku. Erst aktiv wenn ANTHROPIC_API_KEY gesetzt
+ *  UND beide Workers-AI-Pfade gescheitert sind (Premium-Notfall). */
 async function parseWithAnthropic(text: string, apiKey: string): Promise<Parsed | null> {
   try {
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -154,7 +222,7 @@ async function parseWithAnthropic(text: string, apiKey: string): Promise<Parsed 
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
+        max_tokens: 1500,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: text }],
       }),
@@ -190,7 +258,7 @@ function safeJson(s: string): any {
 /** Sicherstellen dass das LLM-Schema sauber ist und nichts fehlt was das
  *  Frontend erwartet. */
 function normalize(p: any): Parsed {
-  const out: Parsed = { parser: p.parser ?? 'workers-ai' };
+  const out: Parsed = { parser: p.parser ?? 'workers-ai-70b' };
   if (p.vorgang && ['angebot','termin','reklamation','material','sonstiges'].includes(p.vorgang)) out.vorgang = p.vorgang;
   for (const k of ['customerName','firma','phone','phone_mobile','email','street','zip','city','description','leistung','termin'] as const) {
     if (typeof p[k] === 'string' && p[k].trim().length) (out as any)[k] = p[k].trim();
@@ -315,6 +383,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
     hasAI: !!env.AI,
     hasAnthropic: !!env.ANTHROPIC_API_KEY,
     aiError: '' as string,
+    aiPath: '' as string,
   };
   try {
     const body = (await request.json()) as { text?: string };
@@ -323,61 +392,44 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
       return new Response(JSON.stringify({ error: 'no text' }), { status: 400 });
     }
 
-    // 1) Workers AI (Default-Pfad)
+    const heur = parseHeuristic(text);
+
+    // 1) Workers AI · Llama 3.3 70B fp8-fast (Primary)
     if (env.AI) {
-      try {
-        const wa = await parseWithWorkersAIVerbose(text, env.AI);
-        if (wa.parsed) {
-          const heur = parseHeuristic(text);
-          const merged = mergeBackfill(wa.parsed, heur);
-          return jsonResponse(merged, debug);
-        } else {
-          debug.aiError = wa.error || 'unknown';
-        }
-      } catch (e: any) {
-        debug.aiError = `throw: ${String(e?.message ?? e).slice(0, 200)}`;
+      const wa70 = await runWorkersAi(text, env.AI, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+      if (wa70.parsed) {
+        debug.aiPath = 'llama-3.3-70b';
+        const merged = mergeCrossValidate(wa70.parsed, heur);
+        return jsonResponse(merged, debug);
       }
+      debug.aiError = '70b: ' + (wa70.error ?? 'unknown');
+
+      // 2) Workers AI · Llama 3.1 8B (Fallback wenn 70B versagt)
+      const wa8 = await runWorkersAi(text, env.AI, '@cf/meta/llama-3.1-8b-instruct');
+      if (wa8.parsed) {
+        debug.aiPath = 'llama-3.1-8b-fallback';
+        const merged = mergeCrossValidate(wa8.parsed, heur);
+        return jsonResponse(merged, debug);
+      }
+      debug.aiError += ' | 8b: ' + (wa8.error ?? 'unknown');
     }
 
-    // 2) Anthropic (nur wenn explizit konfiguriert)
+    // 3) Anthropic (Premium-Notfall, nur wenn explizit konfiguriert)
     if (env.ANTHROPIC_API_KEY) {
       const an = await parseWithAnthropic(text, env.ANTHROPIC_API_KEY);
       if (an) {
-        const heur = parseHeuristic(text);
-        return jsonResponse(mergeBackfill(an, heur), debug);
+        debug.aiPath = 'anthropic-haiku';
+        return jsonResponse(mergeCrossValidate(an, heur), debug);
       }
     }
 
-    // 3) Heuristik (Notfall)
-    return jsonResponse(parseHeuristic(text), debug);
+    // 4) Heuristik (Notfall ohne externe Calls)
+    debug.aiPath = 'heuristic-only';
+    return jsonResponse(heur, debug);
   } catch (err: any) {
     return new Response(JSON.stringify({ error: String(err?.message ?? err), debug }), { status: 500 });
   }
 };
-
-async function parseWithWorkersAIVerbose(text: string, ai: AiBinding): Promise<{ parsed: Parsed | null; error?: string }> {
-  try {
-    const resp: any = await ai.run('@cf/meta/llama-3.1-8b-instruct', {
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: text },
-      ],
-      max_tokens: 1024,
-      temperature: 0.1,
-      // response_format weggelassen: Cloudflare-Workers-AI verlangt für
-      // strict-JSON ein eigenes `json_schema`-Format. Stattdessen erzwingt
-      // der System-Prompt das JSON, safeJson räumt Codefences/Vorwort weg.
-    });
-    const raw: string = resp?.response ?? resp?.result?.response ?? '';
-    if (!raw) return { parsed: null, error: 'empty response: ' + JSON.stringify(resp).slice(0, 200) };
-    const cleaned = stripCodeFence(raw);
-    const json = safeJson(cleaned);
-    if (!json) return { parsed: null, error: 'json-parse-fail: ' + cleaned.slice(0, 200) };
-    return { parsed: normalize({ ...json, parser: 'workers-ai' }) };
-  } catch (e: any) {
-    return { parsed: null, error: 'ai.run threw: ' + String(e?.message ?? e).slice(0, 200) };
-  }
-}
 
 function jsonResponse(p: Parsed, debug: any): Response {
   return new Response(JSON.stringify(p), {
@@ -385,22 +437,144 @@ function jsonResponse(p: Parsed, debug: any): Response {
       'content-type': 'application/json',
       'x-ai-available': String(debug.hasAI),
       'x-anthropic-available': String(debug.hasAnthropic),
+      'x-ai-path': debug.aiPath || '',
       'x-ai-error': debug.aiError || '',
     },
   });
 }
 
-/** LLM-Ergebnis hat Vorrang; Heuristik füllt nur Lücken. So bekommen wir
- *  z.B. zuverlässig die E-Mail-Adresse, selbst wenn das LLM-JSON sie
- *  vergisst. */
-function mergeBackfill(primary: Parsed, heur: Parsed): Parsed {
+/* ────────────────────────────────────────────────────────────────────────
+   M4 · Cross-Validation Heuristik ↔ LLM
+   ────────────────────────────────────────────────────────────────────────
+   - Backfill (LLM-Feld leer → Heuristik füllt): Lücke schließen
+   - Konflikt (LLM-Feld ≠ Heuristik-Feld, beide gesetzt):
+       - Mail/Telefon/PLZ/Hausnummer-Felder: Heuristik gewinnt (Regex präziser)
+       - Name/Leistung/Beschreibung: LLM gewinnt (semantisch besser)
+       - Konflikt wird in meta.conflicts geloggt
+   Die Confidence-Anhebung bei Heuristik-Bestätigung passiert in M6 unten.
+   ──────────────────────────────────────────────────────────────────────── */
+
+const HEURISTIC_WINS = new Set(['email','phone','phone_mobile','zip']);
+const LLM_WINS       = new Set(['customerName','leistung','description','vorgang','firma']);
+
+function normPhone(s?: string): string {
+  return (s ?? '').replace(/\s|\-|\/|\(|\)|\./g, '').toLowerCase();
+}
+function normStr(s?: string): string {
+  return (s ?? '').trim().toLowerCase();
+}
+
+function valuesEqual(field: string, a?: string, b?: string): boolean {
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (field === 'phone' || field === 'phone_mobile') return normPhone(a) === normPhone(b);
+  return normStr(a) === normStr(b);
+}
+
+function mergeCrossValidate(primary: Parsed, heur: Parsed): Parsed {
   const out: any = { ...primary };
-  for (const k of ['email','phone','zip','city','street','customerName','leistung','description'] as const) {
-    if (!out[k] && (heur as any)[k]) out[k] = (heur as any)[k];
+  const conflicts: NonNullable<Parsed['meta']>['conflicts'] = [];
+
+  const allFields = ['email','phone','phone_mobile','zip','city','street','customerName','leistung','description','firma'] as const;
+  for (const k of allFields) {
+    const llmVal = (primary as any)[k] as string | undefined;
+    const heuVal = (heur as any)[k] as string | undefined;
+
+    if (!llmVal && heuVal) {
+      // Backfill: LLM hat's vergessen, Heuristik füllt
+      out[k] = heuVal;
+      continue;
+    }
+    if (llmVal && heuVal && !valuesEqual(k, llmVal, heuVal)) {
+      // Konflikt: entscheiden je nach Feld-Klasse
+      let chosen = llmVal;
+      let reason = 'llm-default';
+      if (HEURISTIC_WINS.has(k)) {
+        chosen = heuVal;
+        reason = 'regex-präziser-als-LLM';
+      } else if (LLM_WINS.has(k)) {
+        chosen = llmVal;
+        reason = 'llm-semantisch-besser';
+      }
+      out[k] = chosen;
+      conflicts.push({ field: k, llm: llmVal, heuristic: heuVal, chosen, reason });
+    }
   }
+
+  // Mengen / Klassifikations-Felder klassisch backfillen
   if (!out.mengen && heur.mengen) out.mengen = heur.mengen;
   if (!out.dringlichkeit && heur.dringlichkeit) out.dringlichkeit = heur.dringlichkeit;
   if (!out.source_guess && heur.source_guess) out.source_guess = heur.source_guess;
   if (!out.vorgang && heur.vorgang) out.vorgang = heur.vorgang;
+
+  // M6: Confidence nach Cross-Validation neu kalibrieren
+  out.confidence = scoreConfidence(out, primary, heur);
+
+  // Diagnose anhängen
+  if (conflicts.length) {
+    out.meta = { ...(out.meta ?? {}), conflicts };
+  }
+
   return out as Parsed;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   M6 · Kalibrierte Confidence (post-hoc, ersetzt LLM-Selbstauskunft)
+   ────────────────────────────────────────────────────────────────────────
+   Regeln:
+   - Feld leer → null (keine Confidence-Aussage)
+   - Feld wörtlich im Originaltext gefunden → high
+   - Heuristik bestätigt denselben Wert → +1 Stufe gegenüber LLM-Auskunft
+   - Sonst Ausgangswert von LLM (oder medium als Default)
+   ──────────────────────────────────────────────────────────────────────── */
+
+function scoreConfidence(
+  merged: Parsed,
+  llm: Parsed,
+  heur: Parsed,
+): Parsed['confidence'] {
+  const llmConf = (llm.confidence ?? {}) as Record<string, Confidence | null | undefined>;
+  const out: any = {};
+
+  const bumpUp = (c: Confidence | null | undefined): Confidence =>
+    c === 'low' ? 'medium' : c === 'medium' ? 'high' : 'high';
+
+  const fields = ['customerName','phone','phone_mobile','email','street','city','leistung','vorgang'] as const;
+
+  for (const f of fields) {
+    const val = (merged as any)[f] as string | undefined;
+    if (!val) { out[f] = null; continue; }
+
+    const llmHas = !!(llm as any)[f];
+    const heuHas = !!(heur as any)[f];
+    const matchesHeuristic = heuHas && valuesEqual(f, val, (heur as any)[f]);
+
+    // E-Mail vom Heuristik-Pfad ist immer „high" (Regex ist deterministisch)
+    if ((f === 'email' || f === 'phone' || f === 'phone_mobile') && heuHas && matchesHeuristic) {
+      out[f] = 'high';
+      continue;
+    }
+
+    const base = (llmConf[f] as Confidence | undefined) ?? (llmHas ? 'medium' : 'low');
+
+    // Heuristik bestätigt → eine Stufe rauf
+    if (matchesHeuristic) {
+      out[f] = bumpUp(base);
+      continue;
+    }
+
+    out[f] = base;
+  }
+
+  // Overall: niedrigster Wert der besetzten Felder bestimmt die Gesamtnote
+  const present = fields.map((f) => out[f]).filter(Boolean) as Confidence[];
+  const rank: Record<Confidence, number> = { low: 0, medium: 1, high: 2 };
+  if (present.length === 0) {
+    out.overall = 'low';
+  } else {
+    const minRank = Math.min(...present.map((c) => rank[c]));
+    out.overall = (Object.entries(rank).find(([, r]) => r === minRank)?.[0] as Confidence) ?? 'medium';
+  }
+
+  return out;
 }
