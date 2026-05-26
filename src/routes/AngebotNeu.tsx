@@ -76,6 +76,45 @@ function fmtMoney(n: number): string {
   return n.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 }
 
+/** Mapt eine Mengen-Einheit aus der Anfrage auf {unity, unityId} für sevDesk. */
+function unityFromEinheit(e?: string): { unity: string; unityId: string } {
+  const norm = (e || "").toLowerCase().trim();
+  if (norm === "m²" || norm === "qm" || norm === "m2") return { unity: "m²", unityId: "2" };
+  if (norm === "m³" || norm === "cbm" || norm === "m3") return { unity: "m³", unityId: "8" };
+  if (norm === "lfm") return { unity: "lfm", unityId: "6" };
+  if (norm === "m") return { unity: "m", unityId: "3" };
+  if (norm === "std" || norm === "stunde" || norm === "stunden" || norm === "h") return { unity: "Std", unityId: "9" };
+  if (norm === "t" || norm === "tonne" || norm === "tonnen") return { unity: "t", unityId: "5" };
+  if (norm === "kg") return { unity: "kg", unityId: "4" };
+  if (norm === "km") return { unity: "km", unityId: "10" };
+  if (norm === "pausch." || norm === "pauschal") return { unity: "pausch.", unityId: "7" };
+  return { unity: "Stk", unityId: "1" };
+}
+
+/** Mapt eine erkannte Leistung aus der Anfrage auf eine Wizard-Row.
+ *  Materialien werden als Suffix im Namen sichtbar gemacht (z.B.
+ *  "Einfassung Beete (Naturstein, Betonrandsteine)") — der User kann später
+ *  beim Klär-Rückruf entscheiden. Erste Menge bestimmt quantity+unity. */
+function leistungToRow(l: {
+  name: string;
+  mengen?: { wert: string; einheit?: string; was?: string }[];
+  materialien?: { name: string; spec?: string }[];
+}): Row {
+  const menge = l.mengen?.[0];
+  const matSuffix = l.materialien?.length
+    ? ` (${l.materialien.map((m) => (m.spec ? `${m.name} ${m.spec}` : m.name)).join(", ")})`
+    : "";
+  const { unity, unityId } = unityFromEinheit(menge?.einheit);
+  const quantity = menge ? parseFloat((menge.wert || "1").replace(",", ".")) || 1 : 1;
+  return {
+    name: l.name + matSuffix,
+    quantity,
+    unity,
+    unityId,
+    price: 0,
+  };
+}
+
 export default function AngebotNeu() {
   const { cardId } = useParams<{ cardId: string }>();
   const navigate = useNavigate();
@@ -88,6 +127,14 @@ export default function AngebotNeu() {
   );
   const [saving, setSaving] = useState(false);
   const [pushing, setPushing] = useState(false);
+  // S5: Quelle der Vorbefüllung — 'positions' (bereits gespeicherte Wizard-Daten),
+  // 'inquiry' (frisch aus der zugehörigen Anfrage gezogen) oder null.
+  const [prefillSource, setPrefillSource] = useState<"positions" | "inquiry" | null>(null);
+  const [inquirySummary, setInquirySummary] = useState<{
+    leistungenCount: number;
+    materialienCount: number;
+    hasAlternatives: boolean;
+  } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -104,6 +151,28 @@ export default function AngebotNeu() {
             unityId: "1",
             price: parseFloat(p.unitPrice.replace(/[^\d,.-]/g, "").replace(",", ".")) || 0,
           })));
+          setPrefillSource("positions");
+        } else if (isBackendConnected() && supabase) {
+          // S5: noch keine Positionen → versuche aus der verknüpften Anfrage zu ziehen
+          const sb: any = supabase;
+          const { data: inq } = await sb
+            .from("inquiries")
+            .select("parsed_json")
+            .eq("pipeline_card_id", found.id)
+            .limit(1)
+            .maybeSingle();
+          const leistungen = (inq?.parsed_json as any)?.leistungen as
+            | { name: string; mengen?: any[]; materialien?: any[] }[]
+            | undefined;
+          if (Array.isArray(leistungen) && leistungen.length > 0) {
+            setRows(leistungen.map(leistungToRow));
+            const materialienCount = leistungen.reduce((sum, l) => sum + (l.materialien?.length ?? 0), 0);
+            const hasAlternatives = leistungen.some((l) =>
+              (l.materialien ?? []).some((m: any) => /alternativ/i.test(m.note ?? ""))
+            );
+            setInquirySummary({ leistungenCount: leistungen.length, materialienCount, hasAlternatives });
+            setPrefillSource("inquiry");
+          }
         }
       } catch (e: any) { setError(e?.message ?? "Fehler beim Laden"); }
       finally { setLoading(false); }
@@ -257,6 +326,24 @@ export default function AngebotNeu() {
                 <p className="font-sans text-[13.5px] text-ink">{card.description}</p>
                 {card.openPoints && (
                   <p className="font-mono text-[11.5px] text-ink-2 mt-2">Offene Punkte: {card.openPoints}</p>
+                )}
+              </div>
+            )}
+
+            {/* S5: Hinweis wenn aus Anfrage vorbefüllt */}
+            {prefillSource === "inquiry" && inquirySummary && (
+              <div className="bg-copper/10 border border-copper/40 rounded-lg p-4">
+                <div className="font-display font-extrabold uppercase text-[12px] text-copper tracking-wide mb-1.5">
+                  ✓ {inquirySummary.leistungenCount} {inquirySummary.leistungenCount === 1 ? "Position" : "Positionen"} aus der Anfrage übernommen
+                </div>
+                <p className="font-sans text-[12.5px] text-ink leading-relaxed">
+                  Leistungs-Namen und Mengen kommen aus dem strukturierten Parser-Ergebnis. <b>Preise bitte eintragen, Mengen überprüfen.</b> Vorlagen oben kannst du zusätzlich draufpacken (z.B. Pflaster-Template für Tragschicht/Randsteine/Aushub).
+                </p>
+                {inquirySummary.materialienCount > 0 && (
+                  <p className="font-sans text-[12px] text-ink-2 mt-1.5">
+                    <b className="text-copper">{inquirySummary.materialienCount}</b> Material-Wunsch{inquirySummary.materialienCount === 1 ? "" : "/-wünsche"} in den Positionsnamen vermerkt
+                    {inquirySummary.hasAlternatives && <span className="text-amber"> · enthält Alternativ-Auswahl (z.B. „Naturstein oder Betonrandsteine") — beim Kunden klären</span>}.
+                  </p>
                 )}
               </div>
             )}
