@@ -9,7 +9,7 @@ import {
 } from "../lib/api";
 import { listCards, type PipelineCard, type Stage } from "../lib/pipeline";
 import { listInquiries, type Inquiry } from "../lib/inquiries";
-import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { isBackendConnected } from "../lib/supabase";
 import { currentUser, signOutFully } from "../lib/auth";
 import { isoWeek, todayIso, weekDays, fmtHours, workMinutes } from "../lib/utils";
@@ -99,6 +99,7 @@ export default function Admin() {
   useRealtime("admin-dashboard", ["workers", "entries", "assignments", "sites", "pipeline_cards", "inquiries"],
     () => setRefreshKey((k) => k + 1));
   useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
+  useRefreshOnAuth(() => setRefreshKey((k) => k + 1));
 
   const team = useMemo(() => workers.filter((w) => !w.isAdmin), [workers]);
 

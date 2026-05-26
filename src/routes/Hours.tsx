@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { listAllEntries, listSites, listWorkers } from "../lib/api";
-import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { getHoliday, isHoliday } from "../lib/holidays";
 import {
-  fmtHours, isoWeek, todayIso, weekDays, workMinutes
+  fmtHours, isoWeek, todayIso, weekDays, withTimeout, workMinutes
 } from "../lib/utils";
 import { isWorkEntry, type Entry, type Site, type Worker } from "../lib/types";
 import BackButton from "../components/BackButton";
@@ -34,9 +34,9 @@ export default function Hours() {
     setError(null);
     try {
       const [w, e, s] = await Promise.all([
-        listWorkers(),
-        listAllEntries(days[0], days[days.length - 1]),
-        listSites().catch(() => [] as Site[])
+        withTimeout(listWorkers(), 8000, "Mitarbeiter"),
+        withTimeout(listAllEntries(days[0], days[days.length - 1]), 8000, "Einträge"),
+        withTimeout(listSites(), 8000, "Baustellen").catch(() => [] as Site[])
       ]);
       setWorkers(w);
       setEntries(e);
@@ -55,6 +55,7 @@ export default function Hours() {
 
   useRealtime("hours-overview", ["entries", "workers", "assignments"], refresh);
   useRefreshOnVisible(refresh);
+  useRefreshOnAuth(refresh);
 
   const team = useMemo(
     () => workers.filter((w) => showAdmins || !w.isAdmin)

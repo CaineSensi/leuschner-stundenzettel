@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { photoUrl } from "../lib/photos";
 import type { EntryPhoto } from "../lib/types";
+import ImageWithFallback from "./ImageWithFallback";
 
 /**
  * Horizontale Thumbnail-Reihe für Fotos eines Eintrags.
@@ -126,10 +127,15 @@ function ExistingThumb({ photo, onTap }: { photo: EntryPhoto; onTap: () => void 
       onClick={onTap}
       className="flex-shrink-0 w-24 h-24 rounded-xl bg-bg-3 overflow-hidden border border-ink/10 active:scale-[0.97] transition-transform snap-start"
     >
-      {url ? (
-        <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
-      ) : (
+      {url === null ? (
         <div className="w-full h-full flex items-center justify-center text-ink-mute text-xl">⋯</div>
+      ) : (
+        <ImageWithFallback
+          src={url}
+          className="w-full h-full object-cover"
+          fallbackClassName="w-full h-full flex items-center justify-center bg-bg-deep"
+          loading="lazy"
+        />
       )}
     </button>
   );
@@ -155,7 +161,13 @@ function PendingThumb({
         onClick={onTap}
         className="block w-24 h-24 rounded-xl bg-bg-3 overflow-hidden border border-copper/40 active:scale-[0.97] transition-transform"
       >
-        {url && <img src={url} alt="" className="w-full h-full object-cover opacity-90" />}
+        {url && (
+          <ImageWithFallback
+            src={url}
+            className="w-full h-full object-cover opacity-90"
+            fallbackClassName="w-full h-full flex items-center justify-center bg-bg-deep"
+          />
+        )}
         <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-copper text-bg-deep font-mono font-bold text-[9px] uppercase rounded">
           neu
         </div>
@@ -286,15 +298,15 @@ function Lightbox({
       </header>
 
       <div className="flex-1 flex items-center justify-center overflow-hidden touch-pan-x">
-        {item.url ? (
-          <img
+        {item.url === null ? (
+          <span className="text-white/60">lädt …</span>
+        ) : (
+          <ImageWithFallback
             src={item.url}
-            alt=""
             className="max-w-full max-h-full object-contain"
+            fallbackClassName="w-40 h-40 flex items-center justify-center bg-bg-deep rounded-2xl"
             draggable={false}
           />
-        ) : (
-          <span className="text-white/60">lädt …</span>
         )}
       </div>
 

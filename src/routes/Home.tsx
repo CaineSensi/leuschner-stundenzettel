@@ -3,7 +3,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { CURRENT_WORKER } from "../lib/mockData";
 import { listAssignments, listEntries, listSites } from "../lib/api";
 import { getHoliday, isHoliday } from "../lib/holidays";
-import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import {
   dayName, fmtDateLong, fmtHours, fmtTime, isoWeek, shortDate, siteById, todayIso,
   weekDays, workMinutes
@@ -63,6 +63,8 @@ export default function Home() {
   useRealtime(`home-${me.id}`, ["assignments", "entries", "sites"], () => setRefreshKey((k) => k + 1));
   // Beim Wieder-Aufrufen aus Hintergrund / Home-Bildschirm: frisch laden
   useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
+  // Auth-Session ready / Token refresh: nachladen, falls erster Fetch noch ohne Token lief
+  useRefreshOnAuth(() => setRefreshKey((k) => k + 1));
 
   const totalMin = myEntries.reduce((s, e) => s + workMinutes(e), 0);
   // Wochensoll: 40h minus 8h pro Feiertag in der Woche

@@ -7,11 +7,13 @@ import { currentUser } from "../lib/auth";
 import {
   deleteEntryPhoto, getCurrentCompanyId, listPhotosForSite, photoUrl, uploadSitePhoto
 } from "../lib/photos";
-import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { supabase, isBackendConnected } from "../lib/supabase";
 import { geocodeAddress } from "../lib/geocode";
+import { withTimeout } from "../lib/utils";
 import SiteEditor from "../components/SiteEditor";
 import BackButton from "../components/BackButton";
+import ImageWithFallback from "../components/ImageWithFallback";
 import type { PhotoWithContext, Site, Worker, WorkEntry } from "../lib/types";
 import type { PipelinePosition } from "../lib/pipeline";
 
@@ -57,12 +59,12 @@ export default function SiteDetail() {
     setError(null);
     try {
       const [allSites, allWorkers, sitePhotos, eRows, iRows, cRows] = await Promise.all([
-        listAllSites(true),
-        listWorkers().catch(() => [] as Worker[]),
-        listPhotosForSite(id).catch(() => [] as PhotoWithContext[]),
-        loadEntriesForSite(id),
-        loadInvoicesForSite(id),
-        loadPipelineCardForSite(id),
+        withTimeout(listAllSites(true), 8000, "Baustellen"),
+        withTimeout(listWorkers(), 8000, "Mitarbeiter").catch(() => [] as Worker[]),
+        withTimeout(listPhotosForSite(id), 8000, "Fotos").catch(() => [] as PhotoWithContext[]),
+        withTimeout(loadEntriesForSite(id), 8000, "Stunden").catch(() => [] as WorkEntry[]),
+        withTimeout(loadInvoicesForSite(id), 8000, "Rechnungen").catch(() => [] as InvoiceRow[]),
+        withTimeout(loadPipelineCardForSite(id), 8000, "Pipeline-Karte").catch(() => null as OrderRef | null),
       ]);
       const found = allSites.find((s) => s.id === id) ?? null;
       setSite(found);
@@ -81,6 +83,7 @@ export default function SiteDetail() {
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
   useRealtime(`site-detail-${id}`, ["entry_photos", "entries", "sites", "site_invoices", "pipeline_cards"], refresh);
   useRefreshOnVisible(refresh);
+  useRefreshOnAuth(refresh);
 
   // Auto-Geocoding: wenn keine GPS-Koordinaten in der DB sind, aber eine
   // Adresse da ist, fragen wir Nominatim und persistieren das Ergebnis.
@@ -757,8 +760,16 @@ function PhotoTile({ photo, worker, onTap }: { photo: PhotoWithContext; worker: 
     : "";
   return (
     <button onClick={onTap} className="relative aspect-square rounded-lg overflow-hidden bg-bg-3 border border-ink/10 active:scale-[0.97] transition-transform">
-      {url ? <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" /> :
-        <div className="w-full h-full grid place-items-center text-ink-mute text-xl">⋯</div>}
+      {url === null ? (
+        <div className="w-full h-full grid place-items-center text-ink-mute text-xl">⋯</div>
+      ) : (
+        <ImageWithFallback
+          src={url}
+          className="w-full h-full object-cover"
+          fallbackClassName="w-full h-full flex items-center justify-center bg-bg-deep"
+          loading="lazy"
+        />
+      )}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/60 to-transparent px-2 py-1.5">
         <div className="font-mono font-bold text-white text-[10px] tracking-wide flex items-center justify-between gap-1">
           <span>{dateLabel}</span>
@@ -815,7 +826,16 @@ function PhotoLightbox({
         <button onClick={onClose} className="text-3xl leading-none" aria-label="Schließen">×</button>
       </header>
       <div className="flex-1 flex items-center justify-center overflow-hidden touch-pan-x">
-        {url ? <img src={url} alt="" className="max-w-full max-h-full object-contain" draggable={false} /> : <span className="text-white/60">lädt …</span>}
+        {url === null ? (
+          <span className="text-white/60">lädt …</span>
+        ) : (
+          <ImageWithFallback
+            src={url}
+            className="max-w-full max-h-full object-contain"
+            fallbackClassName="w-40 h-40 flex items-center justify-center bg-bg-deep rounded-2xl"
+            draggable={false}
+          />
+        )}
       </div>
       <footer className="px-4 py-3 text-white text-[12px] safe-bottom flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">

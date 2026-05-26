@@ -30,6 +30,34 @@ export function useRefreshOnVisible(refresh: () => void) {
 }
 
 /**
+ * Ruft `refresh()` auf, sobald sich der Auth-State so ändert, dass neue Daten
+ * gefragt sind: nach erfolgtem Sign-In, Token-Refresh oder wenn die initiale
+ * Session-Wiederherstellung beim App-Start abgeschlossen ist.
+ *
+ * Hintergrund: Routes mounten oft, BEVOR Supabase die persistierte Session aus
+ * dem Storage rekonstruiert hat. Der erste Fetch läuft dann ohne Token, RLS
+ * antwortet leer/fehler — und ohne diesen Hook würde der View leer bleiben,
+ * bis der User manuell neu lädt. Mit dem Hook holt sich die Route die Daten
+ * automatisch nach, sobald die Session da ist.
+ */
+export function useRefreshOnAuth(refresh: () => void) {
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+
+  useEffect(() => {
+    if (!supabase) return;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      // Token-Refresh feuert regelmäßig — auch das wollen wir, damit ein
+      // abgelaufenes Token nicht unbemerkt einen leeren View hinterlässt.
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
+        refreshRef.current();
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+}
+
+/**
  * Abonniert Postgres-Changes für eine oder mehrere Tabellen.
  * Bei JEDEM Insert/Update/Delete wird `onChange()` aufgerufen.
  *

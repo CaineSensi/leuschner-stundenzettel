@@ -1,6 +1,15 @@
 import type { Entry, Site } from "./types";
 import { SITES } from "./mockData";
 
+export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Zeitüberschreitung: ${label} (${ms}ms)`)), ms)
+    )
+  ]);
+}
+
 export function fmtTime(min: number): string {
   const h = Math.floor(min / 60);
   const m = min % 60;

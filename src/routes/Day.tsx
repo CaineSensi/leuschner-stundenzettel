@@ -2,20 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { listEntries, listSites } from "../lib/api";
 import { listEntryPhotos } from "../lib/photos";
-import { useRefreshOnVisible } from "../lib/realtime";
+import { useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import PhotoStrip from "../components/PhotoStrip";
-import { fmtHours, fmtTime, shortDate, workMinutes } from "../lib/utils";
+import { fmtHours, fmtTime, shortDate, withTimeout, workMinutes } from "../lib/utils";
 import { isWorkEntry, type Entry, type EntryPhoto, type Site } from "../lib/types";
-
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`Zeitüberschreitung: ${label}`)), ms)
-    )
-  ]);
-}
 
 export default function Day() {
   const { date } = useParams<{ date: string }>();
@@ -69,6 +60,7 @@ export default function Day() {
   }, [date, me?.id, refreshKey]);
 
   useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
+  useRefreshOnAuth(() => setRefreshKey((k) => k + 1));
 
   if (loading) {
     return (
