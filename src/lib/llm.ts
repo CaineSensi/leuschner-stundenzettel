@@ -35,10 +35,17 @@ export interface ParsedInquiry {
   /** Welcher Pfad hat strukturiert. */
   parser?: 'workers-ai-70b' | 'workers-ai-8b' | 'workers-ai' | 'anthropic' | 'heuristic';
 
-  /** Diagnose-Meta vom Server (Konflikte LLM ↔ Heuristik, Modellname). */
+  /** Diagnose-Meta vom Server (Konflikte LLM ↔ Heuristik, Modellname,
+   *  Pre-Cleaning-Schritte, Self-Check-Hinweise). */
   meta?: {
     conflicts?: { field: string; llm: string; heuristic: string; chosen: string; reason: string }[];
     model?: string;
+    preclean?: {
+      applied: string[];
+      shrunkBy: number;
+      headers?: { from?: string; to?: string; subject?: string; date?: string };
+    };
+    review_hints?: { missing?: string[]; potentially_wrong?: string[]; note?: string };
   };
 }
 

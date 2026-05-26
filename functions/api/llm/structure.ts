@@ -23,6 +23,18 @@
 //       - Feld wörtlich im Originaltext? → high
 //       - Heuristik bestätigt LLM-Wert? → +1 Stufe
 //       - Sonst LLM-Selbstauskunft als Ausgangspunkt
+//
+// Sprint-2-Maßnahmen (26.05.2026):
+//   M3  Pre-Cleaning via `preClean()` aus ./preclean.ts: EML-Header,
+//       Quote-Zeilen, Disclaimer, Forwarded-Markup raus. Signatur DRIN
+//       (Name/Tel/Mail stehen dort). Headers gehen separat ans LLM als
+//       Kontext-Block.
+//   M5  Self-Check-Pass: zweiter Workers-AI-Call mit Originaltext + JSON,
+//       Frage „was fehlt / was ist falsch?". Ergebnis in `meta.review_hints`.
+//       Skip bei kurzen Texten (< 100 Zeichen — Self-Check würde mehr Zeit
+//       als Wert bringen).
+
+import { preClean, type PrecleanResult } from './preclean';
 
 interface AiBinding {
   run(model: string, input: any): Promise<any>;
@@ -76,6 +88,10 @@ interface Parsed {
   meta?: {
     conflicts?: { field: string; llm: string; heuristic: string; chosen: string; reason: string }[];
     model?: string;
+    /** Welche Pre-Cleaning-Schritte wurden angewendet. */
+    preclean?: { applied: string[]; shrunkBy: number; headers?: PrecleanResult['headers'] };
+    /** Self-Check-Hinweise (M5): was hat der zweite LLM-Call kritisiert? */
+    review_hints?: { missing?: string[]; potentially_wrong?: string[]; note?: string };
   };
 }
 
@@ -384,31 +400,50 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
     hasAnthropic: !!env.ANTHROPIC_API_KEY,
     aiError: '' as string,
     aiPath: '' as string,
+    preclean: '' as string,
   };
   try {
-    const body = (await request.json()) as { text?: string };
-    const text = (body?.text ?? '').trim();
-    if (!text) {
+    const body = (await request.json()) as { text?: string; skipSelfCheck?: boolean };
+    const rawText = (body?.text ?? '').trim();
+    if (!rawText) {
       return new Response(JSON.stringify({ error: 'no text' }), { status: 400 });
     }
 
-    const heur = parseHeuristic(text);
+    // M3: Pre-Cleaning vor allem anderen. Heuristik nutzt aber den ORIGINALTEXT,
+    // damit Regex-Anker (Signaturen, Adressen) nicht in Mitleidenschaft geraten —
+    // der gereinigte Text geht nur ans LLM.
+    const pre = preClean(rawText);
+    debug.preclean = pre.applied.join('+') || 'none';
+
+    // Header (Von/Betreff/Datum) als Kontext-Block ans LLM hängen — hilft dem
+    // Modell, ohne dass wir Header-Tokens zwischen den eigentlichen Anfrage-Inhalt mischen.
+    const llmInput = pre.headers
+      ? buildLlmInputWithHeaders(pre.cleaned, pre.headers)
+      : pre.cleaned;
+
+    const heur = parseHeuristic(rawText);
 
     // 1) Workers AI · Llama 3.3 70B fp8-fast (Primary)
     if (env.AI) {
-      const wa70 = await runWorkersAi(text, env.AI, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+      const wa70 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
       if (wa70.parsed) {
         debug.aiPath = 'llama-3.3-70b';
         const merged = mergeCrossValidate(wa70.parsed, heur);
+        attachPrecleanMeta(merged, pre);
+        if (shouldSelfCheck(rawText, body?.skipSelfCheck)) {
+          merged.meta = { ...(merged.meta ?? {}), review_hints: await selfCheck(rawText, merged, env.AI) };
+        }
         return jsonResponse(merged, debug);
       }
       debug.aiError = '70b: ' + (wa70.error ?? 'unknown');
 
       // 2) Workers AI · Llama 3.1 8B (Fallback wenn 70B versagt)
-      const wa8 = await runWorkersAi(text, env.AI, '@cf/meta/llama-3.1-8b-instruct');
+      const wa8 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.1-8b-instruct');
       if (wa8.parsed) {
         debug.aiPath = 'llama-3.1-8b-fallback';
         const merged = mergeCrossValidate(wa8.parsed, heur);
+        attachPrecleanMeta(merged, pre);
+        // Self-Check beim 8B-Fallback skippen — 8B als Self-Check ist zu unzuverlässig.
         return jsonResponse(merged, debug);
       }
       debug.aiError += ' | 8b: ' + (wa8.error ?? 'unknown');
@@ -416,20 +451,108 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
 
     // 3) Anthropic (Premium-Notfall, nur wenn explizit konfiguriert)
     if (env.ANTHROPIC_API_KEY) {
-      const an = await parseWithAnthropic(text, env.ANTHROPIC_API_KEY);
+      const an = await parseWithAnthropic(llmInput, env.ANTHROPIC_API_KEY);
       if (an) {
         debug.aiPath = 'anthropic-haiku';
-        return jsonResponse(mergeCrossValidate(an, heur), debug);
+        const merged = mergeCrossValidate(an, heur);
+        attachPrecleanMeta(merged, pre);
+        return jsonResponse(merged, debug);
       }
     }
 
     // 4) Heuristik (Notfall ohne externe Calls)
     debug.aiPath = 'heuristic-only';
+    attachPrecleanMeta(heur, pre);
     return jsonResponse(heur, debug);
   } catch (err: any) {
     return new Response(JSON.stringify({ error: String(err?.message ?? err), debug }), { status: 500 });
   }
 };
+
+function buildLlmInputWithHeaders(body: string, h: NonNullable<PrecleanResult['headers']>): string {
+  const lines: string[] = ['[--- Mail-Header (Kontext, nicht der eigentliche Anfrage-Text) ---]'];
+  if (h.from)    lines.push(`Von: ${h.from}`);
+  if (h.to)      lines.push(`An: ${h.to}`);
+  if (h.subject) lines.push(`Betreff: ${h.subject}`);
+  if (h.date)    lines.push(`Datum: ${h.date}`);
+  lines.push('[--- Anfrage-Text ---]', '', body);
+  return lines.join('\n');
+}
+
+function attachPrecleanMeta(p: Parsed, pre: PrecleanResult): void {
+  if (!pre.applied.length && !pre.headers) return;
+  p.meta = {
+    ...(p.meta ?? {}),
+    preclean: { applied: pre.applied, shrunkBy: pre.shrunkBy, headers: pre.headers },
+  };
+}
+
+/** Self-Check nur lohnenswert wenn der Originaltext substantiell ist
+ *  UND der User es nicht explizit deaktiviert hat (z.B. bei Live-Tippen). */
+function shouldSelfCheck(rawText: string, skip?: boolean): boolean {
+  if (skip) return false;
+  return rawText.length >= 100;
+}
+
+/** M5 · Self-Check-Pass.
+ *  Ein zweiter Workers-AI-Call mit Originaltext + extrahierter JSON.
+ *  Frage: was fehlt? was ist falsch? Output → review_hints für die UI.
+ *  Bei Fehler stillschweigend `undefined` — Self-Check ist Komfort, nicht
+ *  geschäftskritisch. */
+async function selfCheck(
+  rawText: string,
+  parsed: Parsed,
+  ai: AiBinding,
+): Promise<NonNullable<Parsed['meta']>['review_hints'] | undefined> {
+  const prompt = `Du prüfst eine bereits extrahierte Anfrage gegen den Originaltext. Antworte AUSSCHLIESSLICH als JSON.
+
+Schema:
+{
+  "missing": [string],          // Relevante Aussagen aus dem Text, die NICHT in der Extraktion stehen (max 3)
+  "potentially_wrong": [string],// Felder die wahrscheinlich falsch übernommen wurden (max 3, Format "feldname: kurze Begründung")
+  "note": string | null         // Ein Satz Gesamteinschätzung oder null
+}
+
+Sei knapp. Wenn alles passt: leere Arrays + note=null.
+Erfinde nichts. Bewerte nur, was im Originaltext steht.`;
+
+  const userMsg = `ORIGINALTEXT:
+${rawText}
+
+EXTRAHIERT:
+${JSON.stringify({
+  customerName: parsed.customerName, firma: parsed.firma,
+  phone: parsed.phone, phone_mobile: parsed.phone_mobile, email: parsed.email,
+  street: parsed.street, zip: parsed.zip, city: parsed.city,
+  description: parsed.description, leistung: parsed.leistung,
+  mengen: parsed.mengen, termin: parsed.termin,
+  vorgang: parsed.vorgang, dringlichkeit: parsed.dringlichkeit,
+}, null, 2)}`;
+
+  try {
+    const resp: any = await ai.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+      messages: [
+        { role: 'system', content: prompt },
+        { role: 'user', content: userMsg },
+      ],
+      max_tokens: 500,
+      temperature: 0.0,
+    });
+    const raw: string = resp?.response ?? resp?.result?.response ?? '';
+    if (!raw) return undefined;
+    const json = safeJson(stripCodeFence(raw));
+    if (!json) return undefined;
+    const out: NonNullable<Parsed['meta']>['review_hints'] = {};
+    if (Array.isArray(json.missing))           out.missing           = json.missing.filter((x: any) => typeof x === 'string').slice(0, 3);
+    if (Array.isArray(json.potentially_wrong)) out.potentially_wrong = json.potentially_wrong.filter((x: any) => typeof x === 'string').slice(0, 3);
+    if (typeof json.note === 'string')         out.note              = json.note.slice(0, 200);
+    // Wenn alles leer: undefined zurück, damit Frontend keinen leeren Block rendert
+    if (!out.missing?.length && !out.potentially_wrong?.length && !out.note) return undefined;
+    return out;
+  } catch {
+    return undefined;
+  }
+}
 
 function jsonResponse(p: Parsed, debug: any): Response {
   return new Response(JSON.stringify(p), {

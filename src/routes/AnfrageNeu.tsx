@@ -95,6 +95,15 @@ export default function AnfrageNeu() {
   const [createSevdesk, setCreateSevdesk] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  // M9 Active-Asking: welche Low-Confidence-Pflichtfelder hat der User
+  // schon ausdrücklich bestätigt (Klick auf „passt") oder durch eigene
+  // Wertänderung implizit bestätigt? Solange ein Pflichtfeld mit conf=low
+  // weder bestätigt noch verändert wurde, ist Speichern blockiert.
+  const [confirmedLowFields, setConfirmedLowFields] = useState<Set<string>>(new Set());
+  // Original-Werte direkt nach dem Parse — damit wir „User hat geändert"
+  // sauber erkennen können (Änderung = implizite Bestätigung).
+  const [parsedSnapshot, setParsedSnapshot] = useState<Record<string, string>>({});
+
   // Save-Progress
   const [progressOpen, setProgressOpen] = useState(false);
   const [steps, setSteps] = useState<SaveStep[]>([]);
@@ -137,16 +146,26 @@ export default function AnfrageNeu() {
     try {
       const p = await llmStructure(rawText);
       setParsed(p);
-      setCustomerName(normalizeName(p.customerName ?? ""));
-      setPhone(normalizePhone(p.phone ?? ""));
-      setPhoneMobile(normalizePhone(p.phone_mobile ?? ""));
-      setEmail((p.email ?? "").toLowerCase().trim());
+      const cn = normalizeName(p.customerName ?? "");
+      const ph = normalizePhone(p.phone ?? "");
+      const pm = normalizePhone(p.phone_mobile ?? "");
+      const em = (p.email ?? "").toLowerCase().trim();
+      setCustomerName(cn);
+      setPhone(ph);
+      setPhoneMobile(pm);
+      setEmail(em);
       setStreet(p.street ?? "");
       setZip(p.zip ?? "");
       setCity(p.city ?? "");
       setDescription(p.description ?? "");
       if (p.vorgang) setVorgang(p.vorgang);
       if (p.source_guess) setSource(p.source_guess);
+      // M9: Snapshot der LLM-Werte merken + Confirm-Set zurücksetzen
+      setParsedSnapshot({
+        customerName: cn, phone: ph, phone_mobile: pm, email: em,
+        street: p.street ?? "", zip: p.zip ?? "", city: p.city ?? "",
+      });
+      setConfirmedLowFields(new Set());
       setStep("edit");
     } catch (e: any) {
       setError(e?.message ?? "Parse-Fehler");
@@ -154,6 +173,53 @@ export default function AnfrageNeu() {
       setParsing(false);
     }
   }
+
+  /** M9 Helper: muss dieses Feld noch bestätigt werden?
+   *  Bedingung: confidence=low UND nicht explizit bestätigt UND der User
+   *  hat den Wert nicht selbst verändert (Änderung = implizite Bestätigung). */
+  function needsConfirm(field: string, currentValue: string, conf?: Confidence): boolean {
+    if (conf !== "low") return false;
+    if (confirmedLowFields.has(field)) return false;
+    const snap = parsedSnapshot[field];
+    if (snap !== undefined && snap !== currentValue) return false; // verändert = bestätigt
+    return true;
+  }
+  function confirmField(field: string) {
+    setConfirmedLowFields((prev) => {
+      const next = new Set(prev);
+      next.add(field);
+      return next;
+    });
+  }
+
+  /** Pflichtfelder fürs Speichern. Kontakt erfüllt = mind. eines von
+   *  email / phone / phone_mobile. */
+  const requiredCheck = useMemo(() => {
+    const issues: { field: string; label: string; reason: string }[] = [];
+    const c = parsed?.confidence ?? {};
+    const conf = (k: keyof typeof c) => c[k] as Confidence | undefined;
+
+    if (!customerName.trim()) {
+      issues.push({ field: "customerName", label: "Kundenname", reason: "leer" });
+    } else if (needsConfirm("customerName", customerName, conf("customerName"))) {
+      issues.push({ field: "customerName", label: "Kundenname", reason: "unsicher — bitte prüfen oder bestätigen" });
+    }
+
+    if (!email.trim() && !phone.trim() && !phoneMobile.trim()) {
+      issues.push({ field: "kontakt", label: "Kontakt", reason: "mindestens eines von Mail/Festnetz/Mobil ausfüllen" });
+    } else {
+      if (email.trim() && needsConfirm("email", email, conf("email"))) {
+        issues.push({ field: "email", label: "E-Mail", reason: "unsicher — bitte prüfen oder bestätigen" });
+      }
+      if (phone.trim() && needsConfirm("phone", phone, conf("phone"))) {
+        issues.push({ field: "phone", label: "Festnetz", reason: "unsicher — bitte prüfen oder bestätigen" });
+      }
+      if (phoneMobile.trim() && needsConfirm("phone_mobile", phoneMobile, conf("phone_mobile"))) {
+        issues.push({ field: "phone_mobile", label: "Mobil", reason: "unsicher — bitte prüfen oder bestätigen" });
+      }
+    }
+    return issues;
+  }, [customerName, email, phone, phoneMobile, parsed, confirmedLowFields, parsedSnapshot]);
 
   function skipParse() {
     setParsed({ parser: "heuristic" });
@@ -527,10 +593,22 @@ export default function AnfrageNeu() {
             </div>
 
             <div className="grid md:grid-cols-2 gap-3.5">
-              <Field label="Kundenname" value={customerName} onChange={setCustomerName} required confidence={parsed?.confidence?.customerName as Confidence | undefined} />
-              <Field label="E-Mail" value={email} onChange={setEmail} confidence={parsed?.confidence?.email as Confidence | undefined} />
-              <Field label="Festnetz" value={phone} onChange={setPhone} confidence={parsed?.confidence?.phone as Confidence | undefined} />
-              <Field label="Mobil" value={phoneMobile} onChange={setPhoneMobile} confidence={parsed?.confidence?.phone_mobile as Confidence | undefined} />
+              <Field label="Kundenname" value={customerName} onChange={setCustomerName} required
+                     confidence={parsed?.confidence?.customerName as Confidence | undefined}
+                     needsConfirm={needsConfirm("customerName", customerName, parsed?.confidence?.customerName as Confidence | undefined)}
+                     onConfirm={() => confirmField("customerName")} />
+              <Field label="E-Mail" value={email} onChange={setEmail}
+                     confidence={parsed?.confidence?.email as Confidence | undefined}
+                     needsConfirm={needsConfirm("email", email, parsed?.confidence?.email as Confidence | undefined)}
+                     onConfirm={() => confirmField("email")} />
+              <Field label="Festnetz" value={phone} onChange={setPhone}
+                     confidence={parsed?.confidence?.phone as Confidence | undefined}
+                     needsConfirm={needsConfirm("phone", phone, parsed?.confidence?.phone as Confidence | undefined)}
+                     onConfirm={() => confirmField("phone")} />
+              <Field label="Mobil" value={phoneMobile} onChange={setPhoneMobile}
+                     confidence={parsed?.confidence?.phone_mobile as Confidence | undefined}
+                     needsConfirm={needsConfirm("phone_mobile", phoneMobile, parsed?.confidence?.phone_mobile as Confidence | undefined)}
+                     onConfirm={() => confirmField("phone_mobile")} />
               <Field label="Straße + Nr." value={street} onChange={setStreet} confidence={parsed?.confidence?.street as Confidence | undefined} />
               <Field label="PLZ" value={zip} onChange={setZip} />
               <Field label="Ort" value={city} onChange={setCity} confidence={parsed?.confidence?.city as Confidence | undefined} />
@@ -654,6 +732,62 @@ export default function AnfrageNeu() {
               )}
             </div>
 
+            {/* M5: Self-Check-Hinweise (zweiter LLM-Call hat etwas zu meckern) */}
+            {parsed?.meta?.review_hints && (parsed.meta.review_hints.missing?.length || parsed.meta.review_hints.potentially_wrong?.length || parsed.meta.review_hints.note) && (
+              <div className="bg-amber/10 border border-amber/40 rounded-lg p-3.5">
+                <div className="font-display font-extrabold uppercase text-[12px] text-amber tracking-wide mb-2">
+                  ⓘ Selbst-Check der KI · zusätzliche Hinweise
+                </div>
+                {parsed.meta.review_hints.note && (
+                  <p className="font-sans text-[12.5px] text-ink mb-2">{parsed.meta.review_hints.note}</p>
+                )}
+                {parsed.meta.review_hints.missing && parsed.meta.review_hints.missing.length > 0 && (
+                  <div className="mb-2">
+                    <div className="dd-eyebrow text-ink-2 mb-1">Möglicherweise nicht erfasst</div>
+                    <ul className="space-y-0.5">
+                      {parsed.meta.review_hints.missing.map((m, i) => (
+                        <li key={i} className="font-sans text-[12.5px] text-ink">• {m}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {parsed.meta.review_hints.potentially_wrong && parsed.meta.review_hints.potentially_wrong.length > 0 && (
+                  <div>
+                    <div className="dd-eyebrow text-ink-2 mb-1">Eventuell falsch übernommen</div>
+                    <ul className="space-y-0.5">
+                      {parsed.meta.review_hints.potentially_wrong.map((m, i) => (
+                        <li key={i} className="font-sans text-[12.5px] text-ink">• {m}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* M9: blockierende Pflichtfeld-Issues (leer ODER unsicher unbestätigt) */}
+            {requiredCheck.length > 0 && (
+              <div className="bg-rust/10 border border-rust/40 rounded-lg p-3.5">
+                <div className="font-display font-extrabold uppercase text-[12px] text-rust tracking-wide mb-2">
+                  ⚠ {requiredCheck.length} {requiredCheck.length === 1 ? "Punkt blockiert" : "Punkte blockieren"} das Speichern
+                </div>
+                <ul className="space-y-1">
+                  {requiredCheck.map((i, idx) => (
+                    <li key={idx} className="font-sans text-[12.5px] text-ink">
+                      <b>{i.label}</b> <span className="text-ink-2">— {i.reason}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Pre-Cleaning Diagnose (klein, dezent) */}
+            {parsed?.meta?.preclean?.applied && parsed.meta.preclean.applied.length > 0 && (
+              <p className="font-mono text-[10.5px] text-ink-mute">
+                Pre-Clean angewendet: {parsed.meta.preclean.applied.join(" · ")}
+                {parsed.meta.preclean.shrunkBy > 0 && ` · ${parsed.meta.preclean.shrunkBy} Zeichen entfernt`}
+              </p>
+            )}
+
             <div className="flex flex-wrap gap-3 pt-2">
               <button
                 onClick={() => setStep("paste")}
@@ -664,8 +798,9 @@ export default function AnfrageNeu() {
               </button>
               <button
                 onClick={doSave}
-                disabled={saving || !customerName.trim()}
+                disabled={saving || requiredCheck.length > 0}
                 className="btn-primary !min-h-[48px] text-[13px] disabled:opacity-50"
+                title={requiredCheck.length > 0 ? "Bitte zuerst die markierten Punkte oben prüfen oder bestätigen" : ""}
               >
                 {saving ? "Speichere …" : "✓ Anfrage anlegen"}
               </button>
@@ -678,23 +813,47 @@ export default function AnfrageNeu() {
 }
 
 function Field({
-  label, value, onChange, required, confidence,
-}: { label: string; value: string; onChange: (v: string) => void; required?: boolean; confidence?: Confidence }) {
-  const ring =
-    confidence === "low"    ? "border-rust/70 bg-rust/5" :
-    confidence === "medium" ? "border-amber/70 bg-amber/5" :
-                              "border-steel-line/45 bg-bg-2";
+  label, value, onChange, required, confidence, needsConfirm, onConfirm,
+}: {
+  label: string; value: string; onChange: (v: string) => void;
+  required?: boolean; confidence?: Confidence;
+  needsConfirm?: boolean; onConfirm?: () => void;
+}) {
+  // M9: Bei unbestätigter Low-Confidence visuell deutlich rot, mit
+  // „passt"-Button. Andernfalls normale Confidence-Färbung.
+  const ring = needsConfirm
+    ? "border-rust ring-2 ring-rust/30 bg-rust/8"
+    : confidence === "low"    ? "border-rust/70 bg-rust/5"
+    : confidence === "medium" ? "border-amber/70 bg-amber/5"
+    :                           "border-steel-line/45 bg-bg-2";
   return (
     <div>
       <label className="dd-eyebrow text-ink-2 block mb-1.5">
         {label}{required && <span className="text-rust ml-0.5">*</span>}
         {confidence && <ConfidenceDot c={confidence} />}
       </label>
-      <input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className={`w-full border-[1.5px] rounded-lg px-3 py-2.5 text-[13.5px] font-sans text-ink focus:outline-none focus:border-copper ${ring}`}
-      />
+      <div className="relative">
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className={`w-full border-[1.5px] rounded-lg px-3 py-2.5 text-[13.5px] font-sans text-ink focus:outline-none focus:border-copper ${ring}`}
+        />
+        {needsConfirm && onConfirm && (
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="absolute right-2 top-1/2 -translate-y-1/2 px-2.5 py-1 rounded-md text-[11px] font-display font-extrabold uppercase tracking-wide bg-rust text-white hover:bg-rust/85 transition-colors"
+            title="Diesen unsicheren Wert als korrekt bestätigen"
+          >
+            ✓ passt
+          </button>
+        )}
+      </div>
+      {needsConfirm && (
+        <p className="font-mono text-[10.5px] text-rust mt-1">
+          KI ist sich nicht sicher — bitte prüfen, anpassen oder bestätigen.
+        </p>
+      )}
     </div>
   );
 }
