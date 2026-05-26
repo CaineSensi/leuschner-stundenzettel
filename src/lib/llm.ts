@@ -23,8 +23,13 @@ export interface ParsedInquiry {
   description?: string;
   /** Legacy / Backwards-Compat (= leistungen[0]?.name). */
   leistung?: string;
-  /** M8: Mehrere Gewerke pro Anfrage, jedes mit eigenen Mengen. */
-  leistungen?: { name: string; mengen?: { wert: string; einheit?: string; was?: string }[] }[];
+  /** M8/M12: Mehrere Gewerke pro Anfrage, jedes mit eigenen Mengen und
+   *  konkret benannten Material-Wünschen (Farbe/Qualität/Material-Art/Spec). */
+  leistungen?: {
+    name: string;
+    mengen?: { wert: string; einheit?: string; was?: string }[];
+    materialien?: { name: string; spec?: string; menge?: { wert: string; einheit?: string }; note?: string }[];
+  }[];
   mengen?: { wert: string; einheit?: string; was?: string }[];
   termin?: string;
 

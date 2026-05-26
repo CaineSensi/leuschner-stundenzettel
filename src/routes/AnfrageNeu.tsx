@@ -652,13 +652,27 @@ export default function AnfrageNeu() {
                     <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Leistungen
                       <span className="ml-1 font-mono text-copper text-[10px]">×{parsed.leistungen.length}</span>
                     </span>
-                    <span className="inline-flex flex-col gap-1.5 align-top">
+                    <span className="inline-flex flex-col gap-2 align-top">
                       {parsed.leistungen.map((l, idx) => (
-                        <span key={idx} className="text-ink">
-                          <b>{l.name}</b>
-                          {l.mengen && l.mengen.length > 0 && (
-                            <span className="text-ink-2 ml-2 font-mono text-[11px]">
-                              {l.mengen.map((m) => `${m.wert}${m.einheit ? " " + m.einheit : ""}${m.was ? " " + m.was : ""}`).join(" · ")}
+                        <span key={idx} className="text-ink flex flex-col gap-0.5">
+                          <span>
+                            <b>{l.name}</b>
+                            {l.mengen && l.mengen.length > 0 && (
+                              <span className="text-ink-2 ml-2 font-mono text-[11px]">
+                                {l.mengen.map((m) => `${m.wert}${m.einheit ? " " + m.einheit : ""}${m.was ? " " + m.was : ""}`).join(" · ")}
+                              </span>
+                            )}
+                          </span>
+                          {l.materialien && l.materialien.length > 0 && (
+                            <span className="ml-3 inline-flex flex-wrap gap-1 mt-0.5">
+                              {l.materialien.map((mat, midx) => (
+                                <span key={midx} className="inline-flex items-baseline gap-1 px-2 py-0.5 bg-copper/10 border border-copper/35 rounded text-[10.5px] text-copper font-mono">
+                                  <span className="font-bold">{mat.name}</span>
+                                  {mat.spec && <span className="text-copper/80">· {mat.spec}</span>}
+                                  {mat.menge && <span className="text-copper/80">· {mat.menge.wert}{mat.menge.einheit ? " " + mat.menge.einheit : ""}</span>}
+                                  {mat.note && <span className="text-copper/65 italic" title={mat.note}>· {mat.note.length > 22 ? mat.note.slice(0, 20) + "…" : mat.note}</span>}
+                                </span>
+                              ))}
                             </span>
                           )}
                         </span>
