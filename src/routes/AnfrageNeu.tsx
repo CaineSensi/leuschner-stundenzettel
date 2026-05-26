@@ -5,7 +5,7 @@ import {
   type ParsedInquiry, type Vorgang, type Confidence, type StreamStep,
 } from "../lib/llm";
 import {
-  listCustomers, matchCustomers, createCustomerLocal,
+  listCustomers, matchCustomers, createCustomerLocal, findExistingCustomer,
   type Customer, type CustomerMatch
 } from "../lib/customers";
 import { sevdeskCreateContact } from "../lib/sevdesk";
@@ -366,23 +366,34 @@ export default function AnfrageNeu() {
         }
       }
 
-      // 4) App-Customer
+      // 4) App-Customer (mit Duplikat-Check, sonst hängt's bei wiederholten Tests)
       if (!useExisting) {
         updateStep("customer", { status: "running" });
         const isCompany = /gmbh|gbr|e\.k\.|ag\b|kg\b|ohg|ug\b/i.test(customerName);
         const parts = customerName.trim().split(/\s+/);
-        const newCust = await createCustomerLocal({
-          sevdeskContactId, customerNumber,
-          name: customerName,
-          isCompany,
-          surename: !isCompany ? parts[0] : undefined,
-          familyname: !isCompany ? parts.slice(1).join(" ") || undefined : undefined,
+
+        const existing = await findExistingCustomer({
+          sevdeskContactId,
           email: email || undefined,
-          phone: phone || undefined,
-          street: street || undefined, zip: zip || undefined, city: city || undefined,
+          phone: phone || phoneMobile || undefined,
         });
-        customerId = newCust.id;
-        updateStep("customer", { status: "done", detail: customerName });
+        if (existing) {
+          customerId = existing.id;
+          updateStep("customer", { status: "done", detail: `Wiederverwendet: ${existing.name} (Stamm)` });
+        } else {
+          const newCust = await createCustomerLocal({
+            sevdeskContactId, customerNumber,
+            name: customerName,
+            isCompany,
+            surename: !isCompany ? parts[0] : undefined,
+            familyname: !isCompany ? parts.slice(1).join(" ") || undefined : undefined,
+            email: email || undefined,
+            phone: phone || undefined,
+            street: street || undefined, zip: zip || undefined, city: city || undefined,
+          });
+          customerId = newCust.id;
+          updateStep("customer", { status: "done", detail: customerName });
+        }
       }
 
       // 5) Pipeline-Card — openPoints automatisch um Eckdaten anreichern
@@ -521,8 +532,8 @@ export default function AnfrageNeu() {
 
             {/* Doppel-Anfrage-Warnung */}
             {similar.length > 0 && (
-              <div className="bg-amber/10 border border-amber/35 rounded-lg p-3.5">
-                <div className="font-display font-extrabold uppercase text-[12px] text-amber tracking-wide mb-1.5">
+              <div className="bg-bg-2 border border-steel-line/45 border-l-4 border-l-amber rounded-lg p-4">
+                <div className="font-display font-extrabold uppercase text-[12px] text-amber-deep tracking-wide mb-1.5">
                   ⚠ Ähnliche Anfrage{similar.length === 1 ? "" : "n"} in den letzten 7 Tagen
                 </div>
                 <ul className="space-y-1">
@@ -819,29 +830,30 @@ export default function AnfrageNeu() {
 
             {/* M5: Self-Check-Hinweise (zweiter LLM-Call hat etwas zu meckern) */}
             {parsed?.meta?.review_hints && (parsed.meta.review_hints.missing?.length || parsed.meta.review_hints.potentially_wrong?.length || parsed.meta.review_hints.note) && (
-              <div className="bg-amber/10 border border-amber/40 rounded-lg p-3.5">
-                <div className="font-display font-extrabold uppercase text-[12px] text-amber tracking-wide mb-2">
-                  ⓘ Selbst-Check der KI · zusätzliche Hinweise
+              <div className="bg-bg-2 border border-steel-line/45 border-l-4 border-l-amber rounded-lg p-4">
+                <div className="font-display font-extrabold uppercase text-[12px] text-amber-deep tracking-wide mb-2 flex items-center gap-2">
+                  <span className="inline-block w-4 h-4 rounded-full bg-amber text-white text-[10px] leading-4 text-center font-bold">ⓘ</span>
+                  Selbst-Check der KI · zusätzliche Hinweise
                 </div>
                 {parsed.meta.review_hints.note && (
-                  <p className="font-sans text-[12.5px] text-ink mb-2">{parsed.meta.review_hints.note}</p>
+                  <p className="font-sans text-[13px] text-ink mb-3 leading-relaxed">{parsed.meta.review_hints.note}</p>
                 )}
                 {parsed.meta.review_hints.missing && parsed.meta.review_hints.missing.length > 0 && (
-                  <div className="mb-2">
-                    <div className="dd-eyebrow text-ink-2 mb-1">Möglicherweise nicht erfasst</div>
-                    <ul className="space-y-0.5">
+                  <div className="mb-2.5">
+                    <div className="dd-eyebrow text-ink-mute mb-1">Möglicherweise nicht erfasst</div>
+                    <ul className="space-y-1">
                       {parsed.meta.review_hints.missing.map((m, i) => (
-                        <li key={i} className="font-sans text-[12.5px] text-ink">• {m}</li>
+                        <li key={i} className="font-sans text-[13px] text-ink leading-snug">• {m}</li>
                       ))}
                     </ul>
                   </div>
                 )}
                 {parsed.meta.review_hints.potentially_wrong && parsed.meta.review_hints.potentially_wrong.length > 0 && (
                   <div>
-                    <div className="dd-eyebrow text-ink-2 mb-1">Eventuell falsch übernommen</div>
-                    <ul className="space-y-0.5">
+                    <div className="dd-eyebrow text-ink-mute mb-1">Eventuell falsch übernommen</div>
+                    <ul className="space-y-1">
                       {parsed.meta.review_hints.potentially_wrong.map((m, i) => (
-                        <li key={i} className="font-sans text-[12.5px] text-ink">• {m}</li>
+                        <li key={i} className="font-sans text-[13px] text-ink leading-snug">• {m}</li>
                       ))}
                     </ul>
                   </div>

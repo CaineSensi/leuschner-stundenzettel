@@ -36,6 +36,11 @@ export default {
           DEFAULT: "#DC6E2D",  // Schweißnaht-Akzent (unverändert aus Marke)
           bright:  "#E8853F"
         },
+        amber: {
+          DEFAULT: "#C9852F",  // Bernstein-Akzent (Warnung/Hinweis)
+          bright:  "#F5B45A",  // Heller Variant für dunkle Hintergründe
+          deep:    "#8A5A1A"
+        },
         rust: "#B91C1C",
         good: "#1F7A3D",
         steel: {

@@ -95,6 +95,44 @@ export function matchCustomers(
   return out.slice(0, limit);
 }
 
+/** Sucht einen existierenden Kunden anhand harter Anker (sevdesk_contact_id,
+ *  email, oder telefon-letzte-7). Vermeidet Duplikate beim Anlegen aus
+ *  Anfragen, wenn der Kontakt schon aus einer früheren Mail/Telefonat im
+ *  Stamm existiert. Gibt den ERSTEN exakten Treffer zurück (oder null). */
+export async function findExistingCustomer(needle: {
+  sevdeskContactId?: string;
+  email?: string;
+  phone?: string;
+}): Promise<Customer | null> {
+  if (!isBackendConnected() || !supabase) return null;
+  const sb: any = supabase;
+  const filters: string[] = [];
+  if (needle.sevdeskContactId) filters.push(`sevdesk_contact_id.eq.${needle.sevdeskContactId}`);
+  if (needle.email) filters.push(`email.eq.${needle.email.toLowerCase().trim()}`);
+  if (filters.length === 0 && !needle.phone) return null;
+  let q = sb.from('customers').select(COLS).eq('company_id', COMPANY_ID).limit(1);
+  if (filters.length === 1) {
+    // Single-Filter direkt anwenden (eq.<value>)
+    const [f, ...rest] = filters[0].split('.');
+    q = q.eq(f, rest.slice(1).join('.'));
+  } else if (filters.length > 1) {
+    q = q.or(filters.join(','));
+  }
+  const { data, error } = await q;
+  if (error) return null;
+  let match = (data ?? [])[0] as any;
+  if (!match && needle.phone) {
+    // Letzter Versuch: phone-letzte-7 (lokaler Vergleich, weil PostgREST
+    // kein right()-Filter über REST anbietet)
+    const tail7 = needle.phone.replace(/\D/g, '').slice(-7);
+    if (tail7.length >= 7) {
+      const all = await listCustomers();
+      match = all.find((c) => (c.phone ?? '').replace(/\D/g, '').endsWith(tail7));
+    }
+  }
+  return match ? rowToCustomer(match as any) : null;
+}
+
 /** Legt einen Kunden in der App-DB an (nachdem sevDesk-Anlage erfolgte). */
 export async function createCustomerLocal(input: {
   sevdeskContactId?: string;
