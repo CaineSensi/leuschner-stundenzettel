@@ -593,9 +593,21 @@ export default function AnfrageNeu() {
                   <ConfidenceDot c={parsed.confidence.overall as Confidence} />
                 )}
               </span>
-              <pre className="font-mono text-[11.5px] text-ink whitespace-pre-wrap leading-relaxed max-h-[180px] overflow-auto">
-                {rawText}
-              </pre>
+              <HighlightedRawText rawText={rawText} leistungen={parsed?.leistungen} />
+              {parsed?.leistungen && parsed.leistungen.some((l) => l.source_quotes?.length) && (
+                <div className="mt-2 font-mono text-[10px] text-ink-mute flex flex-wrap gap-x-3 gap-y-1">
+                  {parsed.leistungen.map((l, idx) => {
+                    if (!l.source_quotes?.length) return null;
+                    const col = LEISTUNG_COLORS[idx % LEISTUNG_COLORS.length];
+                    return (
+                      <span key={idx} className="inline-flex items-center gap-1">
+                        <span className="w-2 h-2 rounded-sm" style={{ background: col.bg, border: `1px solid ${col.border}` }} />
+                        <span>{l.name}</span>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Vorgangstyp */}
@@ -672,9 +684,12 @@ export default function AnfrageNeu() {
                       <span className="ml-1 font-mono text-copper text-[10px]">×{parsed.leistungen.length}</span>
                     </span>
                     <span className="inline-flex flex-col gap-2 align-top">
-                      {parsed.leistungen.map((l, idx) => (
+                      {parsed.leistungen.map((l, idx) => {
+                        const col = LEISTUNG_COLORS[idx % LEISTUNG_COLORS.length];
+                        return (
                         <span key={idx} className="text-ink flex flex-col gap-0.5">
                           <span>
+                            <span className="inline-block w-2 h-2 rounded-sm mr-1.5 align-middle" style={{ background: col.bg, border: `1px solid ${col.border}` }} />
                             <b>{l.name}</b>
                             {l.mengen && l.mengen.length > 0 && (
                               <span className="text-ink-2 ml-2 font-mono text-[11px]">
@@ -695,7 +710,8 @@ export default function AnfrageNeu() {
                             </span>
                           )}
                         </span>
-                      ))}
+                        );
+                      })}
                     </span>
                   </div>
                 ) : parsed.leistung ? (
@@ -924,6 +940,115 @@ function Field({
         </p>
       )}
     </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────────────
+   M14 · Quellen-Highlights im Originaltext
+   ──────────────────────────────────────────────────────────────────────
+   Pro Leistung eine Farbe. Originaltext wird abschnittsweise gerendert,
+   Stellen, die in leistungen[].source_quotes vorkommen, bekommen das
+   farbige Background plus Hover-Tooltip mit dem Leistungs-Namen. */
+
+const LEISTUNG_COLORS: { bg: string; border: string; ink: string }[] = [
+  { bg: "rgba(220,110,45,0.18)",  border: "rgba(220,110,45,0.55)",  ink: "#7A3A14" }, // Kupfer
+  { bg: "rgba(31,122,61,0.18)",   border: "rgba(31,122,61,0.55)",   ink: "#0E3D1F" }, // Moos
+  { bg: "rgba(201,133,47,0.20)",  border: "rgba(201,133,47,0.55)",  ink: "#5E3D16" }, // Bernstein
+  { bg: "rgba(30,64,175,0.16)",   border: "rgba(30,64,175,0.50)",   ink: "#162B6C" }, // Tinte
+  { bg: "rgba(110,80,35,0.18)",   border: "rgba(110,80,35,0.55)",   ink: "#3F2D11" }, // Bronze
+  { bg: "rgba(185,28,28,0.16)",   border: "rgba(185,28,28,0.50)",   ink: "#5E0F0F" }, // Rost
+];
+
+interface HighlightSpan {
+  start: number;
+  end: number;
+  leistungIdx: number;
+  leistungName: string;
+}
+
+/** Findet alle Vorkommen der source_quotes im rawText, sortiert nach
+ *  Startposition, löst Überlappungen so dass die früher startende Spanne
+ *  bleibt. Case-insensitive Match. */
+function buildHighlightSpans(
+  rawText: string,
+  leistungen: ParsedInquiry["leistungen"],
+): HighlightSpan[] {
+  if (!leistungen) return [];
+  const lower = rawText.toLowerCase();
+  const spans: HighlightSpan[] = [];
+  leistungen.forEach((l, idx) => {
+    if (!l.source_quotes?.length) return;
+    for (const quote of l.source_quotes) {
+      const needle = quote.toLowerCase();
+      if (needle.length < 3) continue;
+      let from = 0;
+      while (true) {
+        const pos = lower.indexOf(needle, from);
+        if (pos < 0) break;
+        spans.push({ start: pos, end: pos + needle.length, leistungIdx: idx, leistungName: l.name });
+        from = pos + needle.length;
+      }
+    }
+  });
+  spans.sort((a, b) => a.start - b.start);
+  // Überlappungen entfernen: spätere komplett verschluckte Spans rausfiltern,
+  // bei Teilüberlappung den Start des zweiten verschieben
+  const out: HighlightSpan[] = [];
+  for (const s of spans) {
+    const last = out[out.length - 1];
+    if (!last) { out.push(s); continue; }
+    if (s.start >= last.end) { out.push(s); continue; }
+    if (s.end <= last.end) { continue; } // komplett innerhalb
+    out.push({ ...s, start: last.end });   // Teilüberlappung
+  }
+  return out;
+}
+
+function HighlightedRawText({
+  rawText,
+  leistungen,
+}: {
+  rawText: string;
+  leistungen?: ParsedInquiry["leistungen"];
+}) {
+  const spans = useMemo(() => buildHighlightSpans(rawText, leistungen), [rawText, leistungen]);
+
+  if (spans.length === 0) {
+    return (
+      <pre className="font-mono text-[11.5px] text-ink whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-auto">
+        {rawText}
+      </pre>
+    );
+  }
+
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  spans.forEach((s, i) => {
+    if (s.start > cursor) nodes.push(rawText.slice(cursor, s.start));
+    const col = LEISTUNG_COLORS[s.leistungIdx % LEISTUNG_COLORS.length];
+    nodes.push(
+      <mark
+        key={`s-${i}`}
+        title={`gehört zu: ${s.leistungName}`}
+        style={{
+          background: col.bg,
+          borderBottom: `2px solid ${col.border}`,
+          color: col.ink,
+          padding: "0 1px",
+          borderRadius: "2px",
+        }}
+      >
+        {rawText.slice(s.start, s.end)}
+      </mark>
+    );
+    cursor = s.end;
+  });
+  if (cursor < rawText.length) nodes.push(rawText.slice(cursor));
+
+  return (
+    <pre className="font-mono text-[11.5px] text-ink whitespace-pre-wrap leading-relaxed max-h-[200px] overflow-auto">
+      {nodes}
+    </pre>
   );
 }
 

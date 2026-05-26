@@ -29,6 +29,8 @@ export interface ParsedInquiry {
     name: string;
     mengen?: { wert: string; einheit?: string; was?: string }[];
     materialien?: { name: string; spec?: string; menge?: { wert: string; einheit?: string }; note?: string }[];
+    /** M14: wörtliche Originaltext-Zitate, die diese Leistung belegen. */
+    source_quotes?: string[];
   }[];
   mengen?: { wert: string; einheit?: string; was?: string }[];
   termin?: string;

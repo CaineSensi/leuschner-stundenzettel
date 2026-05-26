@@ -79,6 +79,10 @@ interface Parsed {
     name: string;
     mengen?: { wert: string; einheit?: string; was?: string }[];
     materialien?: { name: string; spec?: string; menge?: { wert: string; einheit?: string }; note?: string }[];
+    /** M14: Originaltext-Zitate, die diese Leistung im Eingangstext belegen.
+     *  Wörtliche kurze Phrasen (1–8 Wörter), max 3 pro Leistung. Frontend
+     *  färbt diese Stellen im Originaltext ein. */
+    source_quotes?: string[];
   }[];
   mengen?: { wert: string; einheit?: string; was?: string }[];
   termin?: string;
@@ -136,7 +140,8 @@ Schema:
   "leistungen": [{
     "name": string,
     "mengen": [{ "wert": string, "einheit": string, "was": string }],
-    "materialien": [{ "name": string, "spec": string | null, "menge": { "wert": string, "einheit": string } | null, "note": string | null }]
+    "materialien": [{ "name": string, "spec": string | null, "menge": { "wert": string, "einheit": string } | null, "note": string | null }],
+    "source_quotes": [string]
   }],
   "mengen": [{ "wert": string, "einheit": string, "was": string }],
   "termin": string | null,
@@ -168,6 +173,7 @@ Regeln:
 - Mengen mit Einheit (m, m², m³, lfm, Stk, t, Std — IMMER Standardform aus Glossar) und IMMER "was" füllen (was ist gemeint, z.B. "Zaun", "Pflasterfläche", "Mutterboden")
 - WICHTIG bei mehreren Gewerken: leistungen[] enthält JEDE einzelne Leistung mit ihrer eigenen mengen[]-Liste. leistung (Singular) ist dann leistungen[0].name. Das globale mengen[]-Array darf zusätzlich existieren als Gesamtübersicht, ist aber redundant.
 - MATERIAL-ERKENNUNG pro Leistung: Konkrete Material-Wünsche (Farbe wie "anthrazit"/"RAL 7016", Qualität wie "Schwer"/"8/6/8", Material-Art wie "Naturstein"/"Granit"/"Beton C30/37"/"Splitt 8/16", Sondermaß wie "183×250cm", Lieferant wie "Hesse") gehören in leistungen[].materialien[]. Jedes Material klar EINER Leistung zuordnen (z.B. anthrazit gehört zum Zaun, nicht zum Pflaster). Bei ALTERNATIVEN ("Naturstein oder Betonrandsteine") beide als separate Materialien aufnehmen + note="Alternativ-Wahl gewünscht" am ersten. Wenn ein konkretes Maß oder eine Menge zum Material genannt ist, in menge füllen (z.B. "Doppelstabmatte schwer 183×250 anthrazit" → spec="183×250", menge=null, name="Doppelstabmatte", weil Stückzahl woanders).
+- QUELLEN-ZITATE pro Leistung (source_quotes): Liste WÖRTLICHER kurzer Phrasen aus dem Originaltext (1–8 Wörter, max 3 Phrasen pro Leistung), die diese Leistung im Text belegen. ZWINGEND wörtlich (Zeichen-für-Zeichen, mit Umlauten und Satzzeichen wie im Original), damit das Frontend sie im Text wiederfinden und farbig markieren kann. Mengen-Angaben dürfen Teil der Quote sein. Beispiel: für "Pflasterung einer Terrasse, ca. 30 m²." gehören "Pflasterung einer Terrasse" und "ca. 30 m²" in source_quotes.
 - Telefon im Originalformat lassen
 - WICHTIG: Wenn zwei Telefonnummern im Text stehen, gehört die mit Mobil-Vorwahl
   (deutsche Handy-Vorwahlen 015x, 016x, 017x oder am Wort "Mobil", "Handy",
@@ -195,21 +201,21 @@ Josef Borgmann
 Tel: 04961 / 12345"
 
 Ausgabe:
-{"vorgang":"angebot","customerName":"Josef Borgmann","firma":null,"phone":"04961 / 12345","phone_mobile":null,"email":"m.borgmann@web.de","street":"Tunxdorferstraße 46","zip":"26871","city":"Papenburg","description":"Angebot für Doppelstabmattenzaun anthrazit, ca. 80 m Höhe 1,80 m, plus zwei Tore.","leistung":"Doppelstabmattenzaun","leistungen":[{"name":"Doppelstabmattenzaun","mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"materialien":[{"name":"anthrazit","spec":"RAL 7016","menge":null,"note":"Farbwunsch"}]}],"mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"termin":null,"dringlichkeit":"normal","source_guess":"mail","confidence":{"overall":"high","customerName":"high","phone":"high","phone_mobile":null,"email":"high","street":"high","city":"high","leistung":"high","vorgang":"high"}}
+{"vorgang":"angebot","customerName":"Josef Borgmann","firma":null,"phone":"04961 / 12345","phone_mobile":null,"email":"m.borgmann@web.de","street":"Tunxdorferstraße 46","zip":"26871","city":"Papenburg","description":"Angebot für Doppelstabmattenzaun anthrazit, ca. 80 m Höhe 1,80 m, plus zwei Tore.","leistung":"Doppelstabmattenzaun","leistungen":[{"name":"Doppelstabmattenzaun","mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"materialien":[{"name":"anthrazit","spec":"RAL 7016","menge":null,"note":"Farbwunsch"}],"source_quotes":["Doppelstabmattenzaun, anthrazit","ca. 80 m, Höhe 1,80 m","zwei Tore"]}],"mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"termin":null,"dringlichkeit":"normal","source_guess":"mail","confidence":{"overall":"high","customerName":"high","phone":"high","phone_mobile":null,"email":"high","street":"high","city":"high","leistung":"high","vorgang":"high"}}
 
 BEISPIEL 2 — Telefon-Notiz (mehrteilig, zeigt leistungen[])
 Eingabe:
 "Frau Hainke aus Bunde, 0171 2345678, will Hofeinfahrt gepflastert ca 45 qm und Drainage davor. Bittet um Rückruf."
 
 Ausgabe:
-{"vorgang":"angebot","customerName":"Hainke","firma":null,"phone":null,"phone_mobile":"0171 2345678","email":null,"street":null,"zip":null,"city":"Bunde","description":"Hofeinfahrt pflastern ca. 45 m² plus Drainage davor. Bittet um Rückruf.","leistung":"Pflasterarbeiten","leistungen":[{"name":"Pflasterarbeiten","mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}],"materialien":[]},{"name":"Drainage","mengen":[],"materialien":[]}],"mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}],"termin":"Rückruf gewünscht","dringlichkeit":"normal","source_guess":"phone","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
+{"vorgang":"angebot","customerName":"Hainke","firma":null,"phone":null,"phone_mobile":"0171 2345678","email":null,"street":null,"zip":null,"city":"Bunde","description":"Hofeinfahrt pflastern ca. 45 m² plus Drainage davor. Bittet um Rückruf.","leistung":"Pflasterarbeiten","leistungen":[{"name":"Pflasterarbeiten","mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}],"materialien":[],"source_quotes":["Hofeinfahrt gepflastert ca 45 qm"]},{"name":"Drainage","mengen":[],"materialien":[],"source_quotes":["Drainage davor"]}],"mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}],"termin":"Rückruf gewünscht","dringlichkeit":"normal","source_guess":"phone","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
 
 BEISPIEL 3 — WhatsApp (informell, Tippfehler)
 Eingabe:
 "moin, hier de haan aus leer. brauch dringen mutterboden ca 70 kubik fürn neuen garten. wann könnt ihr liefern? 015112345678"
 
 Ausgabe:
-{"vorgang":"material","customerName":"De Haan","firma":null,"phone":null,"phone_mobile":"015112345678","email":null,"street":null,"zip":null,"city":"Leer","description":"Lieferung Mutterboden ca. 70 m³ für neuen Garten. Liefertermin gesucht.","leistung":"Mutterboden","leistungen":[{"name":"Mutterboden","mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"materialien":[{"name":"Mutterboden","spec":null,"menge":{"wert":"70","einheit":"m³"},"note":"Bestellung Material, kein Verbau"}]}],"mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"termin":"so schnell wie möglich","dringlichkeit":"hoch","source_guess":"whatsapp","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
+{"vorgang":"material","customerName":"De Haan","firma":null,"phone":null,"phone_mobile":"015112345678","email":null,"street":null,"zip":null,"city":"Leer","description":"Lieferung Mutterboden ca. 70 m³ für neuen Garten. Liefertermin gesucht.","leistung":"Mutterboden","leistungen":[{"name":"Mutterboden","mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"materialien":[{"name":"Mutterboden","spec":null,"menge":{"wert":"70","einheit":"m³"},"note":"Bestellung Material, kein Verbau"}],"source_quotes":["mutterboden ca 70 kubik","fuern neuen garten"]}],"mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"termin":"so schnell wie möglich","dringlichkeit":"hoch","source_guess":"whatsapp","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
 
 Jetzt strukturiere die folgende Anfrage nach demselben Schema. Antworte AUSSCHLIESSLICH mit dem JSON-Objekt.`;
 
@@ -347,6 +353,12 @@ function normalize(p: any): Parsed {
                   : undefined,
                 note: typeof mat.note === 'string' && mat.note.trim() ? mat.note.trim() : undefined,
               }))
+          : undefined,
+        source_quotes: Array.isArray(l.source_quotes)
+          ? l.source_quotes
+              .filter((q: any) => typeof q === 'string' && q.trim().length >= 3)
+              .slice(0, 4)
+              .map((q: string) => q.trim())
           : undefined,
       }));
     // Backwards-Compat: leistung (Singular) = erste Leistung, falls LLM sie
