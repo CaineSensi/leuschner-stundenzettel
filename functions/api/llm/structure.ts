@@ -35,6 +35,7 @@
 //       als Wert bringen).
 
 import { preClean, type PrecleanResult } from './preclean';
+import { buildDomainHint, EINHEITEN_ALIAS, LEISTUNGEN } from './domain';
 
 interface AiBinding {
   run(model: string, input: any): Promise<any>;
@@ -69,7 +70,10 @@ interface Parsed {
 
   // Inhalt
   description?: string;
+  /** Legacy / Backwards-Compat — wird automatisch aus leistungen[0]?.name befüllt. */
   leistung?: string;
+  /** M8: Mehrere Gewerke pro Anfrage strukturiert. */
+  leistungen?: { name: string; mengen?: { wert: string; einheit?: string; was?: string }[] }[];
   mengen?: { wert: string; einheit?: string; was?: string }[];
   termin?: string;
 
@@ -123,6 +127,7 @@ Schema:
   "city": string | null,
   "description": string | null,
   "leistung": string | null,
+  "leistungen": [{ "name": string, "mengen": [{ "wert": string, "einheit": string, "was": string }] }],
   "mengen": [{ "wert": string, "einheit": string, "was": string }],
   "termin": string | null,
   "dringlichkeit": "niedrig" | "normal" | "hoch" | null,
@@ -140,6 +145,8 @@ Schema:
   }
 }
 
+${buildDomainHint()}
+
 Regeln:
 - vorgang "angebot" wenn Kunde nach Preis/Angebot/Kostenvoranschlag fragt
 - vorgang "termin" wenn nur Rückruf, Aufmaß-Termin, Besichtigung gewünscht (kein Angebot direkt verlangt)
@@ -148,7 +155,8 @@ Regeln:
 - vorgang "sonstiges" sonst
 - Bei Tippfehlern oder informellem Stil: trotzdem extrahieren, confidence "medium" setzen
 - Bei unsicheren Werten lieber null + confidence "low" statt zu raten
-- Mengen mit Einheit (m, m², qm, m³, lfm, Stk, t, Std) und IMMER "was" füllen (was ist gemeint, z.B. "Zaun", "Pflasterfläche", "Mutterboden")
+- Mengen mit Einheit (m, m², m³, lfm, Stk, t, Std — IMMER Standardform aus Glossar) und IMMER "was" füllen (was ist gemeint, z.B. "Zaun", "Pflasterfläche", "Mutterboden")
+- WICHTIG bei mehreren Gewerken: leistungen[] enthält JEDE einzelne Leistung mit ihrer eigenen mengen[]-Liste. leistung (Singular) ist dann leistungen[0].name. Das globale mengen[]-Array darf zusätzlich existieren als Gesamtübersicht, ist aber redundant.
 - Telefon im Originalformat lassen
 - WICHTIG: Wenn zwei Telefonnummern im Text stehen, gehört die mit Mobil-Vorwahl
   (deutsche Handy-Vorwahlen 015x, 016x, 017x oder am Wort "Mobil", "Handy",
@@ -178,12 +186,12 @@ Tel: 04961 / 12345"
 Ausgabe:
 {"vorgang":"angebot","customerName":"Josef Borgmann","firma":null,"phone":"04961 / 12345","phone_mobile":null,"email":"m.borgmann@web.de","street":"Tunxdorferstraße 46","zip":"26871","city":"Papenburg","description":"Angebot für Doppelstabmattenzaun anthrazit, ca. 80 m Höhe 1,80 m, plus zwei Tore.","leistung":"Doppelstabmattenzaun","mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"termin":null,"dringlichkeit":"normal","source_guess":"mail","confidence":{"overall":"high","customerName":"high","phone":"high","phone_mobile":null,"email":"high","street":"high","city":"high","leistung":"high","vorgang":"high"}}
 
-BEISPIEL 2 — Telefon-Notiz (kurz, mehrteilig)
+BEISPIEL 2 — Telefon-Notiz (mehrteilig, zeigt leistungen[])
 Eingabe:
 "Frau Hainke aus Bunde, 0171 2345678, will Hofeinfahrt gepflastert ca 45 qm und Drainage davor. Bittet um Rückruf."
 
 Ausgabe:
-{"vorgang":"angebot","customerName":"Hainke","firma":null,"phone":null,"phone_mobile":"0171 2345678","email":null,"street":null,"zip":null,"city":"Bunde","description":"Hofeinfahrt pflastern ca. 45 m² plus Drainage davor. Bittet um Rückruf.","leistung":"Pflasterarbeiten","mengen":[{"wert":"45","einheit":"qm","was":"Pflasterfläche"}],"termin":"Rückruf gewünscht","dringlichkeit":"normal","source_guess":"phone","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
+{"vorgang":"angebot","customerName":"Hainke","firma":null,"phone":null,"phone_mobile":"0171 2345678","email":null,"street":null,"zip":null,"city":"Bunde","description":"Hofeinfahrt pflastern ca. 45 m² plus Drainage davor. Bittet um Rückruf.","leistung":"Pflasterarbeiten","leistungen":[{"name":"Pflasterarbeiten","mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}]},{"name":"Drainage","mengen":[]}],"mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}],"termin":"Rückruf gewünscht","dringlichkeit":"normal","source_guess":"phone","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
 
 BEISPIEL 3 — WhatsApp (informell, Tippfehler)
 Eingabe:
@@ -289,7 +297,31 @@ function normalize(p: any): Parsed {
     out.mengen = p.mengen
       .filter((m: any) => m && typeof m.wert === 'string')
       .slice(0, 8)
-      .map((m: any) => ({ wert: String(m.wert), einheit: m.einheit ?? '', was: m.was ?? '' }));
+      .map((m: any) => ({ wert: String(m.wert), einheit: normEinheit(m.einheit), was: m.was ?? '' }));
+  }
+
+  // M8: leistungen[] mit pro-Leistung-Mengen
+  if (Array.isArray(p.leistungen)) {
+    out.leistungen = p.leistungen
+      .filter((l: any) => l && typeof l.name === 'string' && l.name.trim().length)
+      .slice(0, 6)
+      .map((l: any) => ({
+        name: String(l.name).trim(),
+        mengen: Array.isArray(l.mengen)
+          ? l.mengen
+              .filter((m: any) => m && typeof m.wert === 'string')
+              .slice(0, 5)
+              .map((m: any) => ({ wert: String(m.wert), einheit: normEinheit(m.einheit), was: m.was ?? '' }))
+          : undefined,
+      }));
+    // Backwards-Compat: leistung (Singular) = erste Leistung, falls LLM sie
+    // nicht selbst gesetzt hat
+    if (!out.leistung && out.leistungen?.length) {
+      out.leistung = out.leistungen[0].name;
+    }
+  } else if (out.leistung) {
+    // Wenn LLM nur leistung (Singular) lieferte, leistungen[] daraus ableiten
+    out.leistungen = [{ name: out.leistung, mengen: out.mengen ? [...out.mengen] : undefined }];
   }
   if (['niedrig','normal','hoch'].includes(p.dringlichkeit)) out.dringlichkeit = p.dringlichkeit;
   if (['mail','phone','whatsapp','letter','in_person','web'].includes(p.source_guess)) out.source_guess = p.source_guess;
@@ -301,6 +333,15 @@ function normalize(p: any): Parsed {
     out.confidence = c;
   }
   return out;
+}
+
+/** Einheit auf Standardform normalisieren (qm→m², kubik→m³, …). */
+function normEinheit(raw: any): string {
+  if (typeof raw !== 'string') return '';
+  const trim = raw.trim();
+  if (!trim) return '';
+  const alias = EINHEITEN_ALIAS[trim.toLowerCase()];
+  return alias ?? trim;
 }
 
 function parseHeuristic(text: string): Parsed {
@@ -360,12 +401,19 @@ function parseHeuristic(text: string): Parsed {
   }
   if (mengen.length) out.mengen = mengen.slice(0, 8);
 
-  // Leistung
-  const leistungs = ['Doppelstabmattenzaun','Doppelstabzaun','Zaun','Pflaster','Pflasterung','Hofeinfahrt','Terrasse','Erdarbeiten','Bagger','Drainage','Rasen','Mutterboden','Gartenmauer','Mauer','Rasenbord','Sichtschutz','Tor'];
-  for (const key of leistungs) {
+  // Leistung — M8: mehrere Treffer sammeln, nicht nur den ersten
+  const leistungKeys = ['Doppelstabmattenzaun','Doppelstabzaun','Zaun','Pflaster','Pflasterung','Hofeinfahrt','Terrasse','Erdarbeiten','Bagger','Drainage','Rasen','Mutterboden','Gartenmauer','Mauer','Rasenbord','Sichtschutz','Tor'];
+  const foundLeistungen: string[] = [];
+  for (const key of leistungKeys) {
     const re = new RegExp(`\\b${key}\\w*`, 'i');
     const hit = text.match(re);
-    if (hit) { out.leistung = hit[0]; break; }
+    if (hit && !foundLeistungen.some((l) => l.toLowerCase().includes(key.toLowerCase()) || key.toLowerCase().includes(l.toLowerCase()))) {
+      foundLeistungen.push(hit[0]);
+    }
+  }
+  if (foundLeistungen.length > 0) {
+    out.leistung = foundLeistungen[0];
+    out.leistungen = foundLeistungen.map((name) => ({ name }));
   }
 
   // Vorgangs-Klassifikation per Schlagwörtern
@@ -626,6 +674,7 @@ function mergeCrossValidate(primary: Parsed, heur: Parsed): Parsed {
 
   // Mengen / Klassifikations-Felder klassisch backfillen
   if (!out.mengen && heur.mengen) out.mengen = heur.mengen;
+  if ((!out.leistungen || out.leistungen.length === 0) && heur.leistungen) out.leistungen = heur.leistungen;
   if (!out.dringlichkeit && heur.dringlichkeit) out.dringlichkeit = heur.dringlichkeit;
   if (!out.source_guess && heur.source_guess) out.source_guess = heur.source_guess;
   if (!out.vorgang && heur.vorgang) out.vorgang = heur.vorgang;

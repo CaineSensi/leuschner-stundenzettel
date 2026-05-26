@@ -10,6 +10,7 @@ import {
 } from "../lib/customers";
 import { sevdeskCreateContact } from "../lib/sevdesk";
 import { createInquiry, updateInquiry, findSimilar, type InquirySource, type Inquiry } from "../lib/inquiries";
+import { diffCorrections, logCorrections } from "../lib/corrections";
 import { createCard } from "../lib/pipeline";
 import { isBackendConnected } from "../lib/supabase";
 import SaveProgress, { type SaveStep } from "../components/SaveProgress";
@@ -375,8 +376,13 @@ export default function AnfrageNeu() {
       updateStep("card", { status: "running" });
       const place = [zip, city].filter(Boolean).join(" ").trim() || street || undefined;
       const tags: string[] = [];
-      // Leistungs-Chips: bis zu 3 Stichworte vom LLM (komma-getrennt)
-      if (parsed?.leistung) {
+      // M8: Leistungs-Chips bevorzugt aus leistungen[], sonst Fallback auf leistung-Singular
+      if (parsed?.leistungen && parsed.leistungen.length > 0) {
+        parsed.leistungen.slice(0, 4).forEach((l) => {
+          const meng = l.mengen?.map((m) => `${m.wert}${m.einheit ? m.einheit : ""}`).join("+");
+          tags.push(meng ? `${l.name} (${meng})` : l.name);
+        });
+      } else if (parsed?.leistung) {
         parsed.leistung.split(/,\s*/).slice(0, 3).forEach((l) => { if (l.trim()) tags.push(l.trim()); });
       }
       // Mengen-Hint
@@ -410,7 +416,17 @@ export default function AnfrageNeu() {
         customerId,
       });
       await updateInquiry(inq.id, { pipelineCardId: card.id, status: "in_arbeit" });
-      updateStep("inquiry", { status: "done", detail: `Quelle ${source} · in_arbeit` });
+
+      // M11: Korrektur-Log — wenn der User Parsed-Werte verändert hat,
+      // schreiben wir die Diffs in parse_corrections (still bei Fehler).
+      const diffs = diffCorrections(parsed, parsedSnapshot, {
+        customerName, phone, phone_mobile: phoneMobile, email, street, zip, city,
+      });
+      if (diffs.length > 0) {
+        void logCorrections(inq.id, parsed, diffs, vorgang);
+      }
+
+      updateStep("inquiry", { status: "done", detail: `Quelle ${source} · in_arbeit${diffs.length ? ` · ${diffs.length} Korrektur${diffs.length === 1 ? "" : "en"} geloggt` : ""}` });
     } catch (e: any) {
       // Welcher Schritt war running?
       setSteps((prev) => {
@@ -627,16 +643,36 @@ export default function AnfrageNeu() {
                 mit gespeichert. Leistung/Mengen/Termin nicht editierbar in der
                 Stammdaten-Sektion oben — hier sieht User trotzdem auf einen
                 Blick was zu tun ist. */}
-            {parsed && (parsed.leistung || parsed.mengen?.length || parsed.termin || (parsed.dringlichkeit && parsed.dringlichkeit !== "normal")) && (
+            {parsed && (parsed.leistung || parsed.leistungen?.length || parsed.mengen?.length || parsed.termin || (parsed.dringlichkeit && parsed.dringlichkeit !== "normal")) && (
               <div className="bg-bg-2 border border-steel-line/45 rounded-lg p-3.5 space-y-2">
                 <span className="dd-eyebrow text-ink-2 block mb-1">Aus dem Text zusätzlich erkannt</span>
-                {parsed.leistung && (
+                {/* M8: Mehrere Leistungen mit jeweiligen Mengen — strukturiert */}
+                {parsed.leistungen && parsed.leistungen.length > 1 ? (
+                  <div className="text-[12.5px] font-sans">
+                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Leistungen
+                      <span className="ml-1 font-mono text-copper text-[10px]">×{parsed.leistungen.length}</span>
+                    </span>
+                    <span className="inline-flex flex-col gap-1.5 align-top">
+                      {parsed.leistungen.map((l, idx) => (
+                        <span key={idx} className="text-ink">
+                          <b>{l.name}</b>
+                          {l.mengen && l.mengen.length > 0 && (
+                            <span className="text-ink-2 ml-2 font-mono text-[11px]">
+                              {l.mengen.map((m) => `${m.wert}${m.einheit ? " " + m.einheit : ""}${m.was ? " " + m.was : ""}`).join(" · ")}
+                            </span>
+                          )}
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                ) : parsed.leistung ? (
                   <div className="text-[12.5px] font-sans">
                     <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Leistung</span>
                     <span className="text-ink">{parsed.leistung}</span>
                   </div>
-                )}
-                {parsed.mengen && parsed.mengen.length > 0 && (
+                ) : null}
+                {/* Globale Mengen nur zeigen, wenn keine pro-Leistung-Mengen vorhanden */}
+                {parsed.mengen && parsed.mengen.length > 0 && (!parsed.leistungen || parsed.leistungen.length <= 1) && (
                   <div className="text-[12.5px] font-sans">
                     <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Mengen</span>
                     <span className="inline-flex flex-col gap-0.5 align-top">
