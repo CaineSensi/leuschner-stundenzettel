@@ -320,7 +320,7 @@ function normalize(p: any): Parsed {
   //   b) Beide gesetzt und gleicher Wert → Duplikat entfernen, ins passende Feld
   //   c) Beide gesetzt, verschiedene Werte → lassen, sind echte zwei Anschlüsse
   const isMobileNumber = (s: string) =>
-    /^\+?49?\s*0?1[5-7]\d/.test(s.replace(/[\s\-/]/g, ''));
+    /^(?:\+49\s*|0)1[5-7]\d/.test(s.replace(/[\s\-/]/g, ''));
   const isLandline = (s: string) =>
     /^(?:\+?49|0)[2-9]\d/.test(s.replace(/[\s\-/]/g, '')) && !isMobileNumber(s);
   const normForCompare = (s: string) =>
@@ -427,7 +427,7 @@ function parseHeuristic(text: string): Parsed {
     if (!phones.find((p) => p.value === value)) phones.push({ tag, value });
   }
   for (const p of phones) {
-    const isMobile = /mobil|handy/i.test(p.tag) || /^\+?49?\s*0?1[5-7]\d/.test(p.value.replace(/\s/g, ''));
+    const isMobile = /mobil|handy/i.test(p.tag) || /^(?:\+49\s*|0)1[5-7]\d/.test(p.value.replace(/\s/g, ''));
     if (isMobile && !out.phone_mobile) out.phone_mobile = p.value;
     else if (!isMobile && !out.phone) out.phone = p.value;
     else if (isMobile && !out.phone) out.phone = p.value; // Fallback
