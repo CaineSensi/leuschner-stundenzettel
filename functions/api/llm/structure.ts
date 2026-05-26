@@ -315,11 +315,30 @@ function normalize(p: any): Parsed {
   for (const k of ['customerName','firma','phone','phone_mobile','email','street','zip','city','description','leistung','termin'] as const) {
     if (typeof p[k] === 'string' && p[k].trim().length) (out as any)[k] = p[k].trim();
   }
-  // Sanity: wenn nur eine Nummer geliefert wurde aber sie eine Mobil-Vorwahl
-  // hat, korrigiere phone → phone_mobile (das LLM verwechselt das gelegentlich)
-  if (out.phone && !out.phone_mobile && /^\+?49?\s*0?1[5-7]\d/.test(out.phone.replace(/\s/g, ''))) {
+  // Telefon-Sanity (mehrere Korrekturen, weil LLMs hier auffällig oft danebenliegen):
+  //   a) Nur `phone` gesetzt, Wert hat Mobil-Vorwahl → in `phone_mobile` schieben
+  //   b) Beide gesetzt und gleicher Wert → Duplikat entfernen, ins passende Feld
+  //   c) Beide gesetzt, verschiedene Werte → lassen, sind echte zwei Anschlüsse
+  const isMobileNumber = (s: string) =>
+    /^\+?49?\s*0?1[5-7]\d/.test(s.replace(/[\s\-/]/g, ''));
+  const isLandline = (s: string) =>
+    /^(?:\+?49|0)[2-9]\d/.test(s.replace(/[\s\-/]/g, '')) && !isMobileNumber(s);
+  const normForCompare = (s: string) =>
+    s.replace(/[\s\-/().]/g, '').replace(/^\+49/, '0').toLowerCase();
+
+  if (out.phone && !out.phone_mobile && isMobileNumber(out.phone)) {
     out.phone_mobile = out.phone;
     delete out.phone;
+  } else if (out.phone && out.phone_mobile && normForCompare(out.phone) === normForCompare(out.phone_mobile)) {
+    // Duplikat — nur EINS behalten, je nach Vorwahl
+    if (isMobileNumber(out.phone)) delete out.phone;
+    else if (isLandline(out.phone_mobile)) delete out.phone_mobile;
+    else delete out.phone; // bei Unsicherheit → behalten als phone_mobile (Default für moderne Erstkontakte)
+  } else if (out.phone && out.phone_mobile && isMobileNumber(out.phone) && isLandline(out.phone_mobile)) {
+    // Werte sind in den falschen Slots — tauschen
+    const tmp = out.phone;
+    out.phone = out.phone_mobile;
+    out.phone_mobile = tmp;
   }
   if (Array.isArray(p.mengen)) {
     out.mengen = p.mengen
