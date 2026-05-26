@@ -1,5 +1,4 @@
-import type { Entry, Site } from "./types";
-import { SITES } from "./mockData";
+import type { Entry } from "./types";
 
 export function fmtTime(min: number): string {
   const h = Math.floor(min / 60);
@@ -17,10 +16,6 @@ export function fmtHours(min: number, fractionDigits = 1): string {
 export function workMinutes(entry: Entry): number {
   if (entry.type !== "work") return 0;
   return Math.max(0, entry.endMin - entry.startMin - entry.pauseMin);
-}
-
-export function siteById(id: string): Site | undefined {
-  return SITES.find((s) => s.id === id);
 }
 
 export function dayName(iso: string): string {

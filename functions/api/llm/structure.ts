@@ -219,9 +219,16 @@ async function runWorkersAi(text: string, ai: AiBinding, model: string): Promise
       // strict-JSON ein eigenes `json_schema`-Format. Stattdessen erzwingt
       // der System-Prompt das JSON, safeJson räumt Codefences/Vorwort weg.
     });
-    const raw: string = resp?.response ?? resp?.result?.response ?? '';
-    if (!raw) return { parsed: null, error: 'empty response: ' + JSON.stringify(resp).slice(0, 200) };
-    const cleaned = stripCodeFence(raw);
+    // 70B fp8-fast liefert manchmal {response: {text: '...'}} statt {response: '...'} —
+    // wir prüfen beide Pfade. stripCodeFence stringifiziert defensiv.
+    const candidate =
+      resp?.response?.text ??
+      resp?.response ??
+      resp?.result?.response?.text ??
+      resp?.result?.response ??
+      '';
+    if (!candidate) return { parsed: null, error: 'empty response: ' + JSON.stringify(resp).slice(0, 200) };
+    const cleaned = stripCodeFence(candidate);
     const json = safeJson(cleaned);
     if (!json) return { parsed: null, error: 'json-parse-fail: ' + cleaned.slice(0, 200) };
     const parserTag: Parsed['parser'] = model.includes('70b') ? 'workers-ai-70b' : 'workers-ai-8b';
@@ -263,8 +270,12 @@ async function parseWithAnthropic(text: string, apiKey: string): Promise<Parsed 
   }
 }
 
-function stripCodeFence(s: string): string {
-  return s.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
+/** Robust gegen unerwartete Response-Shapes — Workers AI liefert beim
+ *  70B-Modell gelegentlich Objekte statt Strings (z.B. {text: '...'} oder
+ *  Tool-Call-Strukturen). Wir stringifizieren defensiv. */
+function stripCodeFence(s: unknown): string {
+  const str = typeof s === 'string' ? s : s == null ? '' : JSON.stringify(s);
+  return str.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim();
 }
 
 function safeJson(s: string): any {

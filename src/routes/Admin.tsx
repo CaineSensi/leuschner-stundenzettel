@@ -532,7 +532,7 @@ export default function Admin() {
               eyebrow="Wetter · Weener"
               title="3-Tage-Outlook"
               moreLabel="DWD ↗"
-              hint="Wetter-Outlook für Weener — wichtig für Bagger-/Pflasterarbeiten und Tagesplanung. Aktuell Demo-Werte, DWD-Live-Anbindung folgt."
+              hint="Wetter-Outlook für Weener — wichtig für Bagger-/Pflasterarbeiten und Tagesplanung. DWD-Live-Anbindung folgt."
             >
               <div className="px-4 lg:px-5 pb-4 pt-3 flex gap-2">
                 <WeatherDay d="Heute" t="14°" icon="◐" sub="bewölkt" today />
@@ -541,7 +541,7 @@ export default function Admin() {
                 <WeatherDay d="So" t="10°" icon="☂" sub="Regen" />
               </div>
               <div className="px-4 lg:px-5 pb-3 -mt-1 font-mono text-[10px] tracking-wider text-ink-mute uppercase">
-                Demo-Werte · DWD-Anbindung folgt
+                Platzhalter · DWD-Anbindung folgt
               </div>
             </Module>
 
@@ -551,13 +551,13 @@ export default function Admin() {
               eyebrow="Termine"
               title="Diese Woche"
               moreLabel="Kalender ↗"
-              hint="Materiallieferungen, Aufmaß-Termine, Behördentermine. Aktuell Demo-Daten, Anbindung an einen echten Kalender (Google/iCloud) folgt."
+              hint="Materiallieferungen, Aufmaß-Termine, Behördentermine. Anbindung an einen echten Kalender (Google/iCloud) folgt."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
                 <DateRow when="Fr 22.05. · 08:00" what="Materiallieferung Borgmann" where="Bunde · Hauptstr. 17" />
                 <DateRow when="Mo 25.05. · 14:00" what="Aufmaß Diakoniestation" where="Weener" />
                 <div className="font-mono text-[10px] tracking-wider text-ink-mute uppercase pt-2 border-t border-ink/8">
-                  Demo-Termine · Kalender-Modul folgt
+                  Platzhalter · Kalender-Modul folgt
                 </div>
               </div>
             </Module>

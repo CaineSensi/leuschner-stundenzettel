@@ -1,6 +1,6 @@
 // Angebote-Pipeline API. Liest/schreibt pipeline_cards in Supabase.
-// Ohne Backend (VITE_SUPABASE_URL nicht gesetzt) → Mock-Daten, damit das
-// Board auch im Dev-/Demo-Modus sofort gefüllt ist.
+// Backend-Verbindung ist Pflicht — fehlt VITE_SUPABASE_URL/_ANON_KEY,
+// werfen die Calls einen klaren Fehler (Demo-Modus entfernt 26.05.2026).
 
 import { supabase, isBackendConnected } from "./supabase";
 
@@ -124,9 +124,7 @@ export async function listCards(
 ): Promise<PipelineCard[]> {
   const wantArchived = opts.archived === true;
   if (!isBackendConnected() || !supabase) {
-    return MOCK_CARDS.filter((c) =>
-      wantArchived ? c.archivedAt != null : c.archivedAt == null
-    );
+    throw new Error("Backend nicht verbunden (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY fehlt).");
   }
   const sb: any = supabase;
   let q = sb
@@ -434,50 +432,3 @@ export async function revokeRelease(
   return freigabe;
 }
 
-// ---- Mock (Dev/Demo ohne Backend) ----
-const MOCK_CARDS: PipelineCard[] = [
-  { id: "m1", stage: "Anfrage", customerName: "Josef Borgmann",
-    place: "Tunxdorferstraße 46 · 26871 Papenburg",
-    description: "Doppelstabzaun 8/6/8 · 53 Matten (180/160/120) + 56 Pfosten + 3 Tore",
-    valueEur: 9333.74, openPoints: "Tore: Hesse-Preis offen · Rückruf erbeten",
-    docNumber: "AN-1253", sortOrder: 1, createdAt: "2026-05-19" },
-  { id: "m2", stage: "Anfrage", customerName: "Diakoniestation Leer gGmbH",
-    place: "Leer (Ostfriesland)",
-    description: "Außenanlage: Pflasterung Eingangsbereich + Rasenmähkante",
-    openPoints: "Vor-Ort-Termin / Aufmaß planen", sortOrder: 2, createdAt: "2026-05-17" },
-  { id: "m3", stage: "Angebot", customerName: "Jan Hundertmark", place: "Weener",
-    description: "Doppelstabzaun + Sichtschutzstreifen, Fundamente, Aufbau",
-    valueEur: 1546.08, openPoints: "versendet", docNumber: "AN-1251",
-    validUntil: "2026-05-28", sortOrder: 1, createdAt: "2026-05-08" },
-  { id: "m4", stage: "Angebot", customerName: "Jan Hundertmark", place: "Weener",
-    description: "Zaun zurückbauen + Neuaufbau, Entsorgung",
-    valueEur: 2598.26, openPoints: "versendet", docNumber: "AN-1250",
-    validUntil: "2026-05-22", sortOrder: 2, createdAt: "2026-05-07" },
-  { id: "m5", stage: "Angebot", customerName: "Privat · Großprojekt", place: "Bunde",
-    description: "Drainage + Gartenmauer + Pflaster + Rhombuszaun + Rasen (39 Pos.)",
-    valueEur: 18290.50, openPoints: "Gültigkeit abgelaufen — nachfassen!",
-    docNumber: "AN-1245", validUntil: "2026-04-16", sortOrder: 3, createdAt: "2026-04-23" },
-  { id: "m6", stage: "Auftrag", customerName: "Andrea Remmert",
-    place: "Bunde · Auftrag 26-08",
-    description: "Baggerarbeiten Kettenbagger 22 to. (16 Std) + Transport",
-    valueEur: 4350.00, planEur: 4350.00, openPoints: "Baustelle angelegt · Start KW 22",
-    docNumber: "AN-1252", sortOrder: 1, createdAt: "2026-05-11" },
-  { id: "m7", stage: "Auftrag", customerName: "Privat", place: "Weener",
-    description: "Pflaster Hofeinfahrt + Randsteine in Beton",
-    valueEur: 4426.25, planEur: 4426.25, openPoints: "Material: 4 Positionen offen",
-    docNumber: "AN-1242", sortOrder: 2, createdAt: "2026-04-01" },
-  { id: "m8", stage: "In Arbeit", customerName: "Privat", place: "Weener · aktiv seit KW 20",
-    description: "Pflaster ums Haus + Zaun + Rasen + Palisaden (35 Pos.)",
-    valueEur: 5334.56, planEur: 5334.56, actualEur: 3307.00,
-    docNumber: "AN-1234", sortOrder: 1, createdAt: "2026-03-13" },
-  { id: "m9", stage: "In Arbeit", customerName: "Privat", place: "Leer · aktiv seit KW 19",
-    description: "Terrasse + Drainage + Einfassung",
-    valueEur: 7468.71, planEur: 7468.71, actualEur: 6572.00,
-    openPoints: "Ist knapp — beobachten", docNumber: "AN-1226",
-    sortOrder: 2, createdAt: "2026-03-03" },
-  { id: "m10", stage: "Abgerechnet", customerName: "Andrea Remmert",
-    place: "Bunde · aus AN-1243", description: "Pflasterarbeiten — Schlussrechnung",
-    valueEur: 2061.34, planEur: 2100.00, actualEur: 1972.00,
-    openPoints: "bezahlt · DATEV ✓", docNumber: "RE-1254",
-    sortOrder: 1, createdAt: "2026-04-24" }
-];

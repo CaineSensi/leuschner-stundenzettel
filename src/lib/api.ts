@@ -1,10 +1,17 @@
 // API-Layer: Brücke zwischen Frontend und Supabase.
-// Solange VITE_SUPABASE_URL nicht gesetzt ist, fallen alle Calls auf Mock-Daten zurück.
-// Sobald die ENV-Variablen gesetzt sind, läuft alles gegen die echte Datenbank.
+// Setzt voraus, dass VITE_SUPABASE_URL und VITE_SUPABASE_ANON_KEY in der
+// Build-Umgebung gesetzt sind. Fehlt eines, wirft jeder Read/Write einen
+// klaren Fehler — kein stiller Mock-Modus mehr (entfernt 26.05.2026).
 
 import { supabase, isBackendConnected } from "./supabase";
 import type { AbsenceEntry, Assignment, Discipline, Entry, Site, Worker, WorkEntry } from "./types";
-import * as mock from "./mockData";
+
+function requireBackend(): NonNullable<typeof supabase> {
+  if (!isBackendConnected() || !supabase) {
+    throw new Error("Backend nicht verbunden (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY fehlt).");
+  }
+  return supabase;
+}
 
 type EntryDraft =
   | Omit<WorkEntry, "id">
@@ -13,8 +20,8 @@ type EntryDraft =
 // ===== READ =====
 
 export async function listWorkers(): Promise<Worker[]> {
-  if (!isBackendConnected() || !supabase) return mock.WORKERS;
-  const { data, error } = await supabase
+  const sb = requireBackend();
+  const { data, error } = await sb
     .from("workers")
     .select("id, initials, first_name, last_name, role, is_admin, phone, auth_user_id")
     .order("is_admin", { ascending: false });
@@ -32,10 +39,7 @@ export async function listWorkers(): Promise<Worker[]> {
 }
 
 export async function unlinkWorker(workerId: string): Promise<void> {
-  if (!isBackendConnected() || !supabase) {
-    console.log("[mock] unlinkWorker", workerId);
-    return;
-  }
+  requireBackend();
   const sb: any = supabase;
   // 1) auth_user_id zurücksetzen → Mitarbeiter kann mit neuem Gerät neu eingeladen werden
   const { error: e1 } = await sb
@@ -53,10 +57,7 @@ export async function unlinkWorker(workerId: string): Promise<void> {
 }
 
 export async function updateWorkerPhone(workerId: string, phone: string | null): Promise<void> {
-  if (!isBackendConnected() || !supabase) {
-    console.log("[mock] updateWorkerPhone", { workerId, phone });
-    return;
-  }
+  requireBackend();
   const sb: any = supabase;
   const { error } = await sb
     .from("workers")
@@ -66,8 +67,8 @@ export async function updateWorkerPhone(workerId: string, phone: string | null):
 }
 
 export async function listSites(): Promise<Site[]> {
-  if (!isBackendConnected() || !supabase) return mock.SITES;
-  const { data, error } = await supabase
+  const sb = requireBackend();
+  const { data, error } = await sb
     .from("sites")
     .select("*")
     .is("archived_at", null);
@@ -85,7 +86,7 @@ export async function listSites(): Promise<Site[]> {
 }
 
 export async function listAllSites(includeArchived = false): Promise<(Site & { archived?: boolean })[]> {
-  if (!isBackendConnected() || !supabase) return mock.SITES;
+  requireBackend();
   const sb: any = supabase;
   let q = sb.from("sites").select("*").order("starred", { ascending: false }).order("name");
   if (!includeArchived) q = q.is("archived_at", null);
@@ -115,7 +116,7 @@ export interface SiteInput {
 }
 
 export async function createSite(input: SiteInput): Promise<Site> {
-  if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
+  requireBackend();
   const sb: any = supabase;
   // company_id aus Admin holen
   const { data: w, error: wErr } = await sb
@@ -149,7 +150,7 @@ export async function createSite(input: SiteInput): Promise<Site> {
 }
 
 export async function updateSite(id: string, patch: Partial<SiteInput>): Promise<void> {
-  if (!isBackendConnected() || !supabase) return;
+  requireBackend();
   const sb: any = supabase;
   const row: any = {};
   if (patch.name !== undefined) row.name = patch.name.trim();
@@ -164,7 +165,7 @@ export async function updateSite(id: string, patch: Partial<SiteInput>): Promise
 }
 
 export async function archiveSite(id: string): Promise<void> {
-  if (!isBackendConnected() || !supabase) return;
+  requireBackend();
   const sb: any = supabase;
   const { error } = await sb
     .from("sites")
@@ -174,7 +175,7 @@ export async function archiveSite(id: string): Promise<void> {
 }
 
 export async function unarchiveSite(id: string): Promise<void> {
-  if (!isBackendConnected() || !supabase) return;
+  requireBackend();
   const sb: any = supabase;
   const { error } = await sb
     .from("sites")
@@ -184,10 +185,8 @@ export async function unarchiveSite(id: string): Promise<void> {
 }
 
 export async function listAllEntries(dateFrom: string, dateTo: string): Promise<Entry[]> {
-  if (!isBackendConnected() || !supabase) {
-    return mock.ENTRIES.filter((e) => e.date >= dateFrom && e.date <= dateTo);
-  }
-  const { data, error } = await supabase
+  const sb = requireBackend();
+  const { data, error } = await sb
     .from("entries")
     .select("*")
     .gte("date", dateFrom)
@@ -198,12 +197,8 @@ export async function listAllEntries(dateFrom: string, dateTo: string): Promise<
 }
 
 export async function listEntries(workerId: string, weekStart: string, weekEnd: string): Promise<Entry[]> {
-  if (!isBackendConnected() || !supabase) {
-    return mock.ENTRIES.filter(
-      (e) => e.workerId === workerId && e.date >= weekStart && e.date <= weekEnd
-    );
-  }
-  const { data, error } = await supabase
+  const sb = requireBackend();
+  const { data, error } = await sb
     .from("entries")
     .select("*")
     .eq("worker_id", workerId)
@@ -217,11 +212,7 @@ export async function listEntries(workerId: string, weekStart: string, weekEnd: 
 // ===== WRITE =====
 
 export async function saveEntry(entry: EntryDraft, existingId?: string): Promise<string> {
-  if (!isBackendConnected() || !supabase) {
-    const fakeId = existingId ?? `local-${Date.now()}`;
-    console.log("[mock] saveEntry", { ...entry, id: fakeId, mode: existingId ? "update" : "insert" });
-    return fakeId;
-  }
+  requireBackend();
   const row = entryToRow(entry);
   const sb: any = supabase;
   if (existingId) {
@@ -239,17 +230,14 @@ export async function saveEntry(entry: EntryDraft, existingId?: string): Promise
 }
 
 export async function deleteEntry(id: string): Promise<void> {
-  if (!isBackendConnected() || !supabase) return;
+  requireBackend();
   const sb: any = supabase;
   const { error } = await sb.from("entries").delete().eq("id", id);
   if (error) throw error;
 }
 
 export async function submitWeek(workerId: string, weekStart: string, weekEnd: string): Promise<void> {
-  if (!isBackendConnected() || !supabase) {
-    console.log("[mock] submitWeek", { workerId, weekStart, weekEnd });
-    return;
-  }
+  requireBackend();
   const sb = supabase as any;
   const { error } = await sb
     .from("entries")
@@ -264,9 +252,7 @@ export async function submitWeek(workerId: string, weekStart: string, weekEnd: s
 // ===== INVITATIONS =====
 
 export async function createInvitation(workerId: string): Promise<string> {
-  if (!isBackendConnected() || !supabase) {
-    return "DEMOXX"; // Mock-Code
-  }
+  requireBackend();
   const sb: any = supabase;
   const { data, error } = await sb.rpc("create_invitation", { p_worker_id: workerId });
   if (error) throw error;
@@ -274,9 +260,7 @@ export async function createInvitation(workerId: string): Promise<string> {
 }
 
 export async function redeemInvitation(code: string): Promise<Worker> {
-  if (!isBackendConnected() || !supabase) {
-    throw new Error("Backend nicht verbunden");
-  }
+  requireBackend();
   const sb: any = supabase;
   const { data, error } = await sb.rpc("redeem_invitation", { p_code: code });
   if (error) throw error;
@@ -294,8 +278,8 @@ export async function redeemInvitation(code: string): Promise<Worker> {
 // ===== ASSIGNMENTS (Admin-Tagesplanung) =====
 
 export async function listAssignments(workerId: string, dateFrom: string, dateTo: string): Promise<Assignment[]> {
-  if (!isBackendConnected() || !supabase) return [];
-  const { data, error } = await supabase
+  const sb = requireBackend();
+  const { data, error } = await sb
     .from("assignments")
     .select("id, worker_id, date, site_id, discipline, planned_start_min, planned_end_min, planned_pause_min, note, published_at")
     .eq("worker_id", workerId)
@@ -307,8 +291,8 @@ export async function listAssignments(workerId: string, dateFrom: string, dateTo
 }
 
 export async function listAssignmentsForCompany(dateFrom: string, dateTo: string): Promise<Assignment[]> {
-  if (!isBackendConnected() || !supabase) return [];
-  const { data, error } = await supabase
+  const sb = requireBackend();
+  const { data, error } = await sb
     .from("assignments")
     .select("id, worker_id, date, site_id, discipline, planned_start_min, planned_end_min, planned_pause_min, note, published_at")
     .gte("date", dateFrom)
@@ -318,8 +302,8 @@ export async function listAssignmentsForCompany(dateFrom: string, dateTo: string
 }
 
 export async function getTodayAssignment(workerId: string, date: string): Promise<Assignment | null> {
-  if (!isBackendConnected() || !supabase) return null;
-  const { data, error } = await supabase
+  const sb = requireBackend();
+  const { data, error } = await sb
     .from("assignments")
     .select("id, worker_id, date, site_id, discipline, planned_start_min, planned_end_min, planned_pause_min, note, published_at")
     .eq("worker_id", workerId)
@@ -339,7 +323,7 @@ export async function upsertAssignment(input: {
   plannedPauseMin?: number;
   note?: string;
 }): Promise<Assignment> {
-  if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
+  requireBackend();
   const sb: any = supabase;
 
   // Wir brauchen company_id für die RLS-check + INSERT — aus dem Worker holen
@@ -372,7 +356,7 @@ export async function upsertAssignment(input: {
 }
 
 export async function deleteAssignment(workerId: string, date: string): Promise<void> {
-  if (!isBackendConnected() || !supabase) return;
+  requireBackend();
   const sb: any = supabase;
   const { error } = await sb
     .from("assignments")
@@ -398,7 +382,7 @@ function rowToAssignment(r: any): Assignment {
 }
 
 export async function publishWeek(dateFrom: string, dateTo: string): Promise<number> {
-  if (!isBackendConnected() || !supabase) return 0;
+  requireBackend();
   const sb: any = supabase;
   const { data, error } = await sb
     .from("assignments")
@@ -412,7 +396,7 @@ export async function publishWeek(dateFrom: string, dateTo: string): Promise<num
 }
 
 export async function unpublishWeek(dateFrom: string, dateTo: string): Promise<number> {
-  if (!isBackendConnected() || !supabase) return 0;
+  requireBackend();
   const sb: any = supabase;
   const { data, error } = await sb
     .from("assignments")
@@ -426,7 +410,7 @@ export async function unpublishWeek(dateFrom: string, dateTo: string): Promise<n
 }
 
 export async function listInvitations() {
-  if (!isBackendConnected() || !supabase) return [];
+  requireBackend();
   const sb: any = supabase;
   const { data, error } = await sb
     .from("invitations")

@@ -7,7 +7,6 @@ import {
   type PipelineCard, type Stage, type ReviewStatus
 } from "../lib/pipeline";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
-import { isBackendConnected } from "../lib/supabase";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
 
@@ -203,12 +202,8 @@ export default function Angebote() {
             <h1 className="font-display font-black uppercase text-2xl lg:text-3xl text-white leading-none mt-1">
               {isArchiv ? "Angebote · Archiv" : "Angebote"}
             </h1>
-            <span className={`font-mono text-[11.5px] mt-1.5 block tracking-wide ${
-              isBackendConnected() ? "text-moss-bright" : "text-steel"
-            }`}>
-              {isBackendConnected()
-                ? `● Live · ${cards.length} ${isArchiv ? "archiviert" : "Vorgänge"}`
-                : "○ Demo-Modus · Beispieldaten"}
+            <span className="font-mono text-[11.5px] mt-1.5 block tracking-wide text-moss-bright">
+              ● {cards.length} {isArchiv ? "archiviert" : "Vorgänge"}
             </span>
           </div>
           {!isArchiv && (

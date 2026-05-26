@@ -2,9 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import Logo from "../components/Logo";
 import {
-  completeOnboarding, currentUser, login, signInWithCode
+  completeOnboarding, currentUser, signInWithCode
 } from "../lib/auth";
-import { ADMIN_WORKER } from "../lib/mockData";
 import type { Worker } from "../lib/types";
 
 const STEPS = ["Code", "Profil", "Fertig"] as const;
@@ -71,22 +70,20 @@ export default function Onboarding() {
           <CodeStep
             initialCode={standalone ? codeFromUrl : ""}
             onSuccess={(w) => { setWorker(w); next(); }}
-            onSkip={() => { login(ADMIN_WORKER); setWorker(ADMIN_WORKER); next(); }}
           />
         )}
-        {step === 1 && <ProfileStep worker={worker ?? ADMIN_WORKER} onNext={next} />}
-        {step === 2 && <DoneStep worker={worker ?? ADMIN_WORKER} onNext={finish} />}
+        {step === 1 && worker && <ProfileStep worker={worker} onNext={next} />}
+        {step === 2 && worker && <DoneStep worker={worker} onNext={finish} />}
       </section>
     </main>
   );
 }
 
 function CodeStep({
-  initialCode, onSuccess, onSkip
+  initialCode, onSuccess
 }: {
   initialCode: string;
   onSuccess: (worker: Worker) => void;
-  onSkip: () => void;
 }) {
   const [code, setCode] = useState(initialCode.toUpperCase());
   const [status, setStatus] = useState<"idle" | "checking" | "error">("idle");
@@ -168,12 +165,6 @@ function CodeStep({
           className="btn-primary w-full disabled:opacity-40 disabled:active:scale-100"
         >
           {status === "checking" ? "Prüfe Code …" : "Code einlösen"}
-        </button>
-        <button
-          onClick={onSkip}
-          className="btn-ghost w-full"
-        >
-          Demo · ohne Code überspringen
         </button>
       </div>
     </>

@@ -7,7 +7,6 @@ import {
 import { llmStructure, VORGANG_LABEL, VORGANG_COLOR, type Vorgang } from "../lib/llm";
 import BackButton from "../components/BackButton";
 import InlinePopover from "../components/InlinePopover";
-import { isBackendConnected } from "../lib/supabase";
 
 /* ────────────────────────────────────────────────────────────────────────
    Anfragen-Inbox · die zentrale Eingangsbox.
@@ -188,10 +187,8 @@ export default function Anfragen() {
             <h1 className="font-display font-black uppercase text-2xl lg:text-3xl text-white leading-none mt-1">
               Anfragen
             </h1>
-            <span className={`font-mono text-[11.5px] mt-1.5 block tracking-wide ${isBackendConnected() ? "text-moss-bright" : "text-steel"}`}>
-              {isBackendConnected()
-                ? `● ${counts.offen + counts.in_arbeit} offen · ${counts.wurde_zu_angebot} zu Angebot · ${counts.verworfen} verworfen`
-                : "○ Demo-Modus"}
+            <span className="font-mono text-[11.5px] mt-1.5 block tracking-wide text-moss-bright">
+              ● {counts.offen + counts.in_arbeit} offen · {counts.wurde_zu_angebot} zu Angebot · {counts.verworfen} verworfen
             </span>
           </div>
           <Link

@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { CURRENT_WORKER } from "../lib/mockData";
 import { listAssignments, listEntries, listSites } from "../lib/api";
 import { getHoliday, isHoliday } from "../lib/holidays";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import {
-  dayName, fmtDateLong, fmtHours, fmtTime, isoWeek, shortDate, siteById, todayIso,
+  dayName, fmtDateLong, fmtHours, fmtTime, isoWeek, shortDate, todayIso,
   weekDays, workMinutes
 } from "../lib/utils";
 import type { Assignment, Entry, Site } from "../lib/types";
@@ -20,7 +19,13 @@ export default function Home() {
   const today = todayIso();
   const { year, week } = isoWeek(new Date());
   const days = weekDays(year, week).slice(0, 5); // Mo–Fr
-  const me = currentUser() ?? CURRENT_WORKER;
+  const me = currentUser();
+
+  // Ohne eingeloggten Worker: zurück zum Onboarding/Login (kein Mock-Fallback mehr)
+  useEffect(() => {
+    if (!me) navigate("/onboarding", { replace: true });
+  }, [me, navigate]);
+  if (!me) return null;
 
   const [myEntries, setMyEntries] = useState<Entry[]>([]);
   const [weekAssignments, setWeekAssignments] = useState<Assignment[]>([]);
@@ -270,7 +275,7 @@ function Stat({ label, value, sub, positive }: { label: string; value: string; s
 function DayRow({ date, entry, sites }: { date: string; entry: Entry; sites: import("../lib/types").Site[] }) {
   const isToday = date === todayIso();
   if (isWorkEntry(entry)) {
-    const site = sites.find((s) => s.id === entry.siteId) ?? siteById(entry.siteId);
+    const site = sites.find((s) => s.id === entry.siteId);
     const min = workMinutes(entry);
     return (
       <Link
