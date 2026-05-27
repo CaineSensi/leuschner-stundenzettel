@@ -11,21 +11,18 @@
     max-width: 100vw;
   }
   body {
-    /* Karbon-Bühne · 2x2-Twill ohne Faserlinien (V1 — Furnier-ruhig).
-       Vier Bündel im 40px-Raster, Diagonal-Lichtgradient
-       (Licht oben-links / Schatten unten-rechts), alternierend a/b.
-       Sehr niedriger Kontrast (weiß ≤7% / schwarz 32%), damit das Auge
-       Stundenlang draufschauen kann ohne zu ermüden.
-       Plus dezenter Copper-Glow oben (Marke) + Schiefer-Verlauf unten. */
+    /* Schiefer-zu-Schwarz · dunkle Stahl-Bühne mit dezentem Hairline-Grid.
+       Grid in 32px-Raster, sehr feine helle Linien (rgba weiß 4%/6%).
+       Verläufe + Grid alle fixed, damit beim Scrollen nichts wandert. */
     background-color: #0E1012;
     background-image:
-      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40' viewBox='0 0 40 40'><defs><linearGradient id='a' x1='0%25' y1='0%25' x2='100%25' y2='100%25'><stop offset='0%25' stop-color='rgba(255,255,255,0.07)'/><stop offset='55%25' stop-color='rgba(255,255,255,0.005)'/><stop offset='100%25' stop-color='rgba(0,0,0,0.32)'/></linearGradient><linearGradient id='b' x1='100%25' y1='0%25' x2='0%25' y2='100%25'><stop offset='0%25' stop-color='rgba(255,255,255,0.07)'/><stop offset='55%25' stop-color='rgba(255,255,255,0.005)'/><stop offset='100%25' stop-color='rgba(0,0,0,0.32)'/></linearGradient></defs><rect x='0' y='0' width='20' height='20' fill='url(%23a)'/><rect x='20' y='20' width='20' height='20' fill='url(%23a)'/><rect x='20' y='0' width='20' height='20' fill='url(%23b)'/><rect x='0' y='20' width='20' height='20' fill='url(%23b)'/></svg>"),
-      radial-gradient(ellipse at 50% -10%, rgba(220,110,45,0.07), transparent 55%),
-      linear-gradient(180deg, #1B1D20 0%, #111316 55%, #0A0B0D 100%);
-    background-size: 40px 40px, auto, auto;
-    background-attachment: fixed, fixed, fixed;
-    color: #ECEFF2; /* Body-Default-Text hell — Karten überschreiben gezielt */
-    @apply font-sans antialiased;
+      linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px),
+      radial-gradient(ellipse at 50% -10%, rgba(220,110,45,.06), transparent 55%),
+      linear-gradient(180deg, #2A2D31 0%, #16181A 55%, #0A0B0D 100%);
+    background-size: 32px 32px, 32px 32px, auto, auto;
+    background-attachment: fixed, fixed, fixed, fixed;
+    @apply text-paper font-sans antialiased;
   }
   ::selection { background: theme('colors.copper.DEFAULT'); color: #FFFFFF; }
 }
