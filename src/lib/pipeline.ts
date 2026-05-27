@@ -260,7 +260,77 @@ export async function linkOrCreateSiteForCard(
     .eq("id", card.id);
   if (uErr) throw uErr;
 
+  // 4) Auto-Anlage aus der verknüpften Anfrage (#3 Klärpunkte, #5 Material-Status):
+  //    - Material-Alternativen aus Parser (note ~ /alternativ/i) → site_questions
+  //    - Positionen aus der Karte → site_materials (Status 'planned')
+  //    Beides ist Komfort, Fehler werden geschluckt damit der Stage-Wechsel nicht hängt.
+  try {
+    if (created) {
+      // Nur bei neu angelegter Site, sonst gäbe es ggf. schon Material/Klärpunkte
+      await autoFillSiteFromCard(sb, siteId, card);
+    }
+  } catch (e) {
+    console.warn("[autofill site from card] ", e);
+  }
+
   return { siteId, created, siteName };
+}
+
+/** Befüllt eine frisch angelegte Baustelle aus den verknüpften Anfragen-Daten:
+ *  - site_materials aus pipeline_cards.positions (Status 'planned')
+ *  - site_questions aus inquiry.parsed_json.leistungen[].materialien (note=Alternativ-Wahl) */
+async function autoFillSiteFromCard(sb: any, siteId: string, card: PipelineCard): Promise<void> {
+  // Material-Bestand aus den Wizard-Positionen
+  if (Array.isArray(card.positions) && card.positions.length > 0) {
+    const rows = card.positions.map((p) => {
+      // quantity ist im Wizard-Format "30 m²" — wir parsen Zahl + Einheit getrennt
+      const qStr = String(p.quantity ?? "");
+      const num = parseFloat(qStr.replace(",", ".")) || null;
+      const unit = qStr.match(/[a-zA-Z²³.]+/)?.[0] ?? null;
+      const price = parseFloat(String(p.unitPrice ?? "0").replace(/[^\d,.-]/g, "").replace(",", ".")) || null;
+      return {
+        site_id: siteId,
+        name: p.name,
+        quantity: num,
+        unit,
+        status: "planned",
+        price_eur: price,
+      };
+    });
+    if (rows.length) await sb.from("site_materials").insert(rows);
+  }
+
+  // Klärpunkte aus Inquiry-Materialien (Alternativ-Wahl)
+  const { data: inqRows } = await sb
+    .from("inquiries")
+    .select("id, parsed_json, company_id")
+    .eq("pipeline_card_id", card.id)
+    .limit(1);
+  const inq = inqRows?.[0];
+  if (!inq) return;
+  const leistungen = (inq.parsed_json as any)?.leistungen as
+    | { name: string; materialien?: { name: string; spec?: string; note?: string }[] }[]
+    | undefined;
+  if (!Array.isArray(leistungen) || leistungen.length === 0) return;
+
+  const questions: any[] = [];
+  leistungen.forEach((l, lIdx) => {
+    const alternatives = (l.materialien ?? []).filter((m) => /alternativ/i.test(m.note ?? ""));
+    if (alternatives.length === 0) return;
+    // Bei Alternativ-Wahl: alle Materialien zur Wahl auflisten
+    const optionTexts = (l.materialien ?? []).map((m) => m.spec ? `${m.name} ${m.spec}` : m.name);
+    questions.push({
+      company_id: inq.company_id,
+      site_id: siteId,
+      kind: "material",
+      title: `${l.name}: ${optionTexts.join(" oder ")}? — Kunde wählen lassen`,
+      detail: alternatives[0].note ?? null,
+      status: "offen",
+      source_inquiry_id: inq.id,
+      source_field: `leistungen[${lIdx}].materialien`,
+    });
+  });
+  if (questions.length) await sb.from("site_questions").insert(questions);
 }
 
 async function adminCompanyId(sb: any): Promise<string> {

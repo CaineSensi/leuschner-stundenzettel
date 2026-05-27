@@ -10,6 +10,17 @@ import {
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { supabase, isBackendConnected } from "../lib/supabase";
 import { geocodeAddress } from "../lib/geocode";
+import {
+  listSiteMaterials, createSiteMaterial, updateSiteMaterialStatus, deleteSiteMaterial,
+  MATERIAL_STATUS_META,
+  type SiteMaterial, type MaterialStatus,
+} from "../lib/siteMaterials";
+import {
+  listSiteQuestions, createSiteQuestion, updateSiteQuestion, deleteSiteQuestion,
+  KIND_META as Q_KIND_META, STATUS_META as Q_STATUS_META,
+  type SiteQuestion, type QuestionKind, type QuestionStatus,
+} from "../lib/siteQuestions";
+import { LiveWeather } from "../components/LiveWeather";
 import SiteEditor from "../components/SiteEditor";
 import BackButton from "../components/BackButton";
 import type { PhotoWithContext, Site, Worker, WorkEntry } from "../lib/types";
@@ -26,7 +37,7 @@ type SiteRow = Site & { archived?: boolean };
 interface InvoiceRow { id: string; invoiceNumber: string; invoiceDate: string; status: string; netEur: number; grossEur: number | null; paidAt: string | null }
 interface OrderRef   { id: string; orderNumber: string; positions: PipelinePosition[]; sumNet: number | null }
 
-type ModalKind = "positions" | "hours" | "invoices" | "photos" | null;
+type ModalKind = "positions" | "hours" | "invoices" | "photos" | "materials" | null;
 
 export default function SiteDetail() {
   const navigate = useNavigate();
@@ -47,6 +58,10 @@ export default function SiteDetail() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [openModal, setOpenModal] = useState<ModalKind>(null);
   const [mapView, setMapView] = useState<"satellite" | "map">("map");
+  const [materials, setMaterials] = useState<SiteMaterial[]>([]);
+  const [materialsLoading, setMaterialsLoading] = useState(false);
+  const [questions, setQuestions] = useState<SiteQuestion[]>([]);
+  const [questionsLoading, setQuestionsLoading] = useState(false);
   // Auto-Geocoding wenn die Baustelle nur Adresse hat, keine GPS-Koordinaten
   const [geocoded, setGeocoded] = useState<{ lat: number; lng: number } | null>(null);
   const [geocoding, setGeocoding] = useState(false);
@@ -81,6 +96,32 @@ export default function SiteDetail() {
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
   useRealtime(`site-detail-${id}`, ["entry_photos", "entries", "sites", "site_invoices", "pipeline_cards"], refresh);
   useRefreshOnVisible(refresh);
+
+  // Material-Liste separat laden (kann sich unabhängig ändern)
+  async function refreshMaterials() {
+    if (!id) return;
+    setMaterialsLoading(true);
+    try {
+      const list = await listSiteMaterials(id);
+      setMaterials(list);
+    } catch { /* still — Material-Sektion bleibt leer */ }
+    finally { setMaterialsLoading(false); }
+  }
+  useEffect(() => { refreshMaterials(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
+  useRealtime(`site-materials-${id}`, ["site_materials"], refreshMaterials);
+
+  // Klärpunkte
+  async function refreshQuestions() {
+    if (!id) return;
+    setQuestionsLoading(true);
+    try {
+      const list = await listSiteQuestions(id);
+      setQuestions(list);
+    } catch { /* still */ }
+    finally { setQuestionsLoading(false); }
+  }
+  useEffect(() => { refreshQuestions(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
+  useRealtime(`site-questions-${id}`, ["site_questions"], refreshQuestions);
 
   // Auto-Geocoding: wenn keine GPS-Koordinaten in der DB sind, aber eine
   // Adresse da ist, fragen wir Nominatim und persistieren das Ergebnis.
@@ -289,8 +330,25 @@ export default function SiteDetail() {
           </aside>
         </section>
 
-        {/* QUICK-ACCESS · 4 Cards */}
-        <section className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-4">
+        {/* WETTER VOR ORT · wenn GPS bekannt */}
+        {effectiveGeo && (
+          <section className="mt-4 bg-white border border-steel-line/45 rounded-lg overflow-hidden">
+            <LiveWeather lat={effectiveGeo.lat} lng={effectiveGeo.lng} variant="card" label={`Wetter vor Ort · ${site.city || site.name}`} />
+          </section>
+        )}
+
+        {/* KLÄRPUNKTE — direkt sichtbar, weil handlungsrelevant */}
+        <section className="mt-4 bg-white border border-steel-line/45 rounded-lg p-4">
+          <QuestionsPanel
+            siteId={site.id}
+            questions={questions}
+            loading={questionsLoading}
+            onChange={refreshQuestions}
+          />
+        </section>
+
+        {/* QUICK-ACCESS · 5 Cards (Positionen · Stunden · Rechnungen · Material · Fotos) */}
+        <section className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-5">
           <QuickCard
             label="Positionen"
             value={posCount === 0 ? "—" : `${posCount} · ${eur(posSum)}`}
@@ -313,6 +371,18 @@ export default function SiteDetail() {
             icon="€"
             disabled={invoices.length === 0}
             onClick={() => setOpenModal("invoices")}
+          />
+          <QuickCard
+            label="Material"
+            value={materials.length === 0
+              ? (materialsLoading ? "lädt …" : "—")
+              : (() => {
+                  const installed = materials.filter((m) => m.status === "installed").length;
+                  const active = materials.filter((m) => m.status !== "returned").length;
+                  return `${installed}/${active} verbaut`;
+                })()}
+            icon="🧱"
+            onClick={() => setOpenModal("materials")}
           />
           <QuickCard
             label="Fotos"
@@ -342,6 +412,16 @@ export default function SiteDetail() {
       {openModal === "photos" && (
         <Modal title={`Foto-Galerie · ${photos.length} ${photos.length === 1 ? "Aufnahme" : "Aufnahmen"}`} onClose={() => setOpenModal(null)} wide>
           <PhotosBody photos={photos} workerMap={workerMap} onOpen={(i) => { setOpenModal(null); setLightboxIdx(i); }} />
+        </Modal>
+      )}
+      {openModal === "materials" && (
+        <Modal title={`Material · ${site.name}`} onClose={() => setOpenModal(null)} wide>
+          <MaterialsBody
+            siteId={site.id}
+            materials={materials}
+            loading={materialsLoading}
+            onChange={refreshMaterials}
+          />
         </Modal>
       )}
 
@@ -568,6 +648,340 @@ function PhotosBody({
       {photos.map((p, i) => (
         <PhotoTile key={p.id} photo={p} worker={workerMap.get(p.workerId) ?? null} onTap={() => onOpen(i)} />
       ))}
+    </div>
+  );
+}
+
+/* ── Klärpunkte-Panel ─────────────────────────────────────────────────── */
+function QuestionsPanel({
+  siteId, questions, loading, onChange,
+}: {
+  siteId: string;
+  questions: SiteQuestion[];
+  loading: boolean;
+  onChange: () => Promise<void> | void;
+}) {
+  const [addOpen, setAddOpen] = useState(false);
+  const [addTitle, setAddTitle] = useState("");
+  const [addKind, setAddKind] = useState<QuestionKind>("sonstiges");
+  const [addOwner, setAddOwner] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [showResolved, setShowResolved] = useState(false);
+
+  const offen     = questions.filter((q) => q.status === "offen");
+  const wartet    = questions.filter((q) => q.status === "wartet");
+  const erledigt  = questions.filter((q) => q.status === "erledigt");
+  const verworfen = questions.filter((q) => q.status === "verworfen");
+
+  async function add() {
+    if (!addTitle.trim()) return;
+    setAdding(true);
+    try {
+      await createSiteQuestion({ siteId, title: addTitle.trim(), kind: addKind, owner: addOwner.trim() || undefined });
+      setAddTitle(""); setAddOwner(""); setAddKind("sonstiges"); setAddOpen(false);
+      await onChange();
+    } catch (e: any) { alert("Fehler: " + (e?.message ?? e)); }
+    finally { setAdding(false); }
+  }
+
+  async function setStatus(q: SiteQuestion, status: QuestionStatus) {
+    try { await updateSiteQuestion(q.id, { status }); await onChange(); }
+    catch (e: any) { alert("Status: " + (e?.message ?? e)); }
+  }
+  async function del(q: SiteQuestion) {
+    if (!confirm(`Klärpunkt "${q.title}" löschen?`)) return;
+    try { await deleteSiteQuestion(q.id); await onChange(); }
+    catch (e: any) { alert("Löschen: " + (e?.message ?? e)); }
+  }
+
+  const visible = [...offen, ...wartet, ...(showResolved ? [...erledigt, ...verworfen] : [])];
+
+  return (
+    <div>
+      {/* Header */}
+      <div className="flex items-baseline justify-between gap-4 flex-wrap mb-3">
+        <div>
+          <h2 className="font-display font-extrabold uppercase text-[16px] tracking-wide text-ink leading-none">
+            Klärpunkte
+          </h2>
+          <div className="font-mono text-[10.5px] uppercase tracking-wider text-ink-mute mt-1">
+            {offen.length} offen · {wartet.length} warten · {erledigt.length} erledigt
+            {loading && <span className="ml-2">· lädt …</span>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {(erledigt.length + verworfen.length > 0) && (
+            <button
+              onClick={() => setShowResolved((s) => !s)}
+              className="font-mono text-[10.5px] uppercase tracking-wider text-ink-mute hover:text-copper underline-offset-2 hover:underline"
+            >
+              {showResolved ? "Erledigte ausblenden" : `Erledigte (${erledigt.length + verworfen.length}) anzeigen`}
+            </button>
+          )}
+          <button
+            onClick={() => setAddOpen((o) => !o)}
+            className="btn-primary !min-h-[34px] !px-3 text-[11.5px]"
+          >
+            {addOpen ? "Abbrechen" : "+ Klärpunkt"}
+          </button>
+        </div>
+      </div>
+
+      {/* Add-Formular (klappt auf) */}
+      {addOpen && (
+        <div className="bg-bg-2 border border-steel-line/45 rounded-md p-3 mb-3 grid grid-cols-[1fr_120px_120px_auto] gap-2 items-end">
+          <div>
+            <label className="dd-eyebrow text-ink-2 block mb-1">Titel</label>
+            <input
+              autoFocus
+              value={addTitle}
+              onChange={(e) => setAddTitle(e.target.value)}
+              placeholder="z.B. Naturstein oder Beton bei Beeteinfassung?"
+              className="w-full border-[1.5px] border-steel-line/45 rounded-md px-2.5 py-1.5 text-[13px] font-sans"
+            />
+          </div>
+          <div>
+            <label className="dd-eyebrow text-ink-2 block mb-1">Art</label>
+            <select
+              value={addKind}
+              onChange={(e) => setAddKind(e.target.value as QuestionKind)}
+              className="w-full border-[1.5px] border-steel-line/45 rounded-md px-2 py-1.5 text-[13px] font-mono"
+            >
+              {(Object.entries(Q_KIND_META) as [QuestionKind, typeof Q_KIND_META[QuestionKind]][]).map(([k, m]) => (
+                <option key={k} value={k}>{m.icon} {m.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="dd-eyebrow text-ink-2 block mb-1">Owner</label>
+            <input
+              value={addOwner}
+              onChange={(e) => setAddOwner(e.target.value)}
+              placeholder="Rick / Udo / WW"
+              className="w-full border-[1.5px] border-steel-line/45 rounded-md px-2.5 py-1.5 text-[13px] font-sans"
+            />
+          </div>
+          <button
+            onClick={add}
+            disabled={!addTitle.trim() || adding}
+            className="btn-primary !min-h-[34px] !px-3 text-[11.5px] disabled:opacity-50"
+          >
+            {adding ? "…" : "Anlegen"}
+          </button>
+        </div>
+      )}
+
+      {/* Liste */}
+      {visible.length === 0 ? (
+        <p className="font-mono text-[12px] text-ink-mute py-2">
+          Keine offenen Klärpunkte. Wenn aus einer Anfrage Material-Alternativen kommen, landen sie hier automatisch.
+        </p>
+      ) : (
+        <ul className="space-y-1.5">
+          {visible.map((q) => {
+            const kind = Q_KIND_META[q.kind];
+            const status = Q_STATUS_META[q.status];
+            const isDone = q.status === "erledigt" || q.status === "verworfen";
+            return (
+              <li
+                key={q.id}
+                className={`border rounded-md px-3 py-2 flex items-start gap-3 ${isDone ? "border-steel-line/30 bg-bg-3/40 opacity-70" : "border-steel-line/45 bg-white"}`}
+              >
+                <span className="text-[16px] leading-none mt-0.5" title={kind.label}>{kind.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <div className={`font-sans text-[13.5px] leading-snug ${isDone ? "line-through text-ink-mute" : "text-ink"}`}>
+                    {q.title}
+                  </div>
+                  <div className="font-mono text-[10.5px] text-ink-mute mt-0.5">
+                    <span style={{ color: status.color, fontWeight: 700 }}>{status.label}</span>
+                    {q.owner && <span className="ml-2">· {q.owner}</span>}
+                    {q.dueAt && <span className="ml-2">· bis {q.dueAt}</span>}
+                    {q.sourceInquiryId && <span className="ml-2 text-copper">· aus Anfrage</span>}
+                    {q.resolutionNote && <span className="ml-2">· „{q.resolutionNote}"</span>}
+                  </div>
+                </div>
+                <div className="flex gap-1 flex-shrink-0">
+                  {q.status === "offen" && (
+                    <>
+                      <button onClick={() => setStatus(q, "wartet")} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wider hover:bg-amber/15" style={{ color: "#B45309", border: "1px solid rgba(180,83,9,0.4)" }}>wartet</button>
+                      <button onClick={() => setStatus(q, "erledigt")} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wider hover:bg-moss/15" style={{ color: "#15803D", border: "1px solid rgba(21,128,61,0.4)" }}>✓ erledigt</button>
+                    </>
+                  )}
+                  {q.status === "wartet" && (
+                    <button onClick={() => setStatus(q, "erledigt")} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wider hover:bg-moss/15" style={{ color: "#15803D", border: "1px solid rgba(21,128,61,0.4)" }}>✓ erledigt</button>
+                  )}
+                  {isDone && (
+                    <button onClick={() => setStatus(q, "offen")} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wider text-ink-mute hover:text-copper border border-steel-line/45 hover:border-copper">↶ wieder öffnen</button>
+                  )}
+                  <button onClick={() => del(q)} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wider text-ink-mute hover:text-rust border border-steel-line/45 hover:border-rust" title="Löschen">✕</button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ── Material-Body ────────────────────────────────────────────────────── */
+function MaterialsBody({
+  siteId, materials, loading, onChange,
+}: {
+  siteId: string;
+  materials: SiteMaterial[];
+  loading: boolean;
+  onChange: () => Promise<void> | void;
+}) {
+  const [addName, setAddName] = useState("");
+  const [addQty, setAddQty] = useState("");
+  const [addUnit, setAddUnit] = useState("Stk");
+  const [adding, setAdding] = useState(false);
+
+  async function add() {
+    if (!addName.trim()) return;
+    setAdding(true);
+    try {
+      await createSiteMaterial({
+        siteId,
+        name: addName.trim(),
+        quantity: addQty ? parseFloat(addQty.replace(",", ".")) || undefined : undefined,
+        unit: addUnit || undefined,
+      });
+      setAddName(""); setAddQty("");
+      await onChange();
+    } catch (e: any) { alert("Fehler: " + (e?.message ?? e)); }
+    finally { setAdding(false); }
+  }
+
+  async function changeStatus(m: SiteMaterial, next: MaterialStatus) {
+    try {
+      await updateSiteMaterialStatus(m.id, next);
+      await onChange();
+    } catch (e: any) { alert("Status-Update fehlgeschlagen: " + (e?.message ?? e)); }
+  }
+
+  async function del(m: SiteMaterial) {
+    if (!confirm(`Material "${m.name}" wirklich löschen?`)) return;
+    try { await deleteSiteMaterial(m.id); await onChange(); }
+    catch (e: any) { alert("Löschen fehlgeschlagen: " + (e?.message ?? e)); }
+  }
+
+  const grouped = useMemo(() => {
+    const byStatus = new Map<MaterialStatus, SiteMaterial[]>();
+    materials.forEach((m) => {
+      const list = byStatus.get(m.status) ?? [];
+      list.push(m);
+      byStatus.set(m.status, list);
+    });
+    // Reihenfolge: planned → ordered → delivered → installed → returned
+    return (["planned", "ordered", "delivered", "installed", "returned"] as MaterialStatus[])
+      .map((s) => ({ status: s, items: byStatus.get(s) ?? [] }))
+      .filter((g) => g.items.length > 0);
+  }, [materials]);
+
+  const total = materials.filter((m) => m.status !== "returned").length;
+  const installed = materials.filter((m) => m.status === "installed").length;
+
+  return (
+    <div className="font-sans">
+      {/* Zähler */}
+      <div className="px-2 pb-3 border-b border-steel-line/40 flex items-baseline justify-between">
+        <div className="font-mono text-[11px] tracking-wider uppercase text-ink-mute">
+          {installed} von {total} verbaut · {materials.filter((m) => m.status === "ordered").length} bestellt · {materials.filter((m) => m.status === "delivered").length} angeliefert
+        </div>
+        {loading && <span className="font-mono text-[10px] text-ink-mute">lädt …</span>}
+      </div>
+
+      {/* Hinzufügen */}
+      <div className="mt-3 mb-4 grid grid-cols-[1fr_80px_70px_auto] gap-2 items-end">
+        <div>
+          <label className="dd-eyebrow text-ink-2 block mb-1">Material / Position</label>
+          <input
+            value={addName}
+            onChange={(e) => setAddName(e.target.value)}
+            placeholder="z.B. Doppelstabmatte 183 anthrazit"
+            className="w-full border-[1.5px] border-steel-line/45 rounded-md px-2.5 py-1.5 text-[13px] font-sans"
+          />
+        </div>
+        <div>
+          <label className="dd-eyebrow text-ink-2 block mb-1">Menge</label>
+          <input
+            value={addQty}
+            onChange={(e) => setAddQty(e.target.value)}
+            placeholder="—"
+            inputMode="decimal"
+            className="w-full border-[1.5px] border-steel-line/45 rounded-md px-2.5 py-1.5 text-[13px] font-mono text-right"
+          />
+        </div>
+        <div>
+          <label className="dd-eyebrow text-ink-2 block mb-1">Einheit</label>
+          <select
+            value={addUnit}
+            onChange={(e) => setAddUnit(e.target.value)}
+            className="w-full border-[1.5px] border-steel-line/45 rounded-md px-2 py-1.5 text-[13px] font-mono"
+          >
+            <option>Stk</option><option>m</option><option>m²</option><option>m³</option><option>lfm</option><option>kg</option><option>t</option><option>Sack</option><option>pausch.</option>
+          </select>
+        </div>
+        <button
+          onClick={add}
+          disabled={!addName.trim() || adding}
+          className="btn-primary !min-h-[36px] !px-4 text-[12px] disabled:opacity-50"
+        >
+          {adding ? "…" : "+ Hinzu"}
+        </button>
+      </div>
+
+      {/* Listen pro Status */}
+      {materials.length === 0 && !loading ? (
+        <Empty>Noch keine Materialien erfasst. Lege oben das erste an.</Empty>
+      ) : (
+        <div className="space-y-4">
+          {grouped.map(({ status, items }) => {
+            const meta = MATERIAL_STATUS_META[status];
+            return (
+              <div key={status}>
+                <div className="font-display font-extrabold uppercase text-[11px] tracking-wide mb-1.5 flex items-baseline gap-2" style={{ color: meta.color }}>
+                  <span className="text-[14px]">{meta.icon}</span>
+                  {meta.label} <span className="text-ink-mute font-mono">· {items.length}</span>
+                </div>
+                <ul className="space-y-1">
+                  {items.map((m) => (
+                    <li key={m.id} className="bg-bg-2 border border-steel-line/40 rounded-md px-3 py-2 flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="font-sans text-[13px] text-ink leading-snug">{m.name}</div>
+                        <div className="font-mono text-[10.5px] text-ink-mute mt-0.5">
+                          {m.quantity != null && <span>{m.quantity}{m.unit ? " " + m.unit : ""}</span>}
+                          {m.supplier && <span className="ml-2">· {m.supplier}</span>}
+                          {m.orderedAt && <span className="ml-2">· bestellt {m.orderedAt}</span>}
+                          {m.deliveredAt && <span className="ml-2">· geliefert {m.deliveredAt}</span>}
+                        </div>
+                      </div>
+                      {/* Status-Buttons je nach aktueller Stufe nur sinnvolle Schritte anzeigen */}
+                      <div className="flex gap-1 flex-shrink-0">
+                        {status === "planned" && (
+                          <button onClick={() => changeStatus(m, "ordered")} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wide bg-amber/15 text-amber-deep hover:bg-amber/25 border border-amber/40">→ bestellt</button>
+                        )}
+                        {status === "ordered" && (
+                          <button onClick={() => changeStatus(m, "delivered")} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wide bg-info/15 text-info hover:bg-info/25 border border-info/40" style={{ color: "#1E40AF", borderColor: "rgba(30,64,175,0.4)", background: "rgba(30,64,175,0.1)" }}>→ geliefert</button>
+                        )}
+                        {status === "delivered" && (
+                          <button onClick={() => changeStatus(m, "installed")} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wide bg-moss/15 text-moss hover:bg-moss/25 border border-moss/40" style={{ color: "#15803D", borderColor: "rgba(21,128,61,0.4)", background: "rgba(21,128,61,0.1)" }}>→ verbaut</button>
+                        )}
+                        {status !== "returned" && status !== "installed" && (
+                          <button onClick={() => changeStatus(m, "returned")} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wide text-ink-mute hover:text-rust border border-steel-line/45 hover:border-rust">retour</button>
+                        )}
+                        <button onClick={() => del(m)} className="px-2 py-1 rounded text-[10.5px] font-mono uppercase tracking-wide text-ink-mute hover:text-rust border border-steel-line/45 hover:border-rust" title="Löschen">✕</button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
