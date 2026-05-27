@@ -3,10 +3,10 @@ import {
   listAssignmentsForCompany, listAllEntries, listSites, listWorkers,
   upsertAssignment, deleteAssignment, publishWeek
 } from "../lib/api";
-import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { getHoliday } from "../lib/holidays";
 import { isWorkEntry, type Assignment, type Entry, type Site, type Worker } from "../lib/types";
-import { isoWeek, todayIso, weekDays } from "../lib/utils";
+import { isoWeek, todayIso, weekDays, withTimeout } from "../lib/utils";
 import BackButton from "../components/BackButton";
 
 const MONTH_LONG = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
@@ -85,15 +85,6 @@ export default function Plan() {
     });
   }
 
-  function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-    return Promise.race([
-      p,
-      new Promise<T>((_, reject) =>
-        setTimeout(() => reject(new Error(`Zeitüberschreitung: ${label} (${ms}ms)`)), ms)
-      )
-    ]);
-  }
-
   useEffect(() => {
     refresh();
     setPendingSites({});
@@ -103,6 +94,7 @@ export default function Plan() {
   // Echtzeit: bei Änderungen an Zuweisungen, Baustellen, Workers oder Abwesenheiten sofort neu laden
   useRealtime(`plan-${year}-${week}`, ["assignments", "sites", "workers", "entries"], refresh);
   useRefreshOnVisible(refresh);
+  useRefreshOnAuth(refresh);
 
   function siteIdsForDay(date: string): string[] {
     const fromAssignments = Array.from(

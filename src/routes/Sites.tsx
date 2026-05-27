@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import {
   archiveSite, createSite, listAllSites, unarchiveSite, updateSite
 } from "../lib/api";
-import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
+import { withTimeout } from "../lib/utils";
 import SiteEditor from "../components/SiteEditor";
 import BackButton from "../components/BackButton";
 import type { Site } from "../lib/types";
@@ -24,7 +25,7 @@ export default function Sites() {
     setLoading(true);
     setError(null);
     try {
-      const data = await listAllSites(true);
+      const data = await withTimeout(listAllSites(true), 8000, "Baustellen");
       setSites(data);
     } catch (err: any) {
       setError(err?.message ?? "Fehler beim Laden");
@@ -40,6 +41,8 @@ export default function Sites() {
   // Echtzeit-Updates bei Änderungen an Baustellen
   useRealtime("sites-admin", ["sites"], refresh);
   useRefreshOnVisible(refresh);
+  // Auth-Session war beim ersten Fetch evtl. noch nicht da → nachladen, sobald sie kommt
+  useRefreshOnAuth(refresh);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
