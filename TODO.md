@@ -1,179 +1,169 @@
 # Leuschner Stundenzettel · Offene Aufgaben
 
-**Stand:** 06. Mai 2026, 14:00
-**Letzter Schritt:** Theme komplett auf Hochkontrast (Schwarz/Weiß/Orange) + System-UI-Schriftart umgestellt. Bug-Fix `login()` setzt jetzt `onboarded`-Flag.
+**Stand:** 27. Mai 2026
+**Master-Branch:** `feat/parser-upgrade-sprint1` (65+ Commits jenseits von `main`, ungepusht)
+**Live deployt:** `main` @ `64b823d` (21.05.) — Stand vor dem Parser-Sprint
 
 ---
 
-## 🔁 Wiedereinstieg nach Neustart
+## 🔁 Wiedereinstieg
 
-### 1) Dev-Server starten
+Vollständige Setup-Anleitung in `../WIEDEREINSTIEG.md`. Kurzform:
+
 ```powershell
-cd E:\Leuschner_Branding\app
-npm run dev
-```
-→ läuft auf <http://localhost:5173>
-
-### 2) Cloudflared-Tunnel starten (für Handy-Test)
-```powershell
-cloudflared tunnel --url http://localhost:5173
-```
-→ neue HTTPS-URL wird ausgegeben, Form: `https://<random>.trycloudflare.com`
-→ URL ändert sich bei jedem Start (für stabile URL: Phase 5 Live-Deploy)
-
-### 3) Auf Handy testen
-- Alte PWA vom Home-Bildschirm löschen (URL hat sich geändert)
-- Safari → neue Cloudflared-URL → Teilen → Zum Home-Bildschirm
-
-### 4) Falls kein Test-Code in DB:
-```sql
--- Im Supabase SQL Editor
-delete from invitations
-  where worker_id = (select id from workers where last_name = 'Jauken')
-  and used_at is null;
-
-insert into invitations (code, worker_id, invited_by, expires_at)
-values (
-  'TEST01',
-  (select id from workers where last_name = 'Jauken'),
-  (select id from workers where last_name = 'Kohlberg'),
-  now() + interval '24 hours'
-);
+cd "L:\Leuschner APP\app"
+git status
+npm run dev      # http://localhost:5173
 ```
 
 ---
 
-## ✅ Heute erledigt (06.05.2026)
+## 🔥 Kritisch · jetzt fällig
 
-- [x] **SQL-Suite ausgeführt** — Rick mit auth_user_id verknüpft, demo-relax-Policies aktiv, whatsapp-onboarding-RPCs angelegt
-- [x] **Anonymous Sign-Ins** in Supabase aktiviert
-- [x] **Bug Mitarbeiter-Liste leer** — gefixt durch SQL (Rick-Verknüpfung) + Demo-Policies
-- [x] **Bug Demo-Login → Onboarding-Loop** — `login()` setzt jetzt `onboarded`-Flag in `src/lib/auth.ts`
-- [x] **Cloudflared installiert** via winget
-- [x] **Theme: Hochkontrast** (Schwarz/Weiß/Orange) — siehe unten Branding-Sektion
-- [x] **Schriftart: System UI** (SF Pro auf iOS, Roboto auf Android, Segoe auf Windows)
-- [x] **Schriftgrößen pauschal um ~20% hoch** (alle text-[8px-10px] → text-[10px-12px])
-- [x] **Grain-Overlay deaktiviert** (störte auf reinem Weiß)
-- [x] **Vite `allowedHosts`** auf `.trycloudflare.com` und `.ngrok-free.app` erweitert (vite.config.ts)
+- [ ] **Migration `20260526200000_site_questions.sql` auf Live-DB einspielen** — Tabelle fehlt aktuell, Klärpunkte-Feature greift live nicht
+- [ ] **Branch `feat/parser-upgrade-sprint1` nach `main` mergen** und auf Cloudflare Pages deployen — sonst läuft live noch der 21.05.-Stand ohne die ganzen Parser/Wetter/Material-Features
+- [ ] Nach Deploy: Supabase URL-Configuration prüfen (Site-URL + Redirect-Allowlist auf `leuschner-stundenzettel.pages.dev`)
 
 ---
 
-## 🎨 Branding · Finalisiert
+## ✅ Heute drin (Sprint 19. – 27.05.)
 
-| Token | Hex | Verwendung |
-|---|---|---|
-| `bg.DEFAULT` | `#FFFFFF` | Page-BG |
-| `bg.deep` | `#000000` | Buttons, Avatar-BG |
-| `bg.2` | `#F4F4F5` | Karten |
-| `bg.3` | `#E5E7EB` | Hover/aktive Cards |
-| `bg.4` | `#D1D5DB` | tieferer Hintergrund |
-| `paper.DEFAULT` | `#000000` | Text |
-| `copper.DEFAULT` | `#DC6E2D` | Orange-Akzent |
-| `copper.bright` | `#F08A4D` | Highlight |
-| `good` | `#15803D` | grün (positiv) |
-| `rust` | `#B91C1C` | rot (warnend) |
+### Pipeline & Vertrieb
+- Pipeline-Kanban-Board `/admin/angebote` (6 Stages, archived_at, sent_at, freigabe-jsonb)
+- Pipeline-Stage „Versendet" + 7-Tage-Nachfass-Hinweis
+- Chef-Freigabe pro Angebots-Position (review_status, Stempel, Verlauf)
+- Cheff-Flow als Live-Seite `/cheff-flow` mit WhatsApp-Vorschau
+- Detail-Drawer 1080px breit, 2-Spalten-Layout
+- Karten-Datum + Beleg-Positionen im Drawer
 
-Schrift: **System UI** für Body, **Big Shoulders Display** für Headlines, **JetBrains Mono** für Mono-Texte.
+### Anfragen-Modul + KI-Parser
+- Anfragen-Inbox `/admin/anfragen` als Uhrwerk
+- Wizard `/admin/anfrage-neu` mit 3 Schritten (Rohtext → Parsen → Kunde matchen → Speichern)
+- Workers AI Strukturierung (Llama 3.3 70B Default, 8B Fallback, Heuristik Notfall)
+- Sprint-1: Modell-Upgrade auf 70B + Few-Shot + Cross-Validation
+- Sprint-2: Pre-Cleaning + Self-Check + Active-Asking
+- Sprint-3: Domain-Glossar + Multi-Leistung + Korrektur-Log
+- M12 Material-Erkennung pro Leistung
+- M13 Live-Pipeline-Visualisierung via SSE-Streaming
+- M14 Quellen-Highlights im Originaltext
+- Festnetz/Mobil als getrennte Felder
+- Telefon-Parser-Sanity (kein Doppel-Match), Mobile-Regex-Fix
+- LLM-Erkanntes (Mengen/Termin/Leistung) als Chips im Drawer
+- S5 Wizard befüllt sich aus Anfrage-Positionen
+- Heuristik-Parser: Grußformel raus, Telefon mit Slash, Pre-Check inquiries-Tabelle
+- Live-Progress-Modal beim Anlegen
+- Duplikat-Hänger gefixt
 
-Mockup-Datei mit allen 10 Theme-Varianten (zur späteren Referenz): `E:\Leuschner_Branding\design-mockups\themes.html`
+### Baustellen & SiteDetail
+- SiteDetail nach Mockup-Variante 14 (Modal-Trigger + Karte + KPIs)
+- Live-Wetter pro Baustelle via Buienradar
+- Material-Status (`site_materials`)
+- Klärpunkte (`site_questions` — Migration noch nicht live!)
+- Satelliten-Toggle mit ESRI World Imagery
+- Auto-Geocoding via Nominatim für Baustellen ohne GPS
+- Zoom in Karte (Inline + Vollbild)
+- Marker-Drag korrigiert Position + präziseres Geocoding
+- Karten-Toggle z-Index über Leaflet-Layer
+- Karten-Toggle außerhalb der Karte links oben + Google-Earth-Link
+- Auto-Anlage Baustelle bei Auftrag-Stage (mit Dedupe)
+
+### sevDesk-Anbindung
+- Pages-Function-Proxy `/api/sevdesk/[[path]].ts`
+- Initial-Import (Pipeline-Filter „Erledigte ausblenden")
+- Contact-Anlage aus Wizard (`sevdeskCreateContact`)
+- Belegpositionen-Übernahme (AN-… / RE-…)
+
+### UI / Theme
+- Theme „Stahl & Beton" (Welle 1 – 4 alle Routen umgestellt)
+- Admin-Dashboard als Module-Grid
+- Schiefer-Bühne + K1-Pipeline + Liquid-Pixel-Logo
+- Inbox-Karten-Tooltips + Schnell-Aktionen
+- InfoTip-Tooltips am Dashboard
+- BackButton prominent + überall integriert
+- Kontrast Self-Check
+- Tooltips raus aus Sidebar (V16, 21.05.)
+- Rick-Rolle korrigiert (Admin/Coder, nicht Inhaber)
+
+### Backend / Infra
+- 9 neue Migrationen (Pipeline-Familie, Customers, Inquiries, Parse-Corrections, Site-Questions, Site-Materials)
+- Cloudflare Pages Function `/api/weather.ts` (Buienradar)
+- Cloudflare Pages Functions `/api/llm/{structure,preclean,domain}.ts`
+- Demo-Modus entfernt (klarer Fehler bei fehlendem Env)
+- DATEV-CSV-Export (`datev.ts`)
+- `.claude/` aus Tracking ausgeschlossen
 
 ---
 
-## 🟡 Phase 2 · Auth fertigstellen (Restarbeit)
+## 🟡 Restarbeit · hoher Business-Wert
 
-- [ ] WhatsApp-Code-Flow End-to-End testen (Code generieren als Admin, einlösen am Handy)
-- [ ] Magic-Link-Login als Admin durchspielen (Mail klicken → Admin-Dashboard)
-- [ ] **Demo-Login-Buttons** aus `Login.tsx` entfernen, sobald Code-Flow rund ist
-- [ ] **RLS härten** — `demo-relax.sql`-Policies entfernen, nur authenticated Zugriff
+1. **„An Rick senden"-Submit-Sperre** (`entries.submitted_at`) — Mitarbeiter kann Woche einreichen, danach nicht mehr ändern
+2. **DATEV-CSV mit Buchhalter abstimmen** — Export existiert in `datev.ts`, Format finalisieren
+3. **Auftrags-Nachkalkulation** (Plan- vs. Ist-Stunden pro Baustelle) — Werte sind da (`pipeline_cards.planEur` + entries-Summen), Dashboard-Modul fehlt
+4. **Live-Stunden-Tracker auf Home** (Counter bis Ende-Eintrag)
+5. **RLS härten** — `demo-relax.sql`-Policies entfernen, nur authenticated Zugriff
 
-## 🟢 Phase 2.5 · Offline-Modus testen
+## 🟢 Polish & Nice-to-haves
 
-- [ ] DevTools → Network → Offline → Eintrag speichern → Banner rot („Offline · 1 Eintrag wartet")
-- [ ] Online → Auto-Sync → Banner grün
-- [ ] Edge-Case: pending Eintrag, mehrere Sync-Versuche scheitern → markFailed setzt `attempts++` + `lastError`
+6. **Code-Splitting** — Bundle ~635 kB (exifr + leaflet sind die Brocken)
+7. **Sentry / Error-Capture**
+8. **Audit-Log** (GoBD-relevant)
+9. **Stunden-Konto + Urlaub**
+10. **Geo-Fence-Auto-Vorschlag** beim Eintragen
+11. **Echte Push-Notifications** (VAPID + Edge-Function-Cron für 17:00 / 18:00)
+12. **WeeklySummary** aus echten Entries statt Mock
+13. **Statistik-Bereich Admin** (Stunden pro Baustelle / Tätigkeit / Quartal)
 
-## 🔵 Phase 3 · Speichern in DB scharf schalten (eigentlich schon offline drin)
+## 📋 Phase „Echte Stamm-Daten"
 
-- [ ] Submit-Week-Funktion (Freitag „An Rick senden") → ruft `submitWeek` aus `api.ts`
-- [ ] DATEV-Export-Button im Admin → CSV-Download mit allen entries
-
-## ⚪ Phase 4 · Echte Stammdaten
-
-- [ ] Wolfgangs Phone-Nummer
-- [ ] Udos Phone-Nummer
-- [ ] Mathias' Phone-Nummer
+- [ ] Wolfgangs Telefon-Nummer
+- [ ] Udos Telefon-Nummer
+- [ ] Mathias' Telefon-Nummer
 - [ ] Echte Stamm-Baustellen mit GPS-Koordinaten
-- [ ] Logo-Auswahl aus Vol. II finalisieren
+- [ ] Bei Remmert die echte Adresse nachtragen (aktuell Beispiel `Hauptstr. 17, 26831 Bunde`)
+- [ ] Vor-Foto-Watermarks bei Remmert: 3 Bilder neu hochladen über UI (Browser stempelt Datum+GPS+Baustelle drauf — die per Service-Role direkt eingespielten Vorab-Bilder haben das nicht)
 
-## 🟢 Phase 5 · Live-Deployment
+## 🌐 Live-Domain & Push
 
-**Aktive Live-URL:** <https://leuschner-stundenzettel.pages.dev> (Cloudflare Pages, seit 08.05.2026)
-
-- [x] GitHub-Repo `CaineSensi/leuschner-stundenzettel` (public) angelegt + Initial-Push
-- [x] GitHub Secrets `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` gesetzt
-- [x] GitHub Pages aktiviert (Source: GitHub Actions) — Workflow läuft, wartet auf DNS
-- [x] Custom Domain `app.galabauleuschner.de` im Repo eingetragen
-- [x] **Cloudflare Pages Projekt `leuschner-stundenzettel` angelegt + erster Deploy live**
-- [x] API-Token nach Deploy revoked
-- [ ] **Squarespace-DNS: CNAME `app` → `cainesensi.github.io`** (User-Aktion, wenn Zugriff wieder da)
+- [ ] Squarespace-DNS: CNAME `app` → `cainesensi.github.io`
 - [ ] HTTPS scharfschalten via `gh api -X PUT repos/.../pages -f https_enforced=true`
-- [ ] Supabase URL Configuration: Site-URL `https://leuschner-stundenzettel.pages.dev`, Redirect `https://leuschner-stundenzettel.pages.dev/**` (später Custom-Domain ergänzen)
-- [ ] Magic-Link-Test mit Live-Domain
-- [ ] Alte Cloudflared-PWA vom Handy löschen, neu von Live-URL installieren
-- [ ] **Optional:** Cloudflare Pages Git-Integration (Dashboard → Pages-Projekt → Settings → Git) — dann wird jeder Push auto-deployt statt manuelles `wrangler pages deploy dist`
+- [ ] Magic-Link-Test mit Custom-Domain
+- [ ] Cloudflare Pages Git-Integration (Settings → Git) — auto-Deploy bei push statt manuell wrangler
+- [ ] Alte Cloudflared-Tunnel-PWA vom Handy löschen, neu von Live-URL installieren
 
-## Manueller Re-Deploy auf Cloudflare Pages
-
-```powershell
-cd E:\Leuschner_Branding\app
-npm run build
-$env:CLOUDFLARE_API_TOKEN = "<neu erstellter Token>"
-npx wrangler pages deploy dist --project-name=leuschner-stundenzettel --branch=main --commit-dirty=true
-```
-
-Token erstellen: <https://dash.cloudflare.com/profile/api-tokens> → Create Token → Template "Edit Cloudflare Workers" → **Zone Resources auf "All zones"** umstellen (sonst Pflichtfeld-Fehler) → Continue → Create.
-
-## ⚪ Phase 6 · Echte Push-Notifications (Background)
-
-- [ ] VAPID-Keys generieren
-- [ ] Service Worker um Push-Empfang erweitern
-- [ ] Supabase Edge Function für Cron-Push (17:00 / 18:00)
-- [ ] Push-Subscription-Speicher pro Worker
-
-## ⚪ Phase 7 · Schulung & Übergabe
+## 🎓 Schulung & Übergabe
 
 - [ ] Datenschutz-Einwilligung formuliert
 - [ ] Kurz-Anleitung 1-Seiten-PDF
-- [ ] Schulung für Wolfgang + Udo + Mathias
+- [ ] Schulung Wolfgang + Udo + Mathias
 - [ ] Test-Woche live → Feedback-Runde
-- [ ] DATEV-Export-Workflow mit Buchhaltung absprechen
 
----
+## 🔐 Sicherheit (Stick-bezogen)
 
-## 💡 Nice-to-haves (später)
-
-- [ ] Mehrtägiger Krank/Urlaub: Wochenenden überspringen bei Tageszählung
-- [ ] Tagessoll/Wochensoll pro Mitarbeiter konfigurierbar
-- [ ] Foto-Beleg pro Eintrag (Kamera-API)
-- [ ] WeeklySummary aus echten Entries aggregieren statt Mock-Daten
-- [ ] Statistik-Bereich für Admin: Stunden pro Baustelle, pro Tätigkeit, pro Quartal
-- [ ] Native iOS/Android-App über Capacitor (falls Apple-Wrapper nötig wird)
+- [ ] KeePass-Portable auf Stick legen (KeePass-Programm aktuell weder auf Stick noch global installiert)
+- [ ] Klartext-Secrets in KDBX migrieren:
+  - `_Sicherheit/supabase-keys.md` (Service-Secret!)
+  - `_Sicherheit/github-recovery-codes.txt`
+  - `SEVDESK.md` (API-Key)
+- [ ] Master-Passwort für `Leuschners-KeyPass.kdbx` setzen (war noch jungfräulich?) — nur im Kopf / Passwort-Manager, nirgends auf Stick
 
 ---
 
 ## 📁 Wichtige Dateien
 
-| Datei | Was es ist |
+| Datei | Was |
 |---|---|
-| `TODO.md` | Diese Datei — aktueller Stand |
-| `SETUP.md` | Erstanleitung für Frischstart |
-| `DEPLOY.md` | Deployment auf GitHub Pages + Squarespace DNS |
-| `tailwind.config.ts` | **Theme-Tokens** (Hochkontrast B/W/Orange) |
-| `index.html` | Schriftarten geladen (Big Shoulders, JetBrains Mono) |
-| `src/index.css` | Body-Defaults, btn-Styles |
-| `src/lib/auth.ts` | **Bug-Fix** — `login()` setzt onboarded |
-| `src/routes/Admin.tsx` | Admin-Dashboard mit Mitarbeiter-Liste |
-| `src/lib/sync.ts` | Offline-Sync-Logik |
-| `supabase/whatsapp-onboarding.sql` | Bereits ausgeführt |
-| `supabase/demo-relax.sql` | Aktiv — Phase 2 entfernen |
-| `E:\Leuschner_Branding\design-mockups\themes.html` | Mockup mit 10 Theme-Varianten |
+| `../WIEDEREINSTIEG.md` | Setup-Anleitung beim Rechner-Wechsel |
+| `../SEVDESK.md` | sevDesk API-Doku + Endpoints + Sample-Daten |
+| `../_Sicherheit/` | Secrets-Ordner (Klartext + KDBX) |
+| `src/App.tsx` | Routen + Auth-Guards |
+| `src/routes/Admin.tsx` | Admin-Dashboard (Module-Grid) |
+| `src/routes/AnfrageNeu.tsx` | KI-Parser-Wizard |
+| `src/routes/SiteDetail.tsx` | Baustellen-Detail (Foto/Material/Klärpunkte/Wetter/Karte) |
+| `src/lib/llm.ts` | Frontend-Wrapper für Workers-AI-Parser |
+| `src/lib/pipeline.ts` | Pipeline-API (Stages, Cards, Freigabe) |
+| `src/lib/sevdesk.ts` | sevDesk-Client |
+| `src/lib/datev.ts` | DATEV-CSV-Export |
+| `functions/api/llm/structure.ts` | Pages-Function: KI-Parser-Eskalation |
+| `functions/api/weather.ts` | Pages-Function: Buienradar-Proxy |
+| `tailwind.config.ts` | Theme „Stahl & Beton" |
+| `supabase/migrations/` | 19 Migrationen, 1 fehlt noch live |
