@@ -10,6 +10,9 @@
 -- Quelle kann eine Inquiry sein (Auto-Anlage bei Parser-Material-Alternativen
 -- aus M12: wenn ein Material `note ~ 'alternativ'` hat, wird automatisch
 -- ein Klärpunkt erzeugt).
+--
+-- Hinweis: anonyme $$-Tags werden vom Supabase-SQL-Dashboard-Parser
+-- gelegentlich falsch zerlegt. Daher hier benannte Tags ($fn$, $realtime$).
 
 create table if not exists site_questions (
   id                  uuid primary key default uuid_generate_v4(),
@@ -41,9 +44,9 @@ create index if not exists site_questions_site_idx    on site_questions(site_id)
 create index if not exists site_questions_status_idx  on site_questions(status);
 create index if not exists site_questions_due_idx     on site_questions(due_at) where status in ('offen','wartet');
 
-create or replace function site_questions_touch() returns trigger as $$
+create or replace function site_questions_touch() returns trigger as $fn$
 begin new.updated_at = now(); return new; end;
-$$ language plpgsql;
+$fn$ language plpgsql;
 
 drop trigger if exists site_questions_touch on site_questions;
 create trigger site_questions_touch before update on site_questions
@@ -56,8 +59,8 @@ create policy site_questions_demo_all on site_questions
   for all using (true) with check (true);
 
 -- Realtime für Live-Updates
-do $$
+do $realtime$
 begin
   alter publication supabase_realtime add table site_questions;
 exception when duplicate_object then null;
-end$$;
+end $realtime$;
