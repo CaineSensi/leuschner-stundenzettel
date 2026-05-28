@@ -728,7 +728,7 @@ function DetailDrawer({
                 </div>
                 <div className="font-mono text-[11px] text-ink-2 mt-0.5">
                   am {fmtDateTime(card.cancelledAt)}
-                  {card.docNumber && card.sevdeskOrderId ? ' · in sevDesk auf „Abgelehnt"' : ''}
+                  {card.docNumber && card.sevdeskOrderId ? ' · in sevDesk auf Abgelehnt gesetzt' : ''}
                 </div>
               </div>
               {card.cancellationReason && (
