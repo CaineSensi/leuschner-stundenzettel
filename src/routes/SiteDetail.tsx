@@ -5,7 +5,8 @@ import "leaflet/dist/leaflet.css";
 import { listAllSites, listWorkers, updateSite } from "../lib/api";
 import { currentUser } from "../lib/auth";
 import {
-  deleteEntryPhoto, getCurrentCompanyId, listPhotosForSite, photoUrl, uploadSitePhoto
+  deleteEntryPhoto, getCurrentCompanyId, listPhotosForSite, listSiteMedia, mediaUrl, photoUrl, uploadSitePhoto,
+  type SiteMedia
 } from "../lib/photos";
 import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { supabase, isBackendConnected } from "../lib/supabase";
@@ -39,7 +40,24 @@ type SiteRow = Site & { archived?: boolean };
 interface InvoiceRow { id: string; invoiceNumber: string; invoiceDate: string; status: string; netEur: number; grossEur: number | null; paidAt: string | null }
 interface OrderRef   { id: string; orderNumber: string; positions: PipelinePosition[]; sumNet: number | null }
 
-type ModalKind = "positions" | "hours" | "invoices" | "photos" | "materials" | null;
+type ModalKind = "positions" | "hours" | "invoices" | "photos" | "materials" | "media" | "inquiry" | null;
+
+interface InquiryRef {
+  id: string;
+  source: "mail" | "phone" | "whatsapp" | "letter" | "in_person" | "web" | "other";
+  customerName: string | null;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  city: string | null;
+  description: string | null;
+  rawText: string;
+  notesLog: { at: string; by: string; kind: string; text: string }[];
+  status: string;
+  priority: string;
+  createdAt: string;
+  pipelineStage: string | null;
+  pipelineCardId: string | null;
+}
 
 export default function SiteDetail() {
   const navigate = useNavigate();
@@ -48,6 +66,8 @@ export default function SiteDetail() {
   const [site, setSite] = useState<SiteRow | null>(null);
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [photos, setPhotos] = useState<PhotoWithContext[]>([]);
+  const [media, setMedia] = useState<SiteMedia[]>([]);
+  const [inquiry, setInquiry] = useState<InquiryRef | null>(null);
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [orderRef, setOrderRef] = useState<OrderRef | null>(null);
@@ -73,21 +93,25 @@ export default function SiteDetail() {
     setLoading(true);
     setError(null);
     try {
-      const [allSites, allWorkers, sitePhotos, eRows, iRows, cRows] = await Promise.all([
+      const [allSites, allWorkers, sitePhotos, siteMedia, eRows, iRows, cRows, inqRow] = await Promise.all([
         withTimeout(listAllSites(true), 8000, "Baustellen"),
         withTimeout(listWorkers(), 8000, "Mitarbeiter").catch(() => [] as Worker[]),
         withTimeout(listPhotosForSite(id), 8000, "Fotos").catch(() => [] as PhotoWithContext[]),
+        withTimeout(listSiteMedia(id), 8000, "Anhänge").catch(() => [] as SiteMedia[]),
         withTimeout(loadEntriesForSite(id), 8000, "Stunden").catch(() => [] as WorkEntry[]),
         withTimeout(loadInvoicesForSite(id), 8000, "Rechnungen").catch(() => [] as InvoiceRow[]),
         withTimeout(loadPipelineCardForSite(id), 8000, "Pipeline-Karte").catch(() => null as OrderRef | null),
+        withTimeout(loadInquiryForSite(id), 8000, "Anfrage").catch(() => null as InquiryRef | null),
       ]);
       const found = allSites.find((s) => s.id === id) ?? null;
       setSite(found);
       setWorkers(allWorkers);
       setPhotos(sitePhotos);
+      setMedia(siteMedia);
       setEntries(eRows);
       setInvoices(iRows);
       setOrderRef(cRows);
+      setInquiry(inqRow);
     } catch (err: any) {
       setError(err?.message ?? "Fehler beim Laden");
     } finally {
@@ -96,7 +120,7 @@ export default function SiteDetail() {
   }
 
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
-  useRealtime(`site-detail-${id}`, ["entry_photos", "entries", "sites", "site_invoices", "pipeline_cards"], refresh);
+  useRealtime(`site-detail-${id}`, ["entry_photos", "entries", "sites", "site_invoices", "pipeline_cards", "inquiries"], refresh);
   useRefreshOnVisible(refresh);
   useRefreshOnAuth(refresh);
 
@@ -309,11 +333,27 @@ export default function SiteDetail() {
           </div>
 
           <aside className="bg-white border border-steel-line/45 rounded-2xl p-5 shadow-sm flex flex-col gap-3">
-            {orderRef?.orderNumber && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-copper/15 text-copper font-mono text-[10.5px] uppercase tracking-wider w-fit">
-                <span className="w-1.5 h-1.5 rounded-full bg-copper" /> {orderRef.orderNumber}
-              </span>
-            )}
+            <div className="flex flex-wrap gap-1.5">
+              {orderRef?.orderNumber && orderRef.orderNumber !== "—" && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-copper/15 text-copper font-mono text-[10.5px] uppercase tracking-wider w-fit">
+                  <span className="w-1.5 h-1.5 rounded-full bg-copper" /> {orderRef.orderNumber}
+                </span>
+              )}
+              {inquiry && (
+                <button
+                  onClick={() => setOpenModal("inquiry")}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-good/15 text-good hover:bg-good/25 transition-colors font-mono text-[10.5px] uppercase tracking-wider w-fit"
+                  title={`Anfrage-Verlauf öffnen (${inquiry.source}, ${fmtShort(inquiry.createdAt.slice(0,10))})`}
+                >
+                  {SOURCE_ICON[inquiry.source] ?? "✉"} {SOURCE_LABEL[inquiry.source] ?? inquiry.source}-Anfrage · {fmtShort(inquiry.createdAt.slice(0,10))}
+                </button>
+              )}
+              {inquiry?.pipelineStage && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-steel/15 text-ink-2 font-mono text-[10.5px] uppercase tracking-wider w-fit">
+                  Stage: {inquiry.pipelineStage}
+                </span>
+              )}
+            </div>
             <div className="font-display font-black text-[22px] leading-none uppercase">{site.name}</div>
             {(site.street || site.city) && (
               <div className="font-mono text-[12px] text-ink-2 leading-relaxed">
@@ -350,8 +390,8 @@ export default function SiteDetail() {
           />
         </section>
 
-        {/* QUICK-ACCESS · 5 Cards (Positionen · Stunden · Rechnungen · Material · Fotos) */}
-        <section className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-5">
+        {/* QUICK-ACCESS · 6 Cards (Positionen · Stunden · Rechnungen · Material · Fotos · Anhaenge) */}
+        <section className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-6">
           <QuickCard
             label="Positionen"
             value={posCount === 0 ? "—" : `${posCount} · ${eur(posSum)}`}
@@ -393,6 +433,17 @@ export default function SiteDetail() {
             iconPhoto={latestPhoto ?? undefined}
             onClick={() => setOpenModal("photos")}
           />
+          <QuickCard
+            label="Anhänge"
+            value={media.length === 0 ? "—" : (() => {
+              const v = media.filter((m) => m.kind === "video").length;
+              const a = media.filter((m) => m.kind === "audio").length;
+              return [v ? `${v} Video${v === 1 ? "" : "s"}` : null, a ? `${a} Audio` : null].filter(Boolean).join(" · ");
+            })()}
+            icon="🎬"
+            disabled={media.length === 0}
+            onClick={() => setOpenModal("media")}
+          />
         </section>
       </main>
 
@@ -415,6 +466,16 @@ export default function SiteDetail() {
       {openModal === "photos" && (
         <Modal title={`Foto-Galerie · ${photos.length} ${photos.length === 1 ? "Aufnahme" : "Aufnahmen"}`} onClose={() => setOpenModal(null)} wide>
           <PhotosBody photos={photos} workerMap={workerMap} onOpen={(i) => { setOpenModal(null); setLightboxIdx(i); }} />
+        </Modal>
+      )}
+      {openModal === "media" && (
+        <Modal title={`Anhänge · ${media.length} ${media.length === 1 ? "Datei" : "Dateien"}`} onClose={() => setOpenModal(null)} wide>
+          <MediaBody media={media} />
+        </Modal>
+      )}
+      {openModal === "inquiry" && inquiry && (
+        <Modal title={`${SOURCE_LABEL[inquiry.source] ?? inquiry.source}-Anfrage · ${inquiry.customerName ?? "—"}`} onClose={() => setOpenModal(null)} wide>
+          <InquiryBody inquiry={inquiry} />
         </Modal>
       )}
       {openModal === "materials" && (
@@ -651,6 +712,106 @@ function PhotosBody({
       {photos.map((p, i) => (
         <PhotoTile key={p.id} photo={p} worker={workerMap.get(p.workerId) ?? null} onTap={() => onOpen(i)} />
       ))}
+    </div>
+  );
+}
+
+function MediaBody({ media }: { media: SiteMedia[] }) {
+  if (media.length === 0) return <Empty>Keine Anhänge.</Empty>;
+  return (
+    <div className="flex flex-col gap-3">
+      {media.map((m) => <MediaTile key={m.id} media={m} />)}
+    </div>
+  );
+}
+
+function InquiryBody({ inquiry }: { inquiry: InquiryRef }) {
+  const log = [...inquiry.notesLog].sort((a, b) => a.at.localeCompare(b.at));
+  return (
+    <div className="flex flex-col gap-4">
+      {/* Kopfzeile mit Kontaktdaten */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[12px]">
+        {inquiry.customerName && <KV label="Kunde" value={inquiry.customerName} />}
+        {inquiry.customerPhone && <KV label="Telefon" value={inquiry.customerPhone} />}
+        {inquiry.customerEmail && <KV label="E-Mail" value={inquiry.customerEmail} />}
+        {inquiry.city && <KV label="Ort" value={inquiry.city} />}
+        <KV label="Quelle" value={`${SOURCE_ICON[inquiry.source] ?? ""} ${SOURCE_LABEL[inquiry.source] ?? inquiry.source}`} />
+        <KV label="Eingang" value={fmtShort(inquiry.createdAt.slice(0, 10))} />
+        <KV label="Status" value={inquiry.status} />
+        <KV label="Priorität" value={inquiry.priority} />
+      </div>
+
+      {/* Beschreibung */}
+      {inquiry.description && (
+        <div className="card-steel p-3">
+          <div className="dd-eyebrow text-ink-2 mb-1.5">Was der Kunde will</div>
+          <div className="text-[13px] leading-relaxed whitespace-pre-wrap">{inquiry.description}</div>
+        </div>
+      )}
+
+      {/* Timeline-Verlauf */}
+      {log.length > 0 && (
+        <div className="card-steel p-3">
+          <div className="dd-eyebrow text-ink-2 mb-2">Verlauf · {log.length} Eintrag{log.length === 1 ? "" : "e"}</div>
+          <ol className="flex flex-col gap-2">
+            {log.map((e, i) => (
+              <li key={i} className="grid grid-cols-[110px_1fr] gap-2 text-[12px] border-l-2 border-copper/40 pl-3 py-0.5">
+                <span className="font-mono text-[11px] text-ink-2 tabular-nums">{e.at.slice(0,10)} {e.at.slice(11,16)}</span>
+                <div>
+                  <span className="font-mono text-[10.5px] uppercase tracking-wider text-copper mr-2">{e.by} · {e.kind}</span>
+                  <span className="text-ink">{e.text}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Roh-Verlauf zum Aufklappen */}
+      {inquiry.rawText && (
+        <details className="card-steel p-3">
+          <summary className="cursor-pointer dd-eyebrow text-ink-2">Original-Nachricht ({inquiry.rawText.length.toLocaleString("de")} Zeichen)</summary>
+          <pre className="mt-2 text-[11.5px] leading-relaxed whitespace-pre-wrap font-mono text-ink-2 max-h-[400px] overflow-auto">{inquiry.rawText}</pre>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function KV({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="dd-eyebrow text-ink-2">{label}</div>
+      <div className="text-ink font-medium">{value}</div>
+    </div>
+  );
+}
+
+function MediaTile({ media }: { media: SiteMedia }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    mediaUrl(media).then((u) => { if (!cancelled) setUrl(u); });
+    return () => { cancelled = true; };
+  }, [media.id]);
+  const kb = media.bytes ? `${(media.bytes / 1024).toFixed(0)} kB` : "";
+  const taken = media.takenAt ? fmtShort(media.takenAt.slice(0, 10)) : "";
+  return (
+    <div className="card-steel p-3">
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-lg">{media.kind === "video" ? "🎬" : "🎙"}</span>
+          <span className="font-mono text-[12px] text-ink-2 uppercase tracking-wider">{media.kind} · {media.mimeType.split("/").pop()}</span>
+        </div>
+        <div className="font-mono text-[11px] text-ink-2 tabular-nums">{taken} · {kb}</div>
+      </div>
+      {url ? (
+        media.kind === "video"
+          ? <video src={url} controls preload="metadata" className="w-full max-h-[480px] rounded bg-black" />
+          : <audio src={url} controls preload="metadata" className="w-full" />
+      ) : (
+        <div className="text-ink-2 text-[12px] py-4 text-center">lädt …</div>
+      )}
     </div>
   );
 }
@@ -1065,6 +1226,52 @@ async function loadInvoicesForSite(siteId: string): Promise<InvoiceRow[]> {
     grossEur: r.gross_eur != null ? Number(r.gross_eur) : null,
     paidAt: r.paid_at ?? null,
   }));
+}
+
+const SOURCE_ICON: Record<string, string> = {
+  whatsapp: "📱", mail: "✉", phone: "☎", letter: "📮", in_person: "🤝", web: "🌐", other: "•"
+};
+const SOURCE_LABEL: Record<string, string> = {
+  whatsapp: "WhatsApp", mail: "Mail", phone: "Telefon", letter: "Brief", in_person: "Persönlich", web: "Web", other: "Sonstige"
+};
+
+async function loadInquiryForSite(siteId: string): Promise<InquiryRef | null> {
+  if (!isBackendConnected() || !supabase) return null;
+  const sb: any = supabase;
+  // Schritt 1: Pipeline-Card der Baustelle holen
+  const { data: cards } = await sb
+    .from("pipeline_cards")
+    .select("id, stage")
+    .eq("site_id", siteId)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const card = cards?.[0];
+  if (!card) return null;
+  // Schritt 2: Inquiry der Card holen
+  const { data: inq } = await sb
+    .from("inquiries")
+    .select("id, source, customer_name, customer_phone, customer_email, city, description, raw_text, notes_log, status, priority, created_at, pipeline_card_id")
+    .eq("pipeline_card_id", card.id)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  const r = inq?.[0];
+  if (!r) return null;
+  return {
+    id: r.id,
+    source: r.source,
+    customerName: r.customer_name,
+    customerPhone: r.customer_phone,
+    customerEmail: r.customer_email,
+    city: r.city,
+    description: r.description,
+    rawText: r.raw_text ?? "",
+    notesLog: Array.isArray(r.notes_log) ? r.notes_log : [],
+    status: r.status,
+    priority: r.priority,
+    createdAt: r.created_at,
+    pipelineStage: card.stage,
+    pipelineCardId: card.id,
+  };
 }
 
 async function loadPipelineCardForSite(siteId: string): Promise<OrderRef | null> {

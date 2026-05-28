@@ -314,10 +314,12 @@ export async function listPhotosForSite(
   const sb: any = supabase;
 
   // Query 1: Eintrag-Fotos via Foreign-Embedding
+  // kind='image' filtert Video/Audio raus (die landen in listSiteMedia)
   let qEntry = sb
     .from("entry_photos")
     .select("*, entries!inner(date, site_id, worker_id)")
-    .eq("entries.site_id", siteId);
+    .eq("entries.site_id", siteId)
+    .eq("kind", "image");
   if (opts.dateFrom) qEntry = qEntry.gte("entries.date", opts.dateFrom);
   if (opts.dateTo)   qEntry = qEntry.lte("entries.date", opts.dateTo);
   if (opts.workerId) qEntry = qEntry.eq("worker_id", opts.workerId);
@@ -326,7 +328,8 @@ export async function listPhotosForSite(
   let qDirect = sb
     .from("entry_photos")
     .select("*")
-    .eq("site_id", siteId);
+    .eq("site_id", siteId)
+    .eq("kind", "image");
   if (opts.workerId) qDirect = qDirect.eq("worker_id", opts.workerId);
   // Datum-Filter nur über taken_at (kein entry vorhanden)
   if (opts.dateFrom) qDirect = qDirect.gte("taken_at", `${opts.dateFrom}T00:00:00`);
@@ -442,6 +445,60 @@ export async function photoUrl(photo: EntryPhoto, kind: "raw" | "stamped" = "sta
   const sb: any = supabase;
   const path = kind === "stamped" && photo.stampedPath ? photo.stampedPath : photo.rawPath;
   const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(path, expiresIn);
+  if (error || !data) {
+    console.warn("[photos] signed URL fehlgeschlagen", error);
+    return null;
+  }
+  return data.signedUrl;
+}
+
+/**
+ * Anhaenge an einer Baustelle, die keine Bilder sind:
+ * Videos (Vor-Ort-Aufnahmen, Drohnen-Mitschnitte) und Audio (WhatsApp-PTT,
+ * Telefonate). Werden separat von der Foto-Galerie ausgespielt damit
+ * <img>-Renderer nicht versuchen Container-Formate zu dekodieren.
+ */
+export interface SiteMedia {
+  id: string;
+  siteId: string;
+  workerId: string;
+  rawPath: string;
+  kind: "video" | "audio";
+  mimeType: string;
+  bytes?: number;
+  takenAt?: string;
+  createdAt: string;
+  position: number;
+}
+
+export async function listSiteMedia(siteId: string): Promise<SiteMedia[]> {
+  if (!isBackendConnected() || !supabase) return [];
+  const sb: any = supabase;
+  const { data, error } = await sb
+    .from("entry_photos")
+    .select("id, site_id, worker_id, raw_path, kind, mime_type, bytes_raw, taken_at, created_at, position")
+    .eq("site_id", siteId)
+    .in("kind", ["video", "audio"])
+    .order("position");
+  if (error) throw error;
+  return (data ?? []).map((r: any): SiteMedia => ({
+    id: r.id,
+    siteId: r.site_id,
+    workerId: r.worker_id,
+    rawPath: r.raw_path,
+    kind: r.kind,
+    mimeType: r.mime_type ?? (r.kind === "video" ? "video/mp4" : "audio/ogg"),
+    bytes: r.bytes_raw ?? undefined,
+    takenAt: r.taken_at ?? undefined,
+    createdAt: r.created_at,
+    position: r.position ?? 0
+  }));
+}
+
+export async function mediaUrl(media: SiteMedia, expiresIn = 3600): Promise<string | null> {
+  if (!supabase) return null;
+  const sb: any = supabase;
+  const { data, error } = await sb.storage.from(BUCKET).createSignedUrl(media.rawPath, expiresIn);
   if (error || !data) {
     console.warn("[photos] signed URL fehlgeschlagen", error);
     return null;
