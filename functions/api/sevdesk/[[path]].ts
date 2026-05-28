@@ -13,6 +13,7 @@ const SEVDESK_BASE = 'https://my.sevdesk.de/api/v1';
 const ALLOWED_PREFIXES = [
   'Contact',
   'ContactAddress',
+  'CommunicationWay',
   'Order',
   'OrderPos',
   'Part',
