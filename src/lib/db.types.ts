@@ -64,7 +64,7 @@ export type Database = {
           date: string;
           entry_type: "work" | "sick" | "vacation" | "holiday";
           site_id: string | null;
-          discipline: "PFL" | "GTN" | "ZAU" | null;
+          discipline: "PFL" | "GTN" | "ZAU" | "VWG" | null;
           start_min: number | null;
           end_min: number | null;
           pause_min: number | null;

@@ -1,8 +1,9 @@
-export type Discipline = "PFL" | "GTN" | "ZAU";
+export type Discipline = "PFL" | "GTN" | "ZAU" | "VWG";
 
 export const DISCIPLINE_LABEL: Record<Discipline, string> = {
   PFL: "Pflaster",
   GTN: "Garten",
+  VWG: "Verwaltung",
   ZAU: "Zaun"
 };
 
