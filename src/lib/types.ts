@@ -37,6 +37,9 @@ export interface Worker {
   isAdmin?: boolean;
   phone?: string;
   linked?: boolean;   // true wenn workers.auth_user_id gesetzt ist
+  /** Tagessoll in Minuten. Default 480 (8h). Wird für Feiertag/Urlaub/Krank
+   *  als Bezahlungsbasis genutzt (Feiertagslohn = übliche Stunden, nicht 8h). */
+  dailyTargetMinutes?: number;
 }
 
 interface BaseEntry {

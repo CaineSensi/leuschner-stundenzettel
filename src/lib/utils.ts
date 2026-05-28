@@ -27,6 +27,15 @@ export function workMinutes(entry: Entry): number {
   return Math.max(0, entry.endMin - entry.startMin - entry.pauseMin);
 }
 
+/** Bezahlungs-relevante Minuten: gearbeitete Zeit für work-Entries,
+ *  Tagessoll für Feiertag/Urlaub/Krank (Lohnfortzahlung / Feiertagslohn). */
+export function paidMinutes(entry: Entry, dailyTargetMinutes: number = 480): number {
+  if (entry.type === "work") {
+    return Math.max(0, entry.endMin - entry.startMin - entry.pauseMin);
+  }
+  return dailyTargetMinutes;
+}
+
 export function dayName(iso: string): string {
   const days = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
   return days[new Date(iso).getDay()];

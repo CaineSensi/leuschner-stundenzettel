@@ -5,7 +5,7 @@ import {
 } from "../lib/api";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { getHoliday, isHoliday } from "../lib/holidays";
-import { isoWeek, todayIso, weekDays, fmtHours, workMinutes } from "../lib/utils";
+import { isoWeek, todayIso, weekDays, fmtHours, workMinutes, paidMinutes } from "../lib/utils";
 import { isWorkEntry, DISCIPLINE_LABEL, type Assignment, type Entry, type Site, type Worker } from "../lib/types";
 import {
   buildExportRows, buildCSV, downloadCSV, csvFilename, aggregate,
@@ -626,7 +626,7 @@ function Monatsuebersicht({
   team: Worker[]; monthDays: string[]; monthAnchor: Date; today: string;
   entries: Entry[];
 }) {
-  // Arbeitstage Mo–Fr ohne Feiertage
+  // Arbeitstage Mo–Fr ohne Feiertage (Soll-Berechnung)
   const workdays = monthDays.filter((iso) => {
     const wd = new Date(iso).getDay();
     return wd >= 1 && wd <= 5 && !isHoliday(iso);
@@ -636,21 +636,23 @@ function Monatsuebersicht({
     return wd >= 1 && wd <= 5 && isHoliday(iso);
   });
 
-  const sollPerWorkerMinutes = workdays.length * 8 * 60;
-  const totalMonthMinutes = team.reduce((s, w) =>
-    s + entries.filter((e) => e.workerId === w.id).reduce((t, e) => t + workMinutes(e), 0)
-  , 0);
-  const sollTotal = team.length * sollPerWorkerMinutes;
-
-  function workerMinutes(workerId: string): number {
-    return entries.filter((e) => e.workerId === workerId).reduce((s, e) => s + workMinutes(e), 0);
+  function targetOf(w: Worker): number { return w.dailyTargetMinutes ?? 480; }
+  function sollForWorker(w: Worker): number { return workdays.length * targetOf(w); }
+  function workerMinutes(w: Worker): number {
+    return entries.filter((e) => e.workerId === w.id)
+      .reduce((s, e) => s + paidMinutes(e, targetOf(w)), 0);
   }
   function workerEntriesOnDay(workerId: string, iso: string): Entry[] {
     return entries.filter((e) => e.workerId === workerId && e.date === iso);
   }
   function dayTotal(iso: string): number {
-    return team.reduce((s, w) => s + workerEntriesOnDay(w.id, iso).reduce((t, e) => t + workMinutes(e), 0), 0);
+    return team.reduce((s, w) =>
+      s + workerEntriesOnDay(w.id, iso).reduce((t, e) => t + paidMinutes(e, targetOf(w)), 0)
+    , 0);
   }
+
+  const totalMonthMinutes = team.reduce((s, w) => s + workerMinutes(w), 0);
+  const sollTotal = team.reduce((s, w) => s + sollForWorker(w), 0);
 
   // Kalender-Grid: erster Tag Mo-orientiert (1=Mo … 7=So)
   const firstWeekday = ((new Date(monthDays[0]).getDay() + 6) % 7); // 0=Mo, 6=So
@@ -659,14 +661,14 @@ function Monatsuebersicht({
   return (
     <>
       {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
         <div className="dd-card px-5 py-4" style={{ ["--c" as any]: "#DC6E2D" }}>
           <div className="dd-eyebrow text-copper">Σ Monat</div>
           <div className="font-display font-black text-3xl text-ink leading-none tabular-nums mt-1.5">
             {fmtHours(totalMonthMinutes)} <span className="text-lg text-ink-mute font-mono">h</span>
           </div>
           <div className="font-mono text-[11px] tracking-wider text-ink-2 uppercase mt-1">
-            von {fmtHours(sollTotal)} h · {sollTotal > 0 ? Math.round((totalMonthMinutes / sollTotal) * 100) : 0} %
+            von {fmtHours(sollTotal)} h · {sollTotal > 0 ? Math.round((totalMonthMinutes / sollTotal) * 100) : 0} % · inkl. Feiertage/Urlaub/Krank
           </div>
         </div>
         <div className="dd-card px-5 py-4" style={{ ["--c" as any]: "#1F7A3D" }}>
@@ -680,16 +682,7 @@ function Monatsuebersicht({
           <div className="dd-eyebrow text-rust">Feiertage</div>
           <div className="font-display font-black text-3xl text-ink leading-none tabular-nums mt-1.5">{holidaysInMonth.length}</div>
           <div className="font-mono text-[11px] tracking-wider text-ink-2 uppercase mt-1">
-            {holidaysInMonth.length === 0 ? "keiner" : holidaysInMonth.map((d) => new Date(d).getDate() + ".").join(" ")}
-          </div>
-        </div>
-        <div className="dd-card px-5 py-4" style={{ ["--c" as any]: "#A9AEB3" }}>
-          <div className="dd-eyebrow text-steel">Soll je Mitarbeiter</div>
-          <div className="font-display font-black text-3xl text-ink leading-none tabular-nums mt-1.5">
-            {fmtHours(sollPerWorkerMinutes)} <span className="text-lg text-ink-mute font-mono">h</span>
-          </div>
-          <div className="font-mono text-[11px] tracking-wider text-ink-2 uppercase mt-1">
-            8 h × {workdays.length} Tage
+            {holidaysInMonth.length === 0 ? "keiner" : holidaysInMonth.map((d) => new Date(d).getDate() + ".").join(" ")} · werden mit Tagessoll bezahlt
           </div>
         </div>
       </div>
@@ -704,14 +697,15 @@ function Monatsuebersicht({
           {team.length === 0 ? (
             <div className="px-5 py-8 text-center font-mono text-ink-2 text-[12px]">Keine Mitarbeiter</div>
           ) : team.map((w) => {
-            const tot = workerMinutes(w.id);
-            const pct = sollPerWorkerMinutes > 0 ? Math.min(100, (tot / sollPerWorkerMinutes) * 100) : 0;
+            const tot = workerMinutes(w);
+            const soll = sollForWorker(w);
+            const pct = soll > 0 ? Math.min(100, (tot / soll) * 100) : 0;
             return (
               <div key={w.id} className="px-5 py-3 grid grid-cols-[48px_1fr_auto] gap-4 items-center">
                 <div className="w-10 h-10 rounded-full bg-bg-deep text-copper-bright font-display font-black text-[12px] flex items-center justify-center">{w.initials}</div>
                 <div className="min-w-0">
                   <div className="text-[13.5px] font-bold text-ink truncate">{w.firstName} {w.lastName}</div>
-                  <div className="dd-eyebrow text-ink-mute mt-0.5">{w.role}</div>
+                  <div className="dd-eyebrow text-ink-mute mt-0.5">{w.role} · {fmtHours(targetOf(w))} h/Tag</div>
                   <div className="h-1.5 bg-bg-3 rounded-full mt-2 overflow-hidden">
                     <div className={`h-full rounded-full ${pct >= 100 ? "bg-good" : "bg-copper"}`} style={{ width: `${pct}%` }} />
                   </div>
@@ -719,7 +713,7 @@ function Monatsuebersicht({
                 <div className="text-right">
                   <div className="font-display font-black text-xl tabular-nums text-ink leading-none">{fmtHours(tot)}</div>
                   <div className="dd-eyebrow text-ink-mute mt-1">
-                    von {fmtHours(sollPerWorkerMinutes)} h · {Math.round(pct)} %
+                    von {fmtHours(soll)} h · {Math.round(pct)} %
                   </div>
                 </div>
               </div>

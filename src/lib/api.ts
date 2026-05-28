@@ -23,7 +23,7 @@ export async function listWorkers(): Promise<Worker[]> {
   const sb = requireBackend();
   const { data, error } = await sb
     .from("workers")
-    .select("id, initials, first_name, last_name, role, is_admin, phone, auth_user_id")
+    .select("id, initials, first_name, last_name, role, is_admin, phone, auth_user_id, daily_target_minutes")
     .order("is_admin", { ascending: false });
   if (error) throw error;
   return (data ?? []).map((w: any) => ({
@@ -34,7 +34,8 @@ export async function listWorkers(): Promise<Worker[]> {
     role: w.role,
     isAdmin: w.is_admin,
     phone: w.phone ?? undefined,
-    linked: !!w.auth_user_id
+    linked: !!w.auth_user_id,
+    dailyTargetMinutes: w.daily_target_minutes ?? 480
   }));
 }
 

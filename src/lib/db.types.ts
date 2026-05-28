@@ -28,6 +28,8 @@ export type Database = {
           last_name: string;
           role: string;
           is_admin: boolean;
+          phone: string | null;
+          daily_target_minutes: number;
           starts_on: string | null;
           ends_on: string | null;
           created_at: string;
