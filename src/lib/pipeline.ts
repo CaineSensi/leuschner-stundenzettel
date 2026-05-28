@@ -3,6 +3,7 @@
 // werfen die Calls einen klaren Fehler (Demo-Modus entfernt 26.05.2026).
 
 import { supabase, isBackendConnected } from "./supabase";
+import { sevdeskCancelOrder } from "./sevdesk";
 
 export const STAGES = [
   "Anfrage",
@@ -33,6 +34,9 @@ export interface PipelineCard {
   validUntil?: string; // ISO date
   sentAt?: string;     // ISO timestamp, gesetzt beim Wechsel auf "Versendet"
   archivedAt?: string; // ISO timestamp, gesetzt = aus aktivem Board raus
+  cancelledAt?: string;        // ISO timestamp, gesetzt = Vorgang storniert
+  cancellationReason?: string; // freier Grund-Text (optional)
+  sevdeskOrderId?: string;     // sevDesk Order-ID für Storno-Sync
   /** Aus sevDesk gespiegelte Belegpositionen (Angebot AN-… bzw. Schlussrechnung RE-…). */
   positions?: PipelinePosition[];
   /** Chef-Freigabe-Stand des Belegs (eigene jsonb-Spalte). */
@@ -98,6 +102,9 @@ function rowToCard(r: any): PipelineCard {
     validUntil: r.valid_until ?? undefined,
     sentAt: r.sent_at ?? undefined,
     archivedAt: r.archived_at ?? undefined,
+    cancelledAt: r.cancelled_at ?? undefined,
+    cancellationReason: r.cancellation_reason ?? undefined,
+    sevdeskOrderId: r.sevdesk_order_id ?? undefined,
     positions: Array.isArray(r.positions) ? r.positions : undefined,
     freigabe: r.freigabe && typeof r.freigabe === "object"
       ? { history: [], ...r.freigabe }
@@ -109,11 +116,15 @@ function rowToCard(r: any): PipelineCard {
 
 const COLS =
   "id, stage, customer_name, place, description, value_eur, open_points, " +
-  "doc_number, site_id, assigned_worker_id, plan_eur, actual_eur, valid_until, " +
-  "sent_at, archived_at, positions, freigabe, sort_order, created_at";
+  "doc_number, sevdesk_order_id, site_id, assigned_worker_id, plan_eur, actual_eur, valid_until, " +
+  "sent_at, archived_at, cancelled_at, cancellation_reason, positions, freigabe, sort_order, created_at";
 
 /** COLS ohne die Spalten aus noch nicht eingespielten Migrationen. */
-const COLS_BASE = COLS.replace("sent_at, archived_at, positions, freigabe, ", "");
+const COLS_BASE = COLS
+  .replace("sevdesk_order_id, ", "")
+  .replace("sent_at, archived_at, ", "")
+  .replace("cancelled_at, cancellation_reason, ", "")
+  .replace("positions, freigabe, ", "");
 
 /**
  * Lädt Pipeline-Karten. `archived: false` (Standard) = aktives Board ohne
@@ -140,7 +151,7 @@ export async function listCards(
     // archived_at nicht. Statt das Board komplett leer zu lassen, laden wir
     // ohne sie: alle Vorgänge gelten als aktiv, das Archiv ist (noch) leer.
     // Sobald die Spalte existiert, greift automatisch wieder der Filter oben.
-    if (/archived_at|sent_at|positions|freigabe/.test(String(error?.message ?? ""))) {
+    if (/archived_at|sent_at|positions|freigabe|cancelled_at|cancellation_reason|sevdesk_order_id/.test(String(error?.message ?? ""))) {
       if (wantArchived) return [];
       const { data: d2, error: e2 } = await sb
         .from("pipeline_cards")
@@ -500,5 +511,84 @@ export async function revokeRelease(
   const { error } = await sb.from("pipeline_cards").update({ freigabe }).eq("id", card.id);
   if (error) throw error;
   return freigabe;
+}
+
+/**
+ * Storniert einen Pipeline-Vorgang:
+ *  1) Wenn sevdeskOrderId oder docNumber (AN-…) gesetzt → sevDesk-Order
+ *     auf Status 500 (Abgelehnt) setzen + Storno-Vermerk in headText.
+ *     Fehler beim sevDesk-Sync werden NICHT geschluckt — der Caller bekommt
+ *     sie zurück und entscheidet (UI zeigt sie als Warnung, lokale Storno
+ *     wird trotzdem ausgeführt).
+ *  2) DB: cancelled_at = now(), cancellation_reason = reason,
+ *     archived_at = now() (verschwindet aus aktivem Board, taucht im
+ *     Archiv mit STORNIERT-Badge auf).
+ *  3) Freigabe-Log um Storno-Eintrag erweitert (für Audit-Spur).
+ *
+ * Gibt { sevdeskError? } zurück — bei sevDesk-Problem trotzdem erfolgreich,
+ * UI kann dann den Sync-Fehler anzeigen.
+ */
+export async function cancelCard(
+  card: PipelineCard,
+  reason: string | undefined,
+  by: string
+): Promise<{ sevdeskError?: string }> {
+  if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
+  const sb: any = supabase;
+  const now = new Date().toISOString();
+
+  // 1) sevDesk-Sync (best effort)
+  let sevdeskError: string | undefined;
+  const hasOrderRef = !!card.sevdeskOrderId || /^AN-\d+/i.test(card.docNumber ?? "");
+  if (hasOrderRef) {
+    try {
+      await sevdeskCancelOrder(
+        { id: card.sevdeskOrderId, orderNumber: card.docNumber },
+        reason
+      );
+    } catch (e: any) {
+      sevdeskError = String(e?.message ?? e).slice(0, 240);
+    }
+  }
+
+  // 2) DB-Update + Freigabe-Verlauf nachpflegen
+  const freigabe = mergeFreigabe(card.freigabe, {
+    at: now,
+    by,
+    action: reason ? `Storniert — ${reason}` : "Storniert",
+  });
+  const patch: Record<string, unknown> = {
+    cancelled_at: now,
+    cancellation_reason: reason?.trim() || null,
+    archived_at: now,
+    freigabe,
+  };
+  const { error } = await sb.from("pipeline_cards").update(patch).eq("id", card.id);
+  if (error) {
+    if (/cancelled_at|cancellation_reason/.test(String(error?.message ?? "")))
+      throw new Error("Storno erst nach DB-Migration aktiv (cancelled_at/cancellation_reason fehlt).");
+    // freigabe-Spalte fehlt eventuell — retry ohne sie
+    if (/freigabe/.test(String(error?.message ?? ""))) {
+      delete (patch as any).freigabe;
+      const { error: e2 } = await sb.from("pipeline_cards").update(patch).eq("id", card.id);
+      if (e2) throw e2;
+    } else {
+      throw error;
+    }
+  }
+
+  return { sevdeskError };
+}
+
+/** Storno rückgängig machen — z.B. wenn der Kunde sich umentschieden hat.
+ *  ACHTUNG: synct NICHT mit sevDesk zurück (manueller Status-Reset nötig). */
+export async function uncancelCard(id: string): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb
+    .from("pipeline_cards")
+    .update({ cancelled_at: null, cancellation_reason: null, archived_at: null })
+    .eq("id", id);
+  if (error) throw error;
 }
 

@@ -4,6 +4,7 @@ import {
   STAGES, listCards, createCard, updateCardStage, deleteCard,
   archiveCard, unarchiveCard, linkOrCreateSiteForCard, FOLLOWUP_DAYS,
   reviewPosition, releaseCard, revokeRelease,
+  cancelCard, uncancelCard,
   type PipelineCard, type Stage, type ReviewStatus
 } from "../lib/pipeline";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
@@ -70,6 +71,8 @@ export default function Angebote() {
   // nach dem sevDesk-Import mit historischen Vorgängen.
   const [hideClosed, setHideClosed] = useState(true);
   const [detail, setDetail] = useState<PipelineCard | null>(null);
+  // Storno-Modal: { card, reason } solange offen; null = geschlossen.
+  const [cancelling, setCancelling] = useState<{ card: PipelineCard; reason: string; busy?: boolean; error?: string } | null>(null);
   const dragId = useRef<string | null>(null);
   // Inhaber/Freigeber: darf reviewen/freigeben, aber nicht bearbeiten/löschen
   const reviewerOnly = /inhaber|freigeber/i.test(currentUser()?.role ?? "");
@@ -177,6 +180,46 @@ export default function Angebote() {
       await unarchiveCard(card.id);
     } catch (err: any) {
       setError(err?.message ?? "Zurückholen fehlgeschlagen");
+      refresh();
+    }
+  }
+
+  /** Storno bestätigen: ruft cancelCard auf (sevDesk-Sync + DB).
+   *  sevDesk-Fehler werden als Warnung im Modal angezeigt, lokale Storno
+   *  ist trotzdem durch. Karte verschwindet aus dem aktiven Board (archiviert). */
+  async function doCancel() {
+    if (!cancelling) return;
+    const { card, reason } = cancelling;
+    setCancelling({ ...cancelling, busy: true, error: undefined });
+    const me = currentUser();
+    const by = me ? `${me.firstName} ${me.lastName}`.trim() : "Unbekannt";
+    try {
+      const { sevdeskError } = await cancelCard(card, reason.trim() || undefined, by);
+      // Aus aktivem Board entfernen, Drawer schließen
+      setCards((prev) => prev.filter((c) => c.id !== card.id));
+      setDetail(null);
+      if (sevdeskError) {
+        // Storno lokal durch — aber sevDesk-Sync gewarnt
+        setNotice({ msg: `Vorgang storniert · sevDesk-Sync fehlgeschlagen: ${sevdeskError}` });
+      } else {
+        setNotice({ msg: card.docNumber
+          ? `Vorgang ${card.docNumber} storniert (lokal + sevDesk)`
+          : `Vorgang „${card.customerName}" storniert` });
+      }
+      setCancelling(null);
+    } catch (err: any) {
+      setCancelling((cur) => cur ? { ...cur, busy: false, error: err?.message ?? "Storno fehlgeschlagen" } : cur);
+    }
+  }
+
+  async function uncancel(card: PipelineCard) {
+    if (!confirm(`Storno von „${card.customerName}" wirklich zurücknehmen?\n\nACHTUNG: sevDesk wird NICHT zurückgesetzt — Status dort muss manuell auf „Offen" geändert werden.`)) return;
+    setCards((prev) => prev.filter((c) => c.id !== card.id));
+    setDetail((d) => d && d.id === card.id ? null : d);
+    try {
+      await uncancelCard(card.id);
+    } catch (err: any) {
+      setError(err?.message ?? "Storno-Rücknahme fehlgeschlagen");
       refresh();
     }
   }
@@ -387,8 +430,22 @@ export default function Angebote() {
           onArchive={() => archive(detail)}
           onUnarchive={() => unarchive(detail)}
           onDelete={() => remove(detail)}
+          onCancel={() => setCancelling({ card: detail, reason: "" })}
+          onUncancel={() => uncancel(detail)}
           onUpdate={(patch) => applyCardPatch(detail.id, patch)}
           reviewerOnly={reviewerOnly}
+        />
+      )}
+
+      {cancelling && (
+        <CancelModal
+          card={cancelling.card}
+          reason={cancelling.reason}
+          busy={!!cancelling.busy}
+          error={cancelling.error}
+          onChange={(reason) => setCancelling((c) => c ? { ...c, reason } : c)}
+          onConfirm={doCancel}
+          onClose={() => cancelling.busy ? null : setCancelling(null)}
         />
       )}
 
@@ -554,7 +611,7 @@ const REVIEW_META: Record<ReviewStatus, { dot: string; label: string }> = {
 };
 
 function DetailDrawer({
-  card, onClose, onPrev, onNext, onArchive, onUnarchive, onDelete, onUpdate, reviewerOnly
+  card, onClose, onPrev, onNext, onArchive, onUnarchive, onDelete, onCancel, onUncancel, onUpdate, reviewerOnly
 }: {
   card: PipelineCard;
   onClose: () => void;
@@ -563,6 +620,8 @@ function DetailDrawer({
   onArchive: () => void;
   onUnarchive: () => void;
   onDelete: () => void;
+  onCancel: () => void;
+  onUncancel: () => void;
   onUpdate: (patch: Partial<PipelineCard>) => void;
   reviewerOnly: boolean;
 }) {
@@ -659,6 +718,27 @@ function DetailDrawer({
             )}
           </div>
         </div>
+
+        {card.cancelledAt && (
+          <div className="flex-shrink-0 px-5 lg:px-6 py-3 bg-rust/10 border-b-2 border-rust/40">
+            <div className="flex items-baseline justify-between gap-3 flex-wrap">
+              <div>
+                <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-rust">
+                  ⚠ Storniert
+                </div>
+                <div className="font-mono text-[11px] text-ink-2 mt-0.5">
+                  am {fmtDateTime(card.cancelledAt)}
+                  {card.docNumber && card.sevdeskOrderId ? ' · in sevDesk auf „Abgelehnt"' : ''}
+                </div>
+              </div>
+              {card.cancellationReason && (
+                <div className="font-sans text-[13px] text-ink italic">
+                  „{card.cancellationReason}"
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-5 lg:px-8 py-6 board-scroll">
           <div className="grid gap-6 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start">
@@ -888,9 +968,20 @@ function DetailDrawer({
               Schließen
             </button>
           ) : card.archivedAt ? (
-            <button onClick={onUnarchive} className="btn-primary flex-1 !min-h-[52px] text-[13px]">
-              Zurück ins Board
-            </button>
+            <>
+              <button onClick={onUnarchive} className="btn-primary flex-1 !min-h-[52px] text-[13px]"
+                disabled={!!card.cancelledAt}
+                title={card.cancelledAt ? "Storno erst zurücknehmen, dann zurück ins Board" : undefined}>
+                Zurück ins Board
+              </button>
+              {card.cancelledAt && (
+                <button
+                  onClick={onUncancel}
+                  className="btn-ghost !min-h-[52px] !px-4 text-[12px] !text-copper !border-copper/40"
+                  title="Storno rückgängig (sevDesk muss manuell zurückgesetzt werden)"
+                >Storno rückgängig</button>
+              )}
+            </>
           ) : (
             <>
               <button
@@ -915,6 +1006,13 @@ function DetailDrawer({
                 >Stufe weiter ›</button>
               )}
             </>
+          )}
+          {!reviewerOnly && !card.archivedAt && card.stage !== "Anfrage" && card.stage !== "Abgerechnet" && (
+            <button
+              onClick={onCancel}
+              className="btn-ghost !min-h-[52px] !px-4 text-[12px] !text-rust !border-rust/40"
+              title={card.docNumber ? `Storniert Vorgang ${card.docNumber} (lokal + sevDesk)` : "Storniert nur lokal — kein sevDesk-Beleg verknüpft"}
+            >Stornieren</button>
           )}
           {!reviewerOnly && (
             <button
@@ -952,15 +1050,24 @@ function ArchivList({
                role="button" tabIndex={0} onClick={() => onOpen(c)}
                onKeyDown={(e) => { if (e.key === "Enter") onOpen(c); }}>
             <div className="flex items-center justify-between gap-2 mb-2">
-              {c.docNumber && (
-                <span className="font-mono font-bold text-[12px] bg-bg-deep text-bg-2 px-2 py-0.5 rounded">
-                  {c.docNumber}
-                </span>
+              <div className="flex items-center gap-1.5">
+                {c.docNumber && (
+                  <span className="font-mono font-bold text-[12px] bg-bg-deep text-bg-2 px-2 py-0.5 rounded">
+                    {c.docNumber}
+                  </span>
+                )}
+                {c.cancelledAt && (
+                  <span className="font-mono font-bold text-[10.5px] bg-rust/15 text-rust border border-rust/35 px-1.5 py-0.5 rounded uppercase tracking-wide">
+                    storniert
+                  </span>
+                )}
+              </div>
+              {!c.cancelledAt && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onUnarchive(c); }}
+                  className="font-sans text-[12px] text-copper hover:text-copper-bright font-bold"
+                >↩ zurückholen</button>
               )}
-              <button
-                onClick={(e) => { e.stopPropagation(); onUnarchive(c); }}
-                className="font-sans text-[12px] text-copper hover:text-copper-bright font-bold"
-              >↩ zurückholen</button>
             </div>
             <div className="font-sans font-bold text-[16px] text-ink">{c.customerName}</div>
             {c.place && <div className="font-sans text-[13px] text-ink-2 mt-0.5">{c.place}</div>}
@@ -1058,5 +1165,94 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="font-sans text-[12.5px] font-bold text-ink-2 block mb-1.5">{label}</span>
       {children}
     </label>
+  );
+}
+
+function CancelModal({
+  card, reason, busy, error, onChange, onConfirm, onClose
+}: {
+  card: PipelineCard;
+  reason: string;
+  busy: boolean;
+  error?: string;
+  onChange: (r: string) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  // ESC zum Schließen wenn nicht laufender Storno
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
+    document.addEventListener("keydown", onKey);
+    document.body.style.overflow = "hidden";
+    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
+  }, [busy, onClose]);
+
+  const hasOrderRef = !!card.sevdeskOrderId || /^AN-\d+/i.test(card.docNumber ?? "");
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-md z-[80] flex items-center justify-center p-4 lg:p-6"
+         onClick={() => !busy && onClose()}>
+      <div onClick={(e) => e.stopPropagation()}
+           role="dialog" aria-modal="true" aria-label="Vorgang stornieren"
+           className="bg-bg-2 rounded-2xl w-full max-w-lg p-6 max-h-[92vh] overflow-y-auto board-scroll border-2 border-rust/40">
+
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <span className="dd-eyebrow text-rust">⚠ Vorgang stornieren</span>
+          {!busy && (
+            <button onClick={onClose} aria-label="Schließen"
+              className="font-sans text-ink-2 text-[13px] hover:text-ink">✕</button>
+          )}
+        </div>
+        <h2 className="font-display font-black uppercase text-[22px] text-ink leading-tight">
+          {card.docNumber ? card.docNumber + " · " : ""}{card.customerName}
+        </h2>
+        {card.place && (
+          <div className="font-sans text-[13px] text-ink-2 mt-0.5">{card.place}</div>
+        )}
+
+        <div className="mt-4 rounded-lg border border-steel bg-white px-4 py-3 text-[13px] text-ink-body font-sans leading-relaxed">
+          {hasOrderRef ? (
+            <>Setzt den sevDesk-Auftrag <b>{card.docNumber}</b> auf Status <b>„Abgelehnt"</b> und schreibt einen Storno-Vermerk in den Belegtext. Lokal wird die Karte ins Archiv verschoben.</>
+          ) : (
+            <>Kein sevDesk-Beleg verknüpft — die Karte wird nur lokal storniert und ins Archiv verschoben.</>
+          )}
+        </div>
+
+        <label className="block mt-4">
+          <span className="font-sans text-[12.5px] font-bold text-ink-2 block mb-1.5">
+            Grund <span className="text-ink-mute font-normal">(optional, erscheint im sevDesk-Belegtext)</span>
+          </span>
+          <textarea
+            autoFocus
+            value={reason}
+            onChange={(e) => onChange(e.target.value)}
+            rows={3}
+            placeholder={'z. B. „Kunde hat anderes Angebot genommen" / „Preis zu hoch" / „Termin nicht zu halten"…'}
+            className="w-full bg-white border border-steel rounded-lg px-3 py-2.5 text-[14px] text-ink focus:outline-none focus:border-rust resize-none"
+            disabled={busy}
+            maxLength={240}
+          />
+          <div className="font-mono text-[10.5px] text-ink-mute mt-1">{reason.length}/240</div>
+        </label>
+
+        {error && (
+          <div className="mt-3 px-3 py-2 bg-rust/10 border border-rust/35 rounded text-[12.5px] text-rust font-sans">
+            {error}
+          </div>
+        )}
+
+        <div className="mt-5 flex gap-2.5 flex-wrap">
+          <button onClick={onClose} disabled={busy}
+            className="btn-ghost flex-1 !min-h-[48px] text-[13px] disabled:opacity-40">
+            Abbrechen
+          </button>
+          <button onClick={onConfirm} disabled={busy}
+            className="btn-primary flex-1 !min-h-[48px] text-[13px] disabled:opacity-60"
+            style={{ background: "linear-gradient(180deg,#B33D2E,#8C2C20)" }}>
+            {busy ? "Storniere …" : (hasOrderRef ? "Stornieren (App + sevDesk)" : "Stornieren (nur lokal)")}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

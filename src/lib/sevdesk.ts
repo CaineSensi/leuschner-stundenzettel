@@ -151,3 +151,42 @@ export async function sevdeskCreateOrder(input: SevOrderInput): Promise<{ id: st
   const out = r?.objects?.order ?? r?.objects;
   return { id: String(out?.id ?? ''), orderNumber: String(out?.orderNumber ?? input.orderNumber) };
 }
+
+/**
+ * Storniert eine sevDesk-Order: Status auf 500 = Abgelehnt setzen.
+ * sevDesk hat keinen dedizierten „Storno"-Endpoint für Aufträge — die
+ * konventionelle Lösung ist, den Auftrag aus dem aktiven Workflow zu nehmen
+ * (status=500 „Abgelehnt"). Optional wird der Grund in den headText
+ * eingearbeitet (Sicht für Rick im sevDesk-Belegtext).
+ *
+ * Wir versuchen erst die orderNumber als ID-Lookup (für „AN-…"), und nutzen
+ * sie als Fallback, falls die intern gespeicherte sevDesk-ID nicht (mehr)
+ * stimmt. Bei Fehler wirft die Funktion — die Karte wird trotzdem lokal
+ * storniert (siehe pipeline.cancelCard).
+ */
+export async function sevdeskCancelOrder(orderRef: { id?: string; orderNumber?: string }, reason?: string): Promise<void> {
+  let orderId = orderRef.id?.trim();
+  // Fallback: per orderNumber suchen
+  if (!orderId && orderRef.orderNumber) {
+    const found = await sd<any>(`Order?orderNumber=${encodeURIComponent(orderRef.orderNumber)}&depth=0`);
+    orderId = String(found?.objects?.[0]?.id ?? '');
+  }
+  if (!orderId) throw new Error('sevDesk-Order ohne ID/Nummer — nichts zu stornieren');
+
+  // Aktuellen Belegtext lesen, um Storno-Vermerk nicht-destruktiv anzuhängen
+  let prevHeadText = '';
+  try {
+    const cur = await sd<any>(`Order/${orderId}?depth=0`);
+    prevHeadText = String(cur?.objects?.headText ?? '');
+  } catch { /* irrelevant — wir können trotzdem stornieren */ }
+
+  const stamp = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const stornoHinweis = `[STORNIERT am ${stamp}${reason ? ` — Grund: ${reason}` : ''}]`;
+  const headText = prevHeadText ? `${stornoHinweis}\n\n${prevHeadText}` : stornoHinweis;
+
+  await sd(`Order/${orderId}`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ status: 500, headText }),
+  });
+}
