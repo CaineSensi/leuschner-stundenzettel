@@ -98,23 +98,29 @@ export default function StundenPrint() {
   return (
     <div className="bg-white text-black min-h-screen">
       {/* Bildschirm-Toolbar — beim Drucken ausgeblendet */}
-      <div className="print:hidden bg-bg-deep text-white px-6 py-3 flex items-center justify-between gap-4 sticky top-0 z-50">
-        <div className="font-mono text-[12px] tracking-wider uppercase">
-          Druck-Ansicht · {worker.firstName} {worker.lastName} · {MONTH_LONG[month - 1]} {year}
+      <div className="print:hidden bg-bg-deep text-white px-6 py-3 sticky top-0 z-50">
+        <div className="flex items-center justify-between gap-4">
+          <div className="font-mono text-[12px] tracking-wider uppercase">
+            Druck-Ansicht · {worker.firstName} {worker.lastName} · {MONTH_LONG[month - 1]} {year}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => window.print()}
+              className="px-4 py-2 bg-copper text-white rounded font-mono text-[12px] tracking-wider uppercase hover:bg-copper-bright"
+            >
+              🖨 Drucken
+            </button>
+            <Link
+              to="/admin/zeiterfassung?tab=monat"
+              className="px-4 py-2 border border-white/30 text-white rounded font-mono text-[12px] tracking-wider uppercase hover:bg-white/10"
+            >
+              ← Zurück
+            </Link>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={() => window.print()}
-            className="px-4 py-2 bg-copper text-white rounded font-mono text-[12px] tracking-wider uppercase hover:bg-copper-bright"
-          >
-            🖨 Drucken
-          </button>
-          <Link
-            to="/admin/zeiterfassung?tab=monat"
-            className="px-4 py-2 border border-white/30 text-white rounded font-mono text-[12px] tracking-wider uppercase hover:bg-white/10"
-          >
-            ← Zurück
-          </Link>
+        <div className="font-mono text-[10px] text-white/60 mt-1.5">
+          💡 Tipp: Im Druckdialog „Kopf- und Fußzeilen" abwählen (Optionen → Weitere
+          Einstellungen), damit URL/Datum am Seitenrand nicht mitgedruckt werden.
         </div>
       </div>
 

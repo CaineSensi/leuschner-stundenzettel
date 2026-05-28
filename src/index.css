@@ -2,6 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Druck-Setup: A4 mit kompakten Rändern. Browser-Standard-Header/Footer
+ * (URL/Datum am Seitenrand) muss der Nutzer im Druckdialog selbst abschalten
+ * ("Kopf- und Fußzeilen" / "Headers and footers"). */
+@page {
+  size: A4 portrait;
+  margin: 10mm;
+}
+@media print {
+  html, body, #root {
+    background: white !important;
+    color: black !important;
+    overflow: visible !important;
+    height: auto !important;
+    max-width: none !important;
+  }
+  body::before, body::after { display: none !important; }
+  .grain { background: white !important; }
+}
+
 @layer base {
   html, body, #root {
     height: 100%;

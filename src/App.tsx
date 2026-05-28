@@ -59,10 +59,12 @@ export default function App() {
 
   return (
     <div className="grain min-h-full">
-      <AdminPushBanner />
-      <OfflineIndicator />
-      <InstallPrompt />
-      <UpdatePrompt />
+      <div className="print:hidden">
+        <AdminPushBanner />
+        <OfflineIndicator />
+        <InstallPrompt />
+        <UpdatePrompt />
+      </div>
       <Routes>
         <Route path="/onboarding"    element={<Onboarding />} />
         <Route path="/login"         element={<Login />} />
