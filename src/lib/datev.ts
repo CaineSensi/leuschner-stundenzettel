@@ -16,6 +16,7 @@ export const LOHNART_MAPPING: Record<Discipline, string> = {
   PFL: "010",
   GTN: "010",
   ZAU: "010",
+  VWG: "020",   // Gehalt/Verwaltung — bis StB eigene Lohnart liefert
 };
 
 /** Lohnart für Abwesenheiten. DATEV-übliche Codes:

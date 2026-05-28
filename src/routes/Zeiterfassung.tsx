@@ -16,22 +16,36 @@ import BackButton from "../components/BackButton";
 /* ────────────────────────────────────────────────────────────────────────
    Zeiterfassung · konsolidierter Tab
    Ersetzt die zuvor verteilten Top-Level-Einträge Wochenplan + Stunden
-   + DATEV. Sub-Tabs: 01 Tagesplanung · 02 Wochenübersicht · 03 DATEV
-   · 04 Urlaub & Krank. Tab-State in URL-Query (?tab=…) damit Reload bleibt.
+   + DATEV. Sub-Tabs: 01 Tagesplanung · 02 Wochenübersicht · 03 Monat
+   · 04 DATEV · 05 Urlaub & Krank. Tab-State in URL-Query (?tab=…) damit
+   Reload bleibt.
    ──────────────────────────────────────────────────────────────────────── */
 
-type TabKey = "tagesplanung" | "woche" | "datev" | "urlaub";
+type TabKey = "tagesplanung" | "woche" | "monat" | "datev" | "urlaub";
 
 const TABS: { key: TabKey; num: string; label: string; hint: string }[] = [
   { key: "tagesplanung", num: "01", label: "Tagesplanung",     hint: "Matrix Mitarbeiter × Wochentag. Zeigt wer wo geplant ist und wo Einträge fehlen." },
   { key: "woche",        num: "02", label: "Wochenübersicht",  hint: "Summen pro Mitarbeiter, Vergleich Soll/Ist, Lücken-Übersicht." },
-  { key: "datev",        num: "03", label: "DATEV-Export",     hint: "CSV-Export für den Steuerberater mit Lohnarten und Kostenstellen." },
-  { key: "urlaub",       num: "04", label: "Urlaub & Krank",   hint: "Abwesenheiten dieser Woche pro Mitarbeiter, getrennt nach Urlaub und Krankheit." }
+  { key: "monat",        num: "03", label: "Monatsübersicht",  hint: "Kalender-Grid des ganzen Monats. Summen pro Mitarbeiter, Soll/Ist, Feiertage." },
+  { key: "datev",        num: "04", label: "DATEV-Export",     hint: "CSV-Export für den Steuerberater mit Lohnarten und Kostenstellen." },
+  { key: "urlaub",       num: "05", label: "Urlaub & Krank",   hint: "Abwesenheiten dieser Woche pro Mitarbeiter, getrennt nach Urlaub und Krankheit." }
 ];
 
 const DAY_LONG  = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
 const DAY_SHORT = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 const MONTH_LONG = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+
+/** Alle Tage des Monats (Anker = beliebiger Tag im Monat) als ISO-Date-Strings. */
+function allDaysOfMonth(anchor: Date): string[] {
+  const y = anchor.getFullYear();
+  const m = anchor.getMonth();
+  const last = new Date(y, m + 1, 0).getDate();
+  const out: string[] = [];
+  for (let d = 1; d <= last; d++) {
+    out.push(`${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`);
+  }
+  return out;
+}
 
 export default function Zeiterfassung() {
   const [params, setParams] = useSearchParams();
@@ -45,6 +59,7 @@ export default function Zeiterfassung() {
   }
 
   const [weekOffset, setWeekOffset] = useState(0);
+  const [monthOffset, setMonthOffset] = useState(0);
   const refDate = useMemo(() => {
     const d = new Date();
     d.setDate(d.getDate() + weekOffset * 7);
@@ -53,6 +68,20 @@ export default function Zeiterfassung() {
   const { year, week } = isoWeek(refDate);
   const days = weekDays(year, week).slice(0, 5);
   const today = todayIso();
+
+  // Für den Monat-Tab eigene Range: erster bis letzter Tag des Anker-Monats
+  const monthAnchor = useMemo(() => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() + monthOffset);
+    return d;
+  }, [monthOffset]);
+  const monthDays = useMemo(() => allDaysOfMonth(monthAnchor), [monthAnchor]);
+
+  // Welcher Range wird geladen: für Monat-Tab der ganze Monat, sonst die Arbeitswoche
+  const loadRange: [string, string] = tab === "monat"
+    ? [monthDays[0], monthDays[monthDays.length - 1]]
+    : [days[0], days[days.length - 1]];
 
   const [workers, setWorkers] = useState<Worker[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -68,8 +97,8 @@ export default function Zeiterfassung() {
       const [w, s, e, a] = await Promise.all([
         listWorkers(),
         listSites().catch(() => [] as Site[]),
-        listAllEntries(days[0], days[days.length - 1]).catch(() => [] as Entry[]),
-        listAssignmentsForCompany(days[0], days[days.length - 1]).catch(() => [] as Assignment[])
+        listAllEntries(loadRange[0], loadRange[1]).catch(() => [] as Entry[]),
+        listAssignmentsForCompany(loadRange[0], loadRange[1]).catch(() => [] as Assignment[])
       ]);
       setWorkers(w);
       setSites(s);
@@ -85,9 +114,9 @@ export default function Zeiterfassung() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [weekOffset]);
+  }, [weekOffset, monthOffset, tab]);
 
-  useRealtime(`zeiterfassung-${year}-${week}`, ["workers", "entries", "assignments", "sites"], refresh);
+  useRealtime(`zeiterfassung-${tab}-${loadRange[0]}`, ["workers", "entries", "assignments", "sites"], refresh);
   useRefreshOnVisible(refresh);
 
   const team = useMemo(
@@ -141,28 +170,53 @@ export default function Zeiterfassung() {
               {!loading && `Live · ${team.length} Mitarbeiter · ${entries.length} Einträge KW ${week}`}
             </span>
           </div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <button
-              onClick={() => setWeekOffset((o) => o - 1)}
-              className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
-              title="Vorherige Woche"
-            >‹</button>
-            <div className="flex flex-col text-center">
-              <span className="dd-eyebrow text-copper-bright">KW {week} / {year}</span>
-              <span className="font-mono text-[11.5px] text-steel">{monthRangeLabel}</span>
+          {tab === "monat" ? (
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => setMonthOffset((o) => o - 1)}
+                className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
+                title="Vorheriger Monat"
+              >‹</button>
+              <div className="flex flex-col text-center">
+                <span className="dd-eyebrow text-copper-bright">{MONTH_LONG[monthAnchor.getMonth()]} {monthAnchor.getFullYear()}</span>
+                <span className="font-mono text-[11.5px] text-steel">{monthDays.length} Tage</span>
+              </div>
+              <button
+                onClick={() => setMonthOffset((o) => o + 1)}
+                className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
+                title="Nächster Monat"
+              >›</button>
+              <button
+                onClick={() => setMonthOffset(0)}
+                disabled={monthOffset === 0}
+                className="font-mono text-[11px] px-3.5 py-1.5 rounded-full border border-copper-bright text-copper-bright hover:bg-copper-bright hover:text-bg-deep disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-copper-bright transition-colors"
+              >Aktuell</button>
+              <button className="btn-ghost !min-h-[42px] !px-4 text-[12px]">PDF</button>
             </div>
-            <button
-              onClick={() => setWeekOffset((o) => o + 1)}
-              className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
-              title="Nächste Woche"
-            >›</button>
-            <button
-              onClick={() => setWeekOffset(0)}
-              disabled={weekOffset === 0}
-              className="font-mono text-[11px] px-3.5 py-1.5 rounded-full border border-copper-bright text-copper-bright hover:bg-copper-bright hover:text-bg-deep disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-copper-bright transition-colors"
-            >Heute</button>
-            <button className="btn-ghost !min-h-[42px] !px-4 text-[12px]">PDF</button>
-          </div>
+          ) : (
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={() => setWeekOffset((o) => o - 1)}
+                className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
+                title="Vorherige Woche"
+              >‹</button>
+              <div className="flex flex-col text-center">
+                <span className="dd-eyebrow text-copper-bright">KW {week} / {year}</span>
+                <span className="font-mono text-[11.5px] text-steel">{monthRangeLabel}</span>
+              </div>
+              <button
+                onClick={() => setWeekOffset((o) => o + 1)}
+                className="w-9 h-9 rounded-full border border-white/20 text-white hover:border-copper-bright hover:bg-white/10 flex items-center justify-center text-lg leading-none transition-colors"
+                title="Nächste Woche"
+              >›</button>
+              <button
+                onClick={() => setWeekOffset(0)}
+                disabled={weekOffset === 0}
+                className="font-mono text-[11px] px-3.5 py-1.5 rounded-full border border-copper-bright text-copper-bright hover:bg-copper-bright hover:text-bg-deep disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-copper-bright transition-colors"
+              >Heute</button>
+              <button className="btn-ghost !min-h-[42px] !px-4 text-[12px]">PDF</button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -221,6 +275,14 @@ export default function Zeiterfassung() {
             holidayCount={holidayCount}
             totalWeekMinutes={totalWeekMinutes}
             sollMinutes={sollMinutes}
+          />
+        ) : tab === "monat" ? (
+          <Monatsuebersicht
+            team={team}
+            monthDays={monthDays}
+            monthAnchor={monthAnchor}
+            today={today}
+            entries={entries}
           />
         ) : tab === "datev" ? (
           <DatevTab
@@ -547,7 +609,178 @@ function Wochenuebersicht({
   );
 }
 
-/* ──────── TAB 03 · DATEV-Export ──────── */
+/* ──────── TAB 03 · Monatsübersicht ──────── */
+
+function Monatsuebersicht({
+  team, monthDays, monthAnchor, today, entries,
+}: {
+  team: Worker[]; monthDays: string[]; monthAnchor: Date; today: string;
+  entries: Entry[];
+}) {
+  // Arbeitstage Mo–Fr ohne Feiertage
+  const workdays = monthDays.filter((iso) => {
+    const wd = new Date(iso).getDay();
+    return wd >= 1 && wd <= 5 && !isHoliday(iso);
+  });
+  const holidaysInMonth = monthDays.filter((iso) => {
+    const wd = new Date(iso).getDay();
+    return wd >= 1 && wd <= 5 && isHoliday(iso);
+  });
+
+  const sollPerWorkerMinutes = workdays.length * 8 * 60;
+  const totalMonthMinutes = team.reduce((s, w) =>
+    s + entries.filter((e) => e.workerId === w.id).reduce((t, e) => t + workMinutes(e), 0)
+  , 0);
+  const sollTotal = team.length * sollPerWorkerMinutes;
+
+  function workerMinutes(workerId: string): number {
+    return entries.filter((e) => e.workerId === workerId).reduce((s, e) => s + workMinutes(e), 0);
+  }
+  function workerEntriesOnDay(workerId: string, iso: string): Entry[] {
+    return entries.filter((e) => e.workerId === workerId && e.date === iso);
+  }
+  function dayTotal(iso: string): number {
+    return team.reduce((s, w) => s + workerEntriesOnDay(w.id, iso).reduce((t, e) => t + workMinutes(e), 0), 0);
+  }
+
+  // Kalender-Grid: erster Tag Mo-orientiert (1=Mo … 7=So)
+  const firstWeekday = ((new Date(monthDays[0]).getDay() + 6) % 7); // 0=Mo, 6=So
+  const totalCells = Math.ceil((firstWeekday + monthDays.length) / 7) * 7;
+
+  return (
+    <>
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+        <div className="dd-card px-5 py-4" style={{ ["--c" as any]: "#DC6E2D" }}>
+          <div className="dd-eyebrow text-copper">Σ Monat</div>
+          <div className="font-display font-black text-3xl text-ink leading-none tabular-nums mt-1.5">
+            {fmtHours(totalMonthMinutes)} <span className="text-lg text-ink-mute font-mono">h</span>
+          </div>
+          <div className="font-mono text-[11px] tracking-wider text-ink-2 uppercase mt-1">
+            von {fmtHours(sollTotal)} h · {sollTotal > 0 ? Math.round((totalMonthMinutes / sollTotal) * 100) : 0} %
+          </div>
+        </div>
+        <div className="dd-card px-5 py-4" style={{ ["--c" as any]: "#1F7A3D" }}>
+          <div className="dd-eyebrow text-good">Arbeitstage</div>
+          <div className="font-display font-black text-3xl text-ink leading-none tabular-nums mt-1.5">{workdays.length}</div>
+          <div className="font-mono text-[11px] tracking-wider text-ink-2 uppercase mt-1">
+            Mo–Fr ohne Feiertage
+          </div>
+        </div>
+        <div className="dd-card px-5 py-4" style={{ ["--c" as any]: "#B91C1C" }}>
+          <div className="dd-eyebrow text-rust">Feiertage</div>
+          <div className="font-display font-black text-3xl text-ink leading-none tabular-nums mt-1.5">{holidaysInMonth.length}</div>
+          <div className="font-mono text-[11px] tracking-wider text-ink-2 uppercase mt-1">
+            {holidaysInMonth.length === 0 ? "keiner" : holidaysInMonth.map((d) => new Date(d).getDate() + ".").join(" ")}
+          </div>
+        </div>
+        <div className="dd-card px-5 py-4" style={{ ["--c" as any]: "#A9AEB3" }}>
+          <div className="dd-eyebrow text-steel">Soll je Mitarbeiter</div>
+          <div className="font-display font-black text-3xl text-ink leading-none tabular-nums mt-1.5">
+            {fmtHours(sollPerWorkerMinutes)} <span className="text-lg text-ink-mute font-mono">h</span>
+          </div>
+          <div className="font-mono text-[11px] tracking-wider text-ink-2 uppercase mt-1">
+            8 h × {workdays.length} Tage
+          </div>
+        </div>
+      </div>
+
+      {/* Mitarbeiter-Karten mit Monats-Summe */}
+      <div className="dd-card overflow-hidden mb-5" style={{ ["--c" as any]: "#A9AEB3" }}>
+        <div className="surface-steel px-5 py-3">
+          <div className="dd-eyebrow text-copper-bright">Stunden je Mitarbeiter · {MONTH_LONG[monthAnchor.getMonth()]} {monthAnchor.getFullYear()}</div>
+          <div className="font-display font-black uppercase text-base text-white mt-0.5">Σ {fmtHours(totalMonthMinutes)} h</div>
+        </div>
+        <div className="divide-y divide-ink/8">
+          {team.length === 0 ? (
+            <div className="px-5 py-8 text-center font-mono text-ink-2 text-[12px]">Keine Mitarbeiter</div>
+          ) : team.map((w) => {
+            const tot = workerMinutes(w.id);
+            const pct = sollPerWorkerMinutes > 0 ? Math.min(100, (tot / sollPerWorkerMinutes) * 100) : 0;
+            return (
+              <div key={w.id} className="px-5 py-3 grid grid-cols-[48px_1fr_auto] gap-4 items-center">
+                <div className="w-10 h-10 rounded-full bg-bg-deep text-copper-bright font-display font-black text-[12px] flex items-center justify-center">{w.initials}</div>
+                <div className="min-w-0">
+                  <div className="text-[13.5px] font-bold text-ink truncate">{w.firstName} {w.lastName}</div>
+                  <div className="dd-eyebrow text-ink-mute mt-0.5">{w.role}</div>
+                  <div className="h-1.5 bg-bg-3 rounded-full mt-2 overflow-hidden">
+                    <div className={`h-full rounded-full ${pct >= 100 ? "bg-good" : "bg-copper"}`} style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-display font-black text-xl tabular-nums text-ink leading-none">{fmtHours(tot)}</div>
+                  <div className="dd-eyebrow text-ink-mute mt-1">
+                    von {fmtHours(sollPerWorkerMinutes)} h · {Math.round(pct)} %
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Kalender-Grid 7 Spalten Mo–So */}
+      <div className="dd-card overflow-hidden" style={{ ["--c" as any]: "#DC6E2D" }}>
+        <div className="surface-steel px-5 py-3">
+          <div className="dd-eyebrow text-copper-bright">Kalender · jeden Tag Σ aller Mitarbeiter</div>
+          <div className="font-display font-black uppercase text-base text-white mt-0.5">{MONTH_LONG[monthAnchor.getMonth()]} {monthAnchor.getFullYear()}</div>
+        </div>
+        <div className="grid grid-cols-7 surface-steel text-white">
+          {["Mo","Di","Mi","Do","Fr","Sa","So"].map((d) => (
+            <div key={d} className="px-2 py-2 text-center dd-eyebrow border-l border-white/8 first:border-l-0 text-steel">{d}</div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7">
+          {Array.from({ length: totalCells }).map((_, idx) => {
+            const dayNum = idx - firstWeekday + 1;
+            if (dayNum < 1 || dayNum > monthDays.length) {
+              return <div key={idx} className="aspect-[5/4] border-t border-l border-ink/8 first:border-l-0 bg-bg-3/30" />;
+            }
+            const iso = monthDays[dayNum - 1];
+            const dt = new Date(iso);
+            const wd = dt.getDay();
+            const isWeekend = wd === 0 || wd === 6;
+            const isFuture = iso > today;
+            const isToday = iso === today;
+            const holiday = getHoliday(iso);
+            const total = dayTotal(iso);
+            const workerCount = team.filter((w) => workerEntriesOnDay(w.id, iso).some(isWorkEntry)).length;
+            const bg = holiday
+              ? "bg-bronze/10"
+              : isToday
+                ? "bg-gradient-to-b from-[#FFF8EF] to-[#FCEFDC]"
+                : isWeekend
+                  ? "bg-bg-3/40"
+                  : "bg-white";
+            return (
+              <div
+                key={idx}
+                className={`aspect-[5/4] border-t border-l border-ink/8 first:border-l-0 px-2 py-1.5 flex flex-col justify-between ${bg}`}
+              >
+                <div className="flex items-start justify-between">
+                  <span className={`font-display font-black text-sm tabular-nums leading-none ${isToday ? "text-copper" : holiday ? "text-bronze" : isWeekend ? "text-ink-mute" : "text-ink"}`}>
+                    {dayNum}
+                  </span>
+                  {holiday && <span className="font-mono text-[8.5px] tracking-wider text-bronze uppercase truncate ml-1">{holiday.name}</span>}
+                </div>
+                {total > 0 ? (
+                  <div className="text-right">
+                    <div className="font-display font-black text-[14px] tabular-nums text-ink leading-none">{fmtHours(total)}h</div>
+                    <div className="font-mono text-[9.5px] tracking-wider text-ink-mute uppercase mt-0.5">{workerCount} MA</div>
+                  </div>
+                ) : !isWeekend && !holiday && !isFuture ? (
+                  <span className="font-mono text-[9.5px] tracking-wider text-rust/60 uppercase text-right">leer</span>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ──────── TAB 04 · DATEV-Export ──────── */
 
 function DatevTab({
   week, year, totalWeekMinutes, sollMinutes, team, days, entries, sites,
@@ -767,7 +1000,7 @@ function PreviewModal({
   );
 }
 
-/* ──────── TAB 04 · Urlaub & Krank ──────── */
+/* ──────── TAB 05 · Urlaub & Krank ──────── */
 
 function UrlaubKrankTab({ team, entries, days }: { team: Worker[]; entries: Entry[]; days: string[] }) {
   const absences = entries.filter((e) => !isWorkEntry(e));
