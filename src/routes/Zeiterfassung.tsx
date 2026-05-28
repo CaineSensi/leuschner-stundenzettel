@@ -119,10 +119,19 @@ export default function Zeiterfassung() {
   useRealtime(`zeiterfassung-${tab}-${loadRange[0]}`, ["workers", "entries", "assignments", "sites"], refresh);
   useRefreshOnVisible(refresh);
 
-  const team = useMemo(
-    () => workers.filter((w) => !w.isAdmin).sort((a, b) => a.lastName.localeCompare(b.lastName, "de")),
-    [workers]
-  );
+  // Auch Admins anzeigen, sofern sie Stunden gebucht haben oder im Range
+  // geplant sind — Admin-Status ist eine Berechtigungs-Sache, nicht ein
+  // „bucht-keine-Stunden"-Marker. Reine Admin-Konten (Office-only ohne
+  // Entries) werden weiter ausgeblendet, damit die Matrix nicht aufbläht.
+  const team = useMemo(() => {
+    const workerIdsInRange = new Set<string>([
+      ...entries.map((e) => e.workerId),
+      ...assignments.map((a) => a.workerId),
+    ]);
+    return workers
+      .filter((w) => !w.isAdmin || workerIdsInRange.has(w.id))
+      .sort((a, b) => a.lastName.localeCompare(b.lastName, "de"));
+  }, [workers, entries, assignments]);
 
   const monthRangeLabel = useMemo(() => {
     const mo = new Date(days[0]);
