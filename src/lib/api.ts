@@ -19,12 +19,14 @@ type EntryDraft =
 
 // ===== READ =====
 
-export async function listWorkers(): Promise<Worker[]> {
+export async function listWorkers(includeArchived = false): Promise<Worker[]> {
   const sb = requireBackend();
-  const { data, error } = await sb
+  let q = sb
     .from("workers")
-    .select("id, initials, first_name, last_name, role, is_admin, phone, auth_user_id, daily_target_minutes, workdays")
+    .select("id, initials, first_name, last_name, role, is_admin, phone, auth_user_id, daily_target_minutes, workdays, archived_at")
     .order("is_admin", { ascending: false });
+  if (!includeArchived) q = q.is("archived_at", null);
+  const { data, error } = await q;
   if (error) throw error;
   return (data ?? []).map((w: any) => ({
     id: w.id,
