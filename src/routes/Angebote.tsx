@@ -10,6 +10,7 @@ import {
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
+import { getInquiryByCardId, SOURCE_ICON, SOURCE_LABEL, type Inquiry } from "../lib/inquiries";
 
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
@@ -631,6 +632,8 @@ function DetailDrawer({
   // Inline-Editor für Position-Kommentare (ersetzt window.prompt, das in
   // PWA-Standalone — iOS-Home-Screen — unzuverlässig ist)
   const [commenting, setCommenting] = useState<{ pos: number; status: "kommentar" | "aenderung"; text: string } | null>(null);
+  // Original-Anfrage hinter der Karte (Rohtext + Verlauf + Bilder)
+  const [inquiry, setInquiry] = useState<Inquiry | null>(null);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -638,6 +641,14 @@ function DetailDrawer({
     document.body.style.overflow = "hidden";
     return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = ""; };
   }, [onClose]);
+
+  // Anfrage nachladen wenn Drawer eine andere Karte zeigt
+  useEffect(() => {
+    let cancelled = false;
+    setInquiry(null);
+    getInquiryByCardId(card.id).then((i) => { if (!cancelled) setInquiry(i); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [card.id]);
 
   const me = currentUser();
   const reviewerName = me ? `${me.firstName} ${me.lastName}`.trim() : "Inhaber";
@@ -785,8 +796,9 @@ function DetailDrawer({
               )}
             </div>
 
-            {/* RECHTS · Beleg-Positionen */}
-            <div>
+            {/* RECHTS · Anfrage + Beleg-Positionen */}
+            <div className="space-y-5">
+              {inquiry && <InquiryPanel inquiry={inquiry} />}
               {card.positions && card.positions.length > 0 ? (
                 <>
                   <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
@@ -948,7 +960,7 @@ function DetailDrawer({
                     )}
                   </div>
                 </>
-              ) : (
+              ) : !inquiry ? (
                 <div className="border border-dashed border-steel rounded-lg px-5 py-8 text-center bg-white/50">
                   <p className="font-sans text-[13px] text-ink-2 leading-relaxed">
                     {card.docNumber
@@ -956,7 +968,7 @@ function DetailDrawer({
                       : "Noch kein sevDesk-Beleg verknüpft."}
                   </p>
                 </div>
-              )}
+              ) : null}
             </div>
 
           </div>
@@ -1253,6 +1265,66 @@ function CancelModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ── Original-Anfrage-Panel (Pipeline-Drawer) ──────────────────────────── */
+function InquiryPanel({ inquiry }: { inquiry: Inquiry }) {
+  const log = [...inquiry.notesLog].sort((a, b) => a.at.localeCompare(b.at));
+  return (
+    <div>
+      <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5 flex items-center gap-2">
+        <span>{SOURCE_ICON[inquiry.source] ?? "✉"}</span>
+        Original-Anfrage · {SOURCE_LABEL[inquiry.source] ?? inquiry.source}
+        <span className="ml-auto font-mono text-[11px] text-ink-mute">{fmtDate(inquiry.createdAt.slice(0, 10))}</span>
+      </div>
+
+      {/* Kontaktdaten kompakt */}
+      <div className="border border-steel rounded-lg bg-white px-4 py-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12.5px] font-sans">
+        {inquiry.customerName && <div><span className="text-ink-mute">Kunde · </span><b>{inquiry.customerName}</b></div>}
+        {inquiry.customerPhone && <div><span className="text-ink-mute">Telefon · </span><b>{inquiry.customerPhone}</b></div>}
+        {inquiry.customerEmail && <div><span className="text-ink-mute">E-Mail · </span><b>{inquiry.customerEmail}</b></div>}
+        {inquiry.city && <div><span className="text-ink-mute">Ort · </span><b>{inquiry.city}</b></div>}
+        <div><span className="text-ink-mute">Status · </span><b>{inquiry.status}</b></div>
+        <div><span className="text-ink-mute">Priorität · </span><b>{inquiry.priority}</b></div>
+      </div>
+
+      {/* Was der Kunde will */}
+      {inquiry.description && (
+        <div className="mt-3 border border-steel rounded-lg bg-white px-4 py-3">
+          <div className="dd-eyebrow text-ink-mute mb-1">Was der Kunde will</div>
+          <p className="font-sans text-[13.5px] text-ink-body leading-relaxed whitespace-pre-wrap">{inquiry.description}</p>
+        </div>
+      )}
+
+      {/* Verlaufs-Timeline */}
+      {log.length > 0 && (
+        <div className="mt-3 border border-steel rounded-lg bg-white px-4 py-3">
+          <div className="dd-eyebrow text-ink-mute mb-2">Verlauf · {log.length} Eintrag{log.length === 1 ? "" : "e"}</div>
+          <ol className="flex flex-col gap-2">
+            {log.map((e, i) => (
+              <li key={i} className="grid grid-cols-[112px_1fr] gap-2 text-[12.5px] border-l-2 border-copper/40 pl-3 py-0.5">
+                <span className="font-mono text-[10.5px] text-ink-mute tabular-nums">{e.at.slice(0, 10)} {e.at.slice(11, 16)}</span>
+                <div>
+                  <span className="font-mono text-[10px] uppercase tracking-wider text-copper mr-1.5">{e.by ?? "—"} · {e.kind}</span>
+                  <span className="text-ink">{e.text}</span>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Roh-Verlauf zum Aufklappen */}
+      {inquiry.rawText && (
+        <details className="mt-3 border border-steel rounded-lg bg-white px-4 py-3">
+          <summary className="cursor-pointer dd-eyebrow text-ink-mute">
+            Original-Nachricht ({inquiry.rawText.length.toLocaleString("de")} Zeichen)
+          </summary>
+          <pre className="mt-2 text-[11.5px] leading-relaxed whitespace-pre-wrap font-mono text-ink-body max-h-[400px] overflow-auto">{inquiry.rawText}</pre>
+        </details>
+      )}
     </div>
   );
 }

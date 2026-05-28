@@ -55,6 +55,15 @@ export interface InquiryInput {
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 
+export const SOURCE_ICON: Record<InquirySource, string> = {
+  whatsapp: "📱", mail: "✉", phone: "☎", letter: "📮",
+  in_person: "🤝", web: "🌐", other: "•"
+};
+export const SOURCE_LABEL: Record<InquirySource, string> = {
+  whatsapp: "WhatsApp", mail: "Mail", phone: "Telefon", letter: "Brief",
+  in_person: "Persönlich", web: "Web", other: "Sonstige"
+};
+
 function rowToInquiry(r: any): Inquiry {
   return {
     id: r.id,
@@ -97,6 +106,20 @@ export async function getInquiry(id: string): Promise<Inquiry | null> {
   const { data, error } = await sb.from('inquiries').select(COLS).eq('id', id).maybeSingle();
   if (error) throw error;
   return data ? rowToInquiry(data) : null;
+}
+
+/** Holt die juengste Anfrage, die mit dieser Pipeline-Karte verknuepft ist. */
+export async function getInquiryByCardId(cardId: string): Promise<Inquiry | null> {
+  if (!isBackendConnected() || !supabase) return null;
+  const sb: any = supabase;
+  const { data, error } = await sb
+    .from('inquiries')
+    .select(COLS)
+    .eq('pipeline_card_id', cardId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return (data ?? [])[0] ? rowToInquiry(data[0]) : null;
 }
 
 export async function createInquiry(input: InquiryInput): Promise<Inquiry> {

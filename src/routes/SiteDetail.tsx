@@ -28,6 +28,7 @@ import BackButton from "../components/BackButton";
 import ImageWithFallback from "../components/ImageWithFallback";
 import type { PhotoWithContext, Site, Worker, WorkEntry } from "../lib/types";
 import type { PipelinePosition } from "../lib/pipeline";
+import { SOURCE_ICON, SOURCE_LABEL } from "../lib/inquiries";
 
 /* ────────────────────────────────────────────────────────────────────────
    SiteDetail · Mockup-Variante 14 „Modal-Trigger · Quick-Access-Cards"
@@ -1227,13 +1228,6 @@ async function loadInvoicesForSite(siteId: string): Promise<InvoiceRow[]> {
     paidAt: r.paid_at ?? null,
   }));
 }
-
-const SOURCE_ICON: Record<string, string> = {
-  whatsapp: "📱", mail: "✉", phone: "☎", letter: "📮", in_person: "🤝", web: "🌐", other: "•"
-};
-const SOURCE_LABEL: Record<string, string> = {
-  whatsapp: "WhatsApp", mail: "Mail", phone: "Telefon", letter: "Brief", in_person: "Persönlich", web: "Web", other: "Sonstige"
-};
 
 async function loadInquiryForSite(siteId: string): Promise<InquiryRef | null> {
   if (!isBackendConnected() || !supabase) return null;
