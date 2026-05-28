@@ -1,8 +1,8 @@
 # Leuschner Stundenzettel · Offene Aufgaben
 
-**Stand:** 27. Mai 2026
-**Master-Branch:** `feat/parser-upgrade-sprint1` (65+ Commits jenseits von `main`, ungepusht)
-**Live deployt:** `main` @ `64b823d` (21.05.) — Stand vor dem Parser-Sprint
+**Stand:** 28. Mai 2026
+**Master-Branch:** `main` (alles synchron zu `origin/main`)
+**Live deployt:** `main` @ `cd3f8eb` — RLS gehärtet, Zeiterfassung mit Monatsansicht + Druck
 
 ---
 
@@ -20,9 +20,54 @@ npm run dev      # http://localhost:5173
 
 ## 🔥 Kritisch · jetzt fällig
 
-- [ ] **Migration `20260526200000_site_questions.sql` auf Live-DB einspielen** — Tabelle fehlt aktuell, Klärpunkte-Feature greift live nicht
-- [ ] **Branch `feat/parser-upgrade-sprint1` nach `main` mergen** und auf Cloudflare Pages deployen — sonst läuft live noch der 21.05.-Stand ohne die ganzen Parser/Wetter/Material-Features
-- [ ] Nach Deploy: Supabase URL-Configuration prüfen (Site-URL + Redirect-Allowlist auf `leuschner-stundenzettel.pages.dev`)
+- Nichts. Alles synchron.
+
+---
+
+## ✅ Drin seit 28.05. (Zeiterfassungs- & RLS-Block)
+
+### RLS-Härtung
+- Alle Demo-Policies (demo_*_read, *_demo_all, *_anon) entfernt
+- Authenticated/Admin-Policies für alle Sprint-Tabellen (pipeline_cards, customers, inquiries, site_questions, site_materials, site_invoices, parse_corrections)
+- Verifiziert: Anon-Key liefert auf 11 Tabellen `[]`
+- Migration `20260528100000_rls_harden.sql` + `20260512160000_site_materials.sql` (war auf Stick, nun live)
+- Supabase PAT (`sbp_…`) in KeePass `Supabase PAT Leuschner` — für DDL via Management-API
+
+### Mitarbeiter-Modell
+- `workers.daily_target_minutes` (Default 480, Rick 300)
+- `workers.workdays integer[]` (Default Mo–Fr, Rick `{2,4}` = Di+Do)
+- `paidMinutes()` und `isWorkdayFor()` Helper in `utils.ts`
+
+### Disziplin VWG
+- `discipline`-Enum um `VWG` (Verwaltung) erweitert
+- `LOHNART_MAPPING` für VWG = `020` (Gehalt)
+- Type-Updates in `types.ts` + `db.types.ts` + `Day.tsx`
+
+### Rick als Worker konfiguriert
+- 7 work-Entries Mai (jeden Di + Do je 5h Verwaltung)
+- Site `11111111-…`: TEST-Präfix raus, jetzt "Leuschner Firmensitz · Weener", Adresse Industriestr. 4
+- Feiertag-Auto-Lohn (Christi Himmelfahrt 14.5. wird ohne Entry mit 5h berechnet)
+
+### Zeiterfassung 5. Tab "Monatsübersicht"
+- Kalender-Grid 7 Spalten Mo–So
+- KPIs: Σ Monat / Arbeitstage / Feiertage
+- Mitarbeiter-Karten mit individuellem Soll (Workday-Set, Tagessoll)
+- Admins mit Stunden sind jetzt in Auswertung sichtbar
+
+### Druck-Stundenzettel
+- Neue Route `/admin/stunden-print?worker=…&year=…&month=…`
+- Klick auf Mitarbeiter-Karte in Monatsansicht öffnet Druck im neuen Tab
+- Auto-`window.print()` nach 0,5s
+- A4-kompakt (alle 28–31 Tage + Header + Bilanz + Unterschriften auf 1 Seite)
+- Workday-bewusst: Mo/Mi/Fr/Sa/So bei Rick als „frei" grau
+- Feiertag automatisch bezahlt wenn auf Workday
+- App-Banner (Push/Offline/Install/Update) via `print:hidden` weg
+- `@page A4 portrait` + `@media print` in `index.css`
+
+### Sicherheit & Docs
+- KeePass-Datei `Leuschners-KeyPass.kdbx` (Stick) + `DollartDrops-Zugaenge.kdbx` (E:) — 6 + 19 Einträge
+- Klartext-Secrets (supabase-keys.md, github-recovery-codes.txt) geschreddert, sevDesk-Datei ohne API-Key
+- Memory `project_leuschner_app.md` + `leuschner_stick_master.md`
 
 ---
 
