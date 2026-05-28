@@ -700,11 +700,21 @@ function Monatsuebersicht({
             const tot = workerMinutes(w);
             const soll = sollForWorker(w);
             const pct = soll > 0 ? Math.min(100, (tot / soll) * 100) : 0;
+            const printHref = `/admin/stunden-print?worker=${w.id}&year=${monthAnchor.getFullYear()}&month=${monthAnchor.getMonth() + 1}`;
             return (
-              <div key={w.id} className="px-5 py-3 grid grid-cols-[48px_1fr_auto] gap-4 items-center">
+              <Link
+                key={w.id}
+                to={printHref}
+                target="_blank"
+                rel="noopener"
+                className="px-5 py-3 grid grid-cols-[48px_1fr_auto] gap-4 items-center hover:bg-bg-2/40 transition-colors group"
+                title={`Stundenzettel ${w.firstName} ${w.lastName} für ${MONTH_LONG[monthAnchor.getMonth()]} drucken (neuer Tab)`}
+              >
                 <div className="w-10 h-10 rounded-full bg-bg-deep text-copper-bright font-display font-black text-[12px] flex items-center justify-center">{w.initials}</div>
                 <div className="min-w-0">
-                  <div className="text-[13.5px] font-bold text-ink truncate">{w.firstName} {w.lastName}</div>
+                  <div className="text-[13.5px] font-bold text-ink truncate group-hover:text-copper transition-colors">
+                    {w.firstName} {w.lastName} <span className="text-ink-mute font-normal text-[11px] ml-1 print:hidden">🖨</span>
+                  </div>
                   <div className="dd-eyebrow text-ink-mute mt-0.5">{w.role} · {fmtHours(targetOf(w))} h/Tag</div>
                   <div className="h-1.5 bg-bg-3 rounded-full mt-2 overflow-hidden">
                     <div className={`h-full rounded-full ${pct >= 100 ? "bg-good" : "bg-copper"}`} style={{ width: `${pct}%` }} />
@@ -716,7 +726,7 @@ function Monatsuebersicht({
                     von {fmtHours(soll)} h · {Math.round(pct)} %
                   </div>
                 </div>
-              </div>
+              </Link>
             );
           })}
         </div>

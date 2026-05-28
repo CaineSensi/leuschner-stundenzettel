@@ -12,6 +12,7 @@ import Sites from "./routes/Sites";
 import SiteDetail from "./routes/SiteDetail";
 import Hours from "./routes/Hours";
 import Zeiterfassung from "./routes/Zeiterfassung";
+import StundenPrint from "./routes/StundenPrint";
 import Angebote from "./routes/Angebote";
 import Anfragen from "./routes/Anfragen";
 import AnfrageNeu from "./routes/AnfrageNeu";
@@ -74,6 +75,7 @@ export default function App() {
         <Route path="/admin/sites"     element={<ProtectedRoute adminOnly><Sites /></ProtectedRoute>} />
         <Route path="/admin/sites/:id" element={<ProtectedRoute adminOnly><SiteDetail /></ProtectedRoute>} />
         <Route path="/admin/stunden"   element={<ProtectedRoute adminOnly><Hours /></ProtectedRoute>} />
+        <Route path="/admin/stunden-print" element={<ProtectedRoute adminOnly><StundenPrint /></ProtectedRoute>} />
         <Route path="/admin/angebote"     element={<ProtectedRoute adminOnly><Angebote /></ProtectedRoute>} />
         <Route path="/admin/anfragen"     element={<ProtectedRoute adminOnly><Anfragen /></ProtectedRoute>} />
         <Route path="/admin/anfrage-neu"  element={<ProtectedRoute adminOnly><AnfrageNeu /></ProtectedRoute>} />
