@@ -5,7 +5,7 @@ import {
 } from "../lib/api";
 import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
 import { getHoliday, isHoliday } from "../lib/holidays";
-import { isoWeek, todayIso, weekDays, fmtHours, workMinutes, paidMinutes } from "../lib/utils";
+import { isoWeek, todayIso, weekDays, fmtHours, workMinutes, paidMinutes, isWorkdayFor } from "../lib/utils";
 import { isWorkEntry, DISCIPLINE_LABEL, type Assignment, type Entry, type Site, type Worker } from "../lib/types";
 import {
   buildExportRows, buildCSV, downloadCSV, csvFilename, aggregate,
@@ -34,6 +34,15 @@ const TABS: { key: TabKey; num: string; label: string; hint: string }[] = [
 const DAY_LONG  = ["Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"];
 const DAY_SHORT = ["So","Mo","Di","Mi","Do","Fr","Sa"];
 const MONTH_LONG = ["Januar","Februar","März","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"];
+
+/** Kurz-Label für Arbeitstage-Set (Mo-Fr → "", sonst z.B. "Di+Do · "). */
+function workdayLabel(workdays?: number[]): string {
+  const std = [1,2,3,4,5];
+  if (!workdays || workdays.length === 0) return "";
+  if (workdays.length === 5 && std.every((d) => workdays.includes(d))) return "";
+  const names = ["", "Mo","Di","Mi","Do","Fr","Sa","So"];
+  return workdays.sort((a,b) => a-b).map((d) => names[d]).join("+") + " · ";
+}
 
 /** Alle Tage des Monats (Anker = beliebiger Tag im Monat) als ISO-Date-Strings. */
 function allDaysOfMonth(anchor: Date): string[] {
@@ -637,18 +646,28 @@ function Monatsuebersicht({
   });
 
   function targetOf(w: Worker): number { return w.dailyTargetMinutes ?? 480; }
-  function sollForWorker(w: Worker): number { return workdays.length * targetOf(w); }
-  function workerMinutes(w: Worker): number {
-    return entries.filter((e) => e.workerId === w.id)
-      .reduce((s, e) => s + paidMinutes(e, targetOf(w)), 0);
+  function workdaysOfWorker(w: Worker): number {
+    return monthDays.filter((iso) => isWorkdayFor(w.workdays, iso)).length;
   }
+  function sollForWorker(w: Worker): number { return workdaysOfWorker(w) * targetOf(w); }
   function workerEntriesOnDay(workerId: string, iso: string): Entry[] {
     return entries.filter((e) => e.workerId === workerId && e.date === iso);
   }
+  /** Bezahlte Minuten für einen Worker an einem Tag — explizite Entries
+   *  plus automatischer Feiertag-Lohn an regulären Arbeitstagen. */
+  function paidOnDay(w: Worker, iso: string): number {
+    const dayEntries = workerEntriesOnDay(w.id, iso);
+    if (dayEntries.length > 0) {
+      return dayEntries.reduce((s, e) => s + paidMinutes(e, targetOf(w)), 0);
+    }
+    if (isWorkdayFor(w.workdays, iso) && isHoliday(iso)) return targetOf(w);
+    return 0;
+  }
+  function workerMinutes(w: Worker): number {
+    return monthDays.reduce((s, iso) => s + paidOnDay(w, iso), 0);
+  }
   function dayTotal(iso: string): number {
-    return team.reduce((s, w) =>
-      s + workerEntriesOnDay(w.id, iso).reduce((t, e) => t + paidMinutes(e, targetOf(w)), 0)
-    , 0);
+    return team.reduce((s, w) => s + paidOnDay(w, iso), 0);
   }
 
   const totalMonthMinutes = team.reduce((s, w) => s + workerMinutes(w), 0);
@@ -715,7 +734,7 @@ function Monatsuebersicht({
                   <div className="text-[13.5px] font-bold text-ink truncate group-hover:text-copper transition-colors">
                     {w.firstName} {w.lastName} <span className="text-ink-mute font-normal text-[11px] ml-1 print:hidden">🖨</span>
                   </div>
-                  <div className="dd-eyebrow text-ink-mute mt-0.5">{w.role} · {fmtHours(targetOf(w))} h/Tag</div>
+                  <div className="dd-eyebrow text-ink-mute mt-0.5">{w.role} · {workdayLabel(w.workdays)} {fmtHours(targetOf(w))} h/Tag</div>
                   <div className="h-1.5 bg-bg-3 rounded-full mt-2 overflow-hidden">
                     <div className={`h-full rounded-full ${pct >= 100 ? "bg-good" : "bg-copper"}`} style={{ width: `${pct}%` }} />
                   </div>

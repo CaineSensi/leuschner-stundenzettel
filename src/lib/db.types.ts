@@ -30,6 +30,7 @@ export type Database = {
           is_admin: boolean;
           phone: string | null;
           daily_target_minutes: number;
+          workdays: number[];
           starts_on: string | null;
           ends_on: string | null;
           created_at: string;

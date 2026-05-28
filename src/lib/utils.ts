@@ -36,6 +36,19 @@ export function paidMinutes(entry: Entry, dailyTargetMinutes: number = 480): num
   return dailyTargetMinutes;
 }
 
+/** ISO-Wochentag (1=Mo … 7=So) eines ISO-Datums. */
+export function isoWeekday(iso: string): number {
+  const wd = new Date(iso).getDay();
+  return wd === 0 ? 7 : wd;
+}
+
+/** Ist der Tag ein regulärer Arbeitstag dieses Workers?
+ *  workdays = ISO-Wochentage [1..7]. Default Mo–Fr. */
+export function isWorkdayFor(workdays: number[] | undefined, iso: string): boolean {
+  const days = workdays && workdays.length > 0 ? workdays : [1,2,3,4,5];
+  return days.includes(isoWeekday(iso));
+}
+
 export function dayName(iso: string): string {
   const days = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
   return days[new Date(iso).getDay()];

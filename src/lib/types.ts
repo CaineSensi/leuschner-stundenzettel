@@ -40,6 +40,9 @@ export interface Worker {
   /** Tagessoll in Minuten. Default 480 (8h). Wird für Feiertag/Urlaub/Krank
    *  als Bezahlungsbasis genutzt (Feiertagslohn = übliche Stunden, nicht 8h). */
   dailyTargetMinutes?: number;
+  /** Regelmäßige Arbeitstage als ISO-Wochentage (1=Mo … 7=So). Default
+   *  [1,2,3,4,5] (Mo–Fr). Rick z.B. [2,4] (Di+Do, Teilzeit Büro). */
+  workdays?: number[];
 }
 
 interface BaseEntry {

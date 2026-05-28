@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { listWorkers, listAllEntries } from "../lib/api";
 import { isHoliday, getHoliday } from "../lib/holidays";
-import { fmtHours, paidMinutes, workMinutes } from "../lib/utils";
+import { fmtHours, paidMinutes, workMinutes, isWorkdayFor } from "../lib/utils";
 import { isWorkEntry, DISCIPLINE_LABEL, type Entry, type Worker } from "../lib/types";
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -78,12 +78,20 @@ export default function StundenPrint() {
   if (!worker) return <div className="p-10 font-mono text-sm">Mitarbeiter nicht gefunden.</div>;
 
   const target = worker.dailyTargetMinutes ?? 480;
-  const workdays = days.filter((iso) => {
-    const wd = new Date(iso).getDay();
-    return wd >= 1 && wd <= 5 && !isHoliday(iso);
-  });
-  const sollMinutes = workdays.length * target;
-  const istMinutes = entries.reduce((s, e) => s + paidMinutes(e, target), 0);
+
+  // Soll = alle regulären Arbeitstage des Workers im Monat (Feiertage drin —
+  // die werden mit Tagessoll bezahlt). Beispiel Rick (Di+Do): 4 Di + 4 Do = 8 Tage.
+  const sollDays = days.filter((iso) => isWorkdayFor(worker.workdays, iso));
+  const sollMinutes = sollDays.length * target;
+
+  // Ist = explizite Entries + automatisch bezahlte Feiertage an Workdays
+  // (für die kein eigener Entry existiert). Wochenende-Feiertage zählen nicht.
+  const datesWithEntry = new Set(entries.map((e) => e.date));
+  const autoHolidayMinutes = days
+    .filter((iso) => isWorkdayFor(worker.workdays, iso) && isHoliday(iso) && !datesWithEntry.has(iso))
+    .length * target;
+  const entryPaid = entries.reduce((s, e) => s + paidMinutes(e, target), 0);
+  const istMinutes = entryPaid + autoHolidayMinutes;
   const workMinutesTotal = entries.reduce((s, e) => s + workMinutes(e), 0);
   const pct = sollMinutes > 0 ? Math.round((istMinutes / sollMinutes) * 100) : 0;
 
@@ -110,42 +118,42 @@ export default function StundenPrint() {
         </div>
       </div>
 
-      {/* Druck-Bereich · A4-Verhältnis, schwarz auf weiß */}
-      <div className="max-w-[210mm] mx-auto p-8 print:p-6 print:max-w-none">
-        {/* Kopf */}
-        <header className="flex items-end justify-between border-b-2 border-black pb-3 mb-5">
+      {/* Druck-Bereich · A4 mit kompakter Skalierung damit alles auf eine Seite passt */}
+      <div className="max-w-[210mm] mx-auto p-6 print:p-4 print:max-w-none">
+        {/* Kopf — kompakt */}
+        <header className="flex items-end justify-between border-b-2 border-black pb-2 mb-2.5">
           <div>
-            <div className="font-bold text-xs tracking-[0.2em] uppercase text-gray-600">Rund um's Haus Leuschner e.K.</div>
-            <h1 className="text-2xl font-black uppercase mt-1">Stundennachweis</h1>
-            <div className="text-sm mt-1">
+            <div className="font-bold text-[9px] tracking-[0.2em] uppercase text-gray-600">Rund um's Haus Leuschner e.K.</div>
+            <h1 className="text-xl print:text-lg font-black uppercase mt-0.5 leading-tight">Stundennachweis</h1>
+            <div className="text-[11px] print:text-[10px] mt-0.5">
               <span className="font-bold">{MONTH_LONG[month - 1]} {year}</span>
               <span className="text-gray-600"> · KW {String(getWeek(firstDay)).padStart(2, "0")} – {String(getWeek(lastDay)).padStart(2, "0")}</span>
             </div>
           </div>
-          <div className="text-right text-sm leading-tight">
-            <div className="font-bold uppercase tracking-wider text-[10px] text-gray-600">Mitarbeiter</div>
-            <div className="text-xl font-bold">{worker.firstName} {worker.lastName}</div>
-            <div className="text-xs text-gray-600 mt-0.5">{worker.role}</div>
-            <div className="text-xs mt-1">
-              Personalnr.: <span className="font-mono font-bold">{worker.initials}</span>
-              <span className="mx-2 text-gray-400">·</span>
-              Tagessoll: <span className="font-mono font-bold">{fmtHours(target)} h</span>
+          <div className="text-right leading-tight">
+            <div className="font-bold uppercase tracking-wider text-[9px] text-gray-600">Mitarbeiter</div>
+            <div className="text-base font-bold leading-tight">{worker.firstName} {worker.lastName}</div>
+            <div className="text-[10px] text-gray-600">{worker.role}</div>
+            <div className="text-[10px] mt-0.5">
+              Personalnr. <span className="font-mono font-bold">{worker.initials}</span>
+              <span className="mx-1.5 text-gray-400">·</span>
+              Tagessoll <span className="font-mono font-bold">{fmtHours(target)} h</span>
             </div>
           </div>
         </header>
 
-        {/* Tabelle */}
-        <table className="w-full text-[11px] border-collapse">
+        {/* Tabelle — sehr kompakt, alle 28–31 Tage auf einer A4 */}
+        <table className="w-full text-[10px] print:text-[9px] border-collapse">
           <thead>
             <tr className="border-b-2 border-black text-left">
-              <th className="px-1.5 py-1.5 w-[80px]">Datum</th>
-              <th className="px-1.5 py-1.5 w-[28px]">Tag</th>
-              <th className="px-1.5 py-1.5 w-[55px]">Beginn</th>
-              <th className="px-1.5 py-1.5 w-[55px]">Ende</th>
-              <th className="px-1.5 py-1.5 w-[55px]">Pause</th>
-              <th className="px-1.5 py-1.5 w-[70px]">Art</th>
-              <th className="px-1.5 py-1.5 w-[60px] text-right">Stunden</th>
-              <th className="px-1.5 py-1.5">Bemerkung</th>
+              <th className="px-1 py-1 w-[60px]">Datum</th>
+              <th className="px-1 py-1 w-[24px]">Tag</th>
+              <th className="px-1 py-1 w-[42px]">Beginn</th>
+              <th className="px-1 py-1 w-[42px]">Ende</th>
+              <th className="px-1 py-1 w-[42px]">Pause</th>
+              <th className="px-1 py-1 w-[80px]">Art</th>
+              <th className="px-1 py-1 w-[52px] text-right">Stunden</th>
+              <th className="px-1 py-1">Bemerkung</th>
             </tr>
           </thead>
           <tbody>
@@ -154,21 +162,20 @@ export default function StundenPrint() {
               const wd = dt.getDay();
               const isWeekend = wd === 0 || wd === 6;
               const holiday = getHoliday(iso);
+              const isWorkerDay = isWorkdayFor(worker.workdays, iso);
               const dayEntries = entries.filter((e) => e.date === iso);
               const workEntry = dayEntries.find(isWorkEntry);
               const absence = dayEntries.find((e) => !isWorkEntry(e));
 
-              // Stunden-Spalte
-              let hoursCell: string = "";
-              let artCell: string = "";
-              let beginCell: string = "";
-              let endCell: string = "";
-              let pauseCell: string = "";
-              let bemerkung: string = "";
+              let hoursCell = "";
+              let artCell = "";
+              let beginCell = "";
+              let endCell = "";
+              let pauseCell = "";
+              let bemerkung = "";
 
               if (workEntry && isWorkEntry(workEntry)) {
-                const mins = workMinutes(workEntry);
-                hoursCell = `${fmtHours(mins, 2)}`;
+                hoursCell = fmtHours(workMinutes(workEntry), 2);
                 artCell = DISCIPLINE_LABEL[workEntry.discipline] ?? workEntry.discipline;
                 beginCell = fmtTime(workEntry.startMin);
                 endCell = fmtTime(workEntry.endMin);
@@ -181,69 +188,79 @@ export default function StundenPrint() {
                 artCell = label;
                 hoursCell = fmtHours(target, 2);
                 bemerkung = absence.note ?? (absence.type === "holiday" ? (holiday?.name ?? "Feiertag") : "");
-              } else if (holiday) {
+              } else if (holiday && isWorkerDay) {
+                // Feiertag an einem regulären Arbeitstag → automatisch
+                // mit Tagessoll bezahlt (Feiertagslohn nach EFZG).
                 artCell = "Feiertag";
                 hoursCell = fmtHours(target, 2);
                 bemerkung = holiday.name;
-              } else if (isWeekend) {
-                artCell = wd === 6 ? "Samstag" : "Sonntag";
+              } else if (holiday) {
+                // Feiertag an einem Nicht-Arbeitstag des Workers → kein Lohn,
+                // er hätte sowieso nicht gearbeitet.
+                artCell = "Feiertag";
+                hoursCell = "—";
+                bemerkung = holiday.name;
+              } else if (!isWorkerDay) {
+                artCell = "frei";
                 hoursCell = "—";
               } else {
+                // Regulärer Arbeitstag ohne Eintrag → Lücke
                 hoursCell = "—";
               }
 
-              const rowBg = isWeekend ? "bg-gray-100" : holiday ? "bg-yellow-50" : "";
+              const rowBg = isWeekend || !isWorkerDay
+                ? "bg-gray-100"
+                : holiday ? "bg-yellow-50" : "";
               return (
                 <tr key={iso} className={`border-b border-gray-300 ${rowBg}`}>
-                  <td className="px-1.5 py-1 font-mono tabular-nums">{String(dt.getDate()).padStart(2,"0")}.{String(month).padStart(2,"0")}.</td>
-                  <td className="px-1.5 py-1 font-bold">{DAY_SHORT[wd]}</td>
-                  <td className="px-1.5 py-1 font-mono tabular-nums">{beginCell}</td>
-                  <td className="px-1.5 py-1 font-mono tabular-nums">{endCell}</td>
-                  <td className="px-1.5 py-1 font-mono tabular-nums">{pauseCell}</td>
-                  <td className="px-1.5 py-1">{artCell}</td>
-                  <td className="px-1.5 py-1 text-right font-mono tabular-nums font-bold">{hoursCell}</td>
-                  <td className="px-1.5 py-1 text-gray-700">{bemerkung}</td>
+                  <td className="px-1 py-[2px] font-mono tabular-nums">{String(dt.getDate()).padStart(2,"0")}.{String(month).padStart(2,"0")}.</td>
+                  <td className="px-1 py-[2px] font-bold">{DAY_SHORT[wd]}</td>
+                  <td className="px-1 py-[2px] font-mono tabular-nums">{beginCell}</td>
+                  <td className="px-1 py-[2px] font-mono tabular-nums">{endCell}</td>
+                  <td className="px-1 py-[2px] font-mono tabular-nums">{pauseCell}</td>
+                  <td className="px-1 py-[2px]">{artCell}</td>
+                  <td className="px-1 py-[2px] text-right font-mono tabular-nums font-bold">{hoursCell}</td>
+                  <td className="px-1 py-[2px] text-gray-700 truncate max-w-0">{bemerkung}</td>
                 </tr>
               );
             })}
           </tbody>
           <tfoot>
             <tr className="border-t-2 border-black font-bold">
-              <td colSpan={6} className="px-1.5 py-2 uppercase text-[11px] tracking-wider">Σ Monat</td>
-              <td className="px-1.5 py-2 text-right font-mono tabular-nums text-base">{fmtHours(istMinutes, 2)}</td>
-              <td className="px-1.5 py-2 text-[10px] text-gray-600">davon gearbeitet: {fmtHours(workMinutesTotal, 2)} h</td>
+              <td colSpan={6} className="px-1 py-1.5 uppercase text-[10px] tracking-wider">Σ Monat</td>
+              <td className="px-1 py-1.5 text-right font-mono tabular-nums text-[12px]">{fmtHours(istMinutes, 2)}</td>
+              <td className="px-1 py-1.5 text-[9px] text-gray-600">davon gearbeitet: {fmtHours(workMinutesTotal, 2)} h</td>
             </tr>
           </tfoot>
         </table>
 
-        {/* Bilanz-Block */}
-        <div className="grid grid-cols-3 gap-4 mt-6 text-sm border border-gray-400 rounded p-3 bg-gray-50">
+        {/* Bilanz-Block — einzeilig kompakt */}
+        <div className="grid grid-cols-3 gap-3 mt-3 border border-gray-400 rounded px-3 py-2 bg-gray-50 text-[10px]">
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-gray-600">Soll im Monat</div>
-            <div className="font-bold text-lg tabular-nums">{fmtHours(sollMinutes, 1)} h</div>
-            <div className="text-[10px] text-gray-600">{workdays.length} AT × {fmtHours(target, 1)} h</div>
+            <span className="uppercase tracking-wider text-gray-600">Soll: </span>
+            <span className="font-mono font-bold tabular-nums">{fmtHours(sollMinutes, 1)} h</span>
+            <span className="text-gray-600 ml-1">({sollDays.length} AT × {fmtHours(target, 1)} h)</span>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-gray-600">Ist im Monat</div>
-            <div className="font-bold text-lg tabular-nums">{fmtHours(istMinutes, 1)} h</div>
-            <div className="text-[10px] text-gray-600">inkl. Feiertag/Urlaub/Krank</div>
+            <span className="uppercase tracking-wider text-gray-600">Ist: </span>
+            <span className="font-mono font-bold tabular-nums">{fmtHours(istMinutes, 1)} h</span>
+            <span className="text-gray-600 ml-1">inkl. Feiertag/Urlaub/Krank</span>
           </div>
           <div>
-            <div className="text-[10px] uppercase tracking-wider text-gray-600">Erfüllung</div>
-            <div className="font-bold text-lg tabular-nums">{pct} %</div>
-            <div className="text-[10px] text-gray-600">{istMinutes - sollMinutes >= 0 ? "+" : ""}{fmtHours(istMinutes - sollMinutes, 1)} h Saldo</div>
+            <span className="uppercase tracking-wider text-gray-600">Erfüllung: </span>
+            <span className="font-mono font-bold tabular-nums">{pct} %</span>
+            <span className="text-gray-600 ml-1">({istMinutes - sollMinutes >= 0 ? "+" : ""}{fmtHours(istMinutes - sollMinutes, 1)} h Saldo)</span>
           </div>
         </div>
 
-        {/* Unterschriften */}
-        <div className="grid grid-cols-2 gap-12 mt-12 text-[10px] uppercase tracking-wider text-gray-600">
+        {/* Unterschriften — kompakt */}
+        <div className="grid grid-cols-2 gap-12 mt-6 print:mt-4 text-[9px] uppercase tracking-wider text-gray-600">
           <div className="border-t border-black pt-1">Datum / Unterschrift Mitarbeiter</div>
           <div className="border-t border-black pt-1">Datum / Unterschrift Vorgesetzter</div>
         </div>
 
-        <div className="mt-6 text-center text-[9px] text-gray-500">
-          Erstellt: {new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}
-          {" · "}leuschner-stundenzettel
+        <div className="mt-3 text-center text-[8px] text-gray-500">
+          Erstellt {new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })} · leuschner-stundenzettel
         </div>
       </div>
     </div>
