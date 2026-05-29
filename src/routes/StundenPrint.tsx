@@ -259,15 +259,12 @@ export default function StundenPrint() {
           </div>
         </div>
 
-        {/* Unterschriften — kompakt */}
-        <div className="grid grid-cols-2 gap-12 mt-6 print:mt-4 text-[9px] uppercase tracking-wider text-gray-600">
-          <div className="border-t border-black pt-1">Datum / Unterschrift Mitarbeiter</div>
-          <div className="border-t border-black pt-1">Datum / Unterschrift Vorgesetzter</div>
+        {/* Hinweis statt Unterschriften */}
+        <div className="mt-6 print:mt-4 text-center text-[9px] text-gray-500">
+          Maschinell erstellt am {new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })} — ohne Unterschrift gültig.
         </div>
 
-        <div className="mt-3 text-center text-[8px] text-gray-500">
-          Erstellt {new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })} · leuschner-stundenzettel
-        </div>
+        <div className="mt-2 text-center text-[8px] text-gray-400">leuschner-stundenzettel</div>
       </div>
     </div>
   );
