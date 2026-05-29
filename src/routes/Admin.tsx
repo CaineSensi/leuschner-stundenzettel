@@ -220,6 +220,7 @@ export default function Admin() {
 
           <nav className="mt-10 flex flex-col gap-1">
             <SbItem icon="●" label="Übersicht" active />
+            <SbItem icon="▦" label="Tagesplanung" to="/admin/tagesplanung" />
             <SbItem icon="◷" label="Zeiterfassung" to="/admin/zeiterfassung" />
             <SbItem icon="⌂" label="Baustellen" to="/admin/sites" />
             <SbItem icon="◇" label="Angebote" to="/admin/angebote" />
