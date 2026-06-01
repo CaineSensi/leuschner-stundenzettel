@@ -11,7 +11,7 @@ import {
 import { sevdeskCreateContact } from "../lib/sevdesk";
 import { createInquiry, updateInquiry, findSimilar, type InquirySource, type Inquiry } from "../lib/inquiries";
 import { diffCorrections, logCorrections } from "../lib/corrections";
-import { createCard } from "../lib/pipeline";
+import { createCard, linkOrCreateSiteForCard } from "../lib/pipeline";
 import { isBackendConnected } from "../lib/supabase";
 import SaveProgress, { type SaveStep } from "../components/SaveProgress";
 import BackButton from "../components/BackButton";
@@ -441,6 +441,17 @@ export default function AnfrageNeu() {
         customerId,
       });
       await updateInquiry(inq.id, { pipelineCardId: card.id, status: "in_arbeit" });
+
+      // Proaktiv: direkt eine Baustelle anlegen + mit der Karte verknuepfen,
+      // damit jede Anfrage von Anfang an vollstaendig ist (Kunde, Ort, Karte,
+      // Baustelle). So laeuft das Aufmaß-Tablet spaeter reibungslos -> die
+      // Baustelle existiert bereits und Positionen/Fotos haben einen Platz.
+      // Dedupe in linkOrCreateSiteForCard verhindert Dubletten. Best effort.
+      try {
+        await linkOrCreateSiteForCard(card);
+      } catch (e) {
+        console.warn("Baustelle zur neuen Anfrage anlegen fehlgeschlagen:", e);
+      }
 
       // M11: Korrektur-Log — wenn der User Parsed-Werte verändert hat,
       // schreiben wir die Diffs in parse_corrections (still bei Fehler).
