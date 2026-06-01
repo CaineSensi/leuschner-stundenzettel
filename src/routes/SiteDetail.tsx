@@ -41,7 +41,7 @@ type SiteRow = Site & { archived?: boolean };
 interface InvoiceRow { id: string; invoiceNumber: string; invoiceDate: string; status: string; netEur: number; grossEur: number | null; paidAt: string | null }
 interface OrderRef   { id: string; orderNumber: string; positions: PipelinePosition[]; sumNet: number | null }
 
-type ModalKind = "positions" | "hours" | "invoices" | "photos" | "materials" | "media" | "inquiry" | null;
+type ModalKind = "positions" | "hours" | "invoices" | "photos" | "materials" | "media" | "inquiry" | "aufmass" | null;
 
 interface InquiryRef {
   id: string;
@@ -223,6 +223,9 @@ export default function SiteDetail() {
   const invoicesOpenSum = invoicesOpen.reduce((t, i) => t + (i.netEur ?? 0), 0);
   const posCount = orderRef?.positions.length ?? 0;
   const posSum = orderRef?.sumNet ?? orderRef?.positions.reduce((t, p) => t + (p.sum ?? 0), 0) ?? 0;
+  // Aufmaß-Positionen (vom Tablet erfasst) separat. Keine useMemo-Hook hier,
+  // da diese Stelle hinter bedingten Returns liegt (Hooks-Regeln).
+  const aufmassPositions = (orderRef?.positions ?? []).filter((p) => p.source === "aufmass");
   const latestPhoto = photos[0];
   const mapAddr = [site.street, site.city].filter(Boolean).join(", ");
 
@@ -391,14 +394,21 @@ export default function SiteDetail() {
           />
         </section>
 
-        {/* QUICK-ACCESS · 6 Cards (Positionen · Stunden · Rechnungen · Material · Fotos · Anhaenge) */}
-        <section className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-6">
+        {/* QUICK-ACCESS · 7 Cards (Positionen · Aufmaß · Stunden · Rechnungen · Material · Fotos · Anhaenge) */}
+        <section className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-7">
           <QuickCard
             label="Positionen"
             value={posCount === 0 ? "—" : `${posCount} · ${eur(posSum)}`}
             icon="📋"
             disabled={posCount === 0}
             onClick={() => setOpenModal("positions")}
+          />
+          <QuickCard
+            label="Aufmaß"
+            value={aufmassPositions.length === 0 ? "—" : `${aufmassPositions.length} vom Tablet`}
+            icon="📐"
+            disabled={aufmassPositions.length === 0}
+            onClick={() => setOpenModal("aufmass")}
           />
           <QuickCard
             label="Stunden"
@@ -452,6 +462,11 @@ export default function SiteDetail() {
       {openModal === "positions" && orderRef && (
         <Modal title={`${orderRef.orderNumber} · Positionen`} onClose={() => setOpenModal(null)}>
           <PositionsBody positions={orderRef.positions} sum={posSum} />
+        </Modal>
+      )}
+      {openModal === "aufmass" && (
+        <Modal title={`Aufmaß · ${site.name}`} onClose={() => setOpenModal(null)} wide>
+          <AufmassBody positions={aufmassPositions} photos={photos} />
         </Modal>
       )}
       {openModal === "hours" && (
@@ -618,6 +633,57 @@ function PositionsBody({ positions, sum }: { positions: PipelinePosition[]; sum:
         </tfoot>
       </table>
     </div>
+  );
+}
+
+function AufmassBody({ positions, photos }: { positions: PipelinePosition[]; photos: PhotoWithContext[] }) {
+  if (positions.length === 0) return <Empty>Noch kein Aufmaß vom Tablet erfasst. Sobald draußen gemessen wird, erscheinen die Positionen samt Skizze hier.</Empty>;
+  return (
+    <div className="space-y-3">
+      <p className="font-mono text-[11px] text-ink-mute uppercase tracking-wide">
+        {positions.length} Position{positions.length === 1 ? "" : "en"} vom Aufmaß-Tablet · Mengen fließen ins Angebot, Preise ergänzt das Büro
+      </p>
+      {positions.map((p, i) => {
+        const photo = p.meta?.photo_id ? photos.find((ph) => ph.id === p.meta!.photo_id) : undefined;
+        const isGps = p.meta?.method === "gps";
+        const isSketch = p.meta?.method === "skizze";
+        return (
+          <div key={i} className="flex gap-4 items-center border border-steel-line/35 rounded-lg p-3 bg-bg-2/30">
+            {photo
+              ? <AufmassThumb photo={photo} />
+              : <div className="w-[150px] h-[107px] rounded-md bg-bg-3 grid place-items-center text-ink-mute text-[10px] font-mono shrink-0">kein Bild</div>}
+            <div className="flex-1 min-w-0">
+              <div className="font-mono text-[10px] uppercase tracking-wider text-copper">
+                {isGps ? "📍 GPS-Begehung" : isSketch ? "✏ Finger-Skizze" : "Aufmaß"}
+              </div>
+              <div className="font-display font-extrabold uppercase text-ink text-[15px] leading-tight mt-0.5 truncate">{p.name}</div>
+              <div className="font-mono text-[22px] text-ink font-bold mt-1 tabular-nums">{p.quantity}</div>
+              <div className="font-mono text-[11px] text-ink-mute mt-1 flex flex-wrap gap-x-3">
+                {isGps && p.meta?.worstAccM != null && p.meta.worstAccM < 9999 && (
+                  <span>Genauigkeit ±{p.meta.worstAccM.toFixed(1).replace(".", ",")} m</span>
+                )}
+                {isSketch && p.meta?.edges_m && <span>{p.meta.edges_m.length} Kanten bemaßt</span>}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AufmassThumb({ photo }: { photo: PhotoWithContext }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    photoUrl(photo, "raw").then((u) => { if (!cancelled) setUrl(u); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [photo.id]);
+  return (
+    <a href={url ?? undefined} target="_blank" rel="noreferrer"
+      className="w-[150px] h-[107px] rounded-md overflow-hidden bg-bg-deep shrink-0 border border-steel-line/40 block">
+      {url && <img src={url} alt="Aufmaß-Beleg" className="w-full h-full object-contain" />}
+    </a>
   );
 }
 

@@ -60,6 +60,19 @@ export interface PipelinePosition {
     by?: string;
     at?: string;       // ISO
   };
+  /** Herkunft der Position. "aufmass" = vom Aufmaß-Tablet erfasst. */
+  source?: string;
+  /** Aufmaß-Metadaten (Tablet): method gps/skizze, gemessener Wert, Kantenmaße,
+   *  Genauigkeit, verknuepftes Beleg-Bild. Liegt im positions-jsonb. */
+  meta?: {
+    method?: "gps" | "skizze";
+    value?: number;
+    edges_m?: number[];
+    worstAccM?: number;
+    closeErrM?: number;
+    photo_id?: string | null;
+  } | null;
+  created_at?: string;
 }
 
 export interface FreigabeEvent {
