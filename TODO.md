@@ -1,26 +1,33 @@
 # Leuschner Stundenzettel · Offene Aufgaben
 
-**Stand:** 28. Mai 2026
-**Master-Branch:** `main` (alles synchron zu `origin/main`)
-**Live deployt:** `main` @ `cd3f8eb` — RLS gehärtet, Zeiterfassung mit Monatsansicht + Druck
+**Stand:** 01. Juni 2026 (Feierabend)
+**Hauptapp (`app`):** `main` = `origin/main` = `7f025c3` ✓ gepusht · Live-Bundle `index-BHOcF0CK.js`
+**Aufmaß-App (`aufmass`):** `main` = `8d9afeb` ✓ (lokal committed, KEIN Git-Remote — lebt auf dem Stick) · live `leuschner-aufmass.pages.dev`
+Git = Live = lokal bei beiden Apps. Voller Stand: `../WIEDEREINSTIEG.md`.
 
 ---
 
-## 🔁 Wiedereinstieg
-
-Vollständige Setup-Anleitung in `../WIEDEREINSTIEG.md`. Kurzform:
+## 🔁 Wiedereinstieg morgen am Laptop
 
 ```powershell
-cd "L:\Leuschner APP\app"
-git status
-npm run dev      # http://localhost:5173
+# Stick einstecken (L:), dann:
+cd "L:\Leuschner APP\app"      && git pull origin main && npm install   # Hauptapp (Remote vorhanden)
+cd "L:\Leuschner APP\aufmass"  && npm install                          # Aufmaß-App: LEAFLET ist NEU -> npm install Pflicht!
+npm run dev   # je App, http://localhost:5173 bzw. 5174
 ```
+> ⚠️ Die Aufmaß-App hat seit heute **Leaflet** als Dependency (GPS-Karte mit Luftbild). Ohne `npm install` bricht der Build. Sie hat **kein Git-Remote** — der Stick ist ihr Master, sie wandert nur mit dem Stick.
 
 ---
 
 ## 🔥 Kritisch · jetzt fällig
 
-- Nichts. Alles synchron.
+- Nichts blockiert. Alles synchron + live.
+
+## 📋 Offen / nächste Schritte
+- **Aufmaß-Flow auf echtem Tablet draußen testen** (GPS-Genauigkeit + Luftbild-Kontrolle + Kamera mit Handschuhen). Bisher nur mit gemocktem GPS verifiziert.
+- **Dashboard-Tab-Bug auf dem Handy gegentesten** (Session-beim-Mount-Fix `6ab16e7`) — sollte „ständig F5" beheben.
+- Optional: Bestands-Baustellen ohne Koordinaten geocoden, damit Luftbild + GPS-Erkennung überall greifen (aktuell 11/12 mit geo).
+- Optional aufräumen: Test-Baustelle „GaLa Bau" (generische ID `…00a1`) — falls reine Testdaten.
 
 ---
 
