@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import {
   listWorkers, listSites, listAllEntries
 } from "../lib/api";
-import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { getHoliday, isHoliday } from "../lib/holidays";
 import { isoWeek, todayIso, weekDays, fmtHours, workMinutes, paidMinutes, isWorkdayFor } from "../lib/utils";
 import { isWorkEntry, DISCIPLINE_LABEL, type Entry, type Site, type Worker } from "../lib/types";
@@ -120,6 +120,9 @@ export default function Zeiterfassung() {
 
   useRealtime(`zeiterfassung-${tab}-${loadRange[0]}`, ["workers", "entries", "sites"], refresh);
   useRefreshOnVisible(refresh);
+  // Holt die Daten nach, sobald die Supabase-Session steht (Route mountet
+  // sonst vor dem Session-Restore -> erster Fetch ohne Token -> leerer View).
+  useRefreshOnAuth(refresh);
 
   // Auch Admins anzeigen, sofern sie Stunden gebucht haben oder im Range
   // geplant sind — Admin-Status ist eine Berechtigungs-Sache, nicht ein
@@ -355,9 +358,22 @@ function Monatsuebersicht({
 
       {/* Mitarbeiter-Karten mit Monats-Summe */}
       <div className="dd-card overflow-hidden mb-5" style={{ ["--c" as any]: "#A9AEB3" }}>
-        <div className="surface-steel px-5 py-3">
-          <div className="dd-eyebrow text-copper-bright">Stunden je Mitarbeiter · {MONTH_LONG[monthAnchor.getMonth()]} {monthAnchor.getFullYear()}</div>
-          <div className="font-display font-black uppercase text-base text-white mt-0.5">Σ {fmtHours(totalMonthMinutes)} h</div>
+        <div className="surface-steel px-5 py-3 flex items-center justify-between gap-4">
+          <div>
+            <div className="dd-eyebrow text-copper-bright">Stunden je Mitarbeiter · {MONTH_LONG[monthAnchor.getMonth()]} {monthAnchor.getFullYear()}</div>
+            <div className="font-display font-black uppercase text-base text-white mt-0.5">Σ {fmtHours(totalMonthMinutes)} h</div>
+          </div>
+          {team.length > 0 && (
+            <Link
+              to={`/admin/stunden-print-all?year=${monthAnchor.getFullYear()}&month=${monthAnchor.getMonth() + 1}`}
+              target="_blank"
+              rel="noopener"
+              className="shrink-0 px-3 py-2 bg-copper text-white rounded font-mono text-[11px] tracking-wider uppercase hover:bg-copper-bright transition-colors print:hidden"
+              title={`Alle Stundenzettel für ${MONTH_LONG[monthAnchor.getMonth()]} ${monthAnchor.getFullYear()} als PDF (neuer Tab)`}
+            >
+              🖨 Alle als PDF
+            </Link>
+          )}
         </div>
         <div className="divide-y divide-ink/8">
           {team.length === 0 ? (

@@ -7,6 +7,7 @@ import {
 import { llmStructure, VORGANG_LABEL, VORGANG_COLOR, type Vorgang } from "../lib/llm";
 import BackButton from "../components/BackButton";
 import InlinePopover from "../components/InlinePopover";
+import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 
 /* ────────────────────────────────────────────────────────────────────────
    Anfragen-Inbox · die zentrale Eingangsbox.
@@ -91,6 +92,12 @@ export default function Anfragen() {
     finally { setLoading(false); }
   }
   useEffect(() => { setLoading(true); refresh(); }, []);
+  // Live-Aktualisierung + Nachholen bei Session-Restore. Ohne useRefreshOnAuth
+  // mountet die Inbox vor dem Token-Restore -> erster Fetch leer -> der Tab
+  // blieb leer bis zum manuellen Reload (Symptom 01.06.2026 behoben).
+  useRealtime("anfragen", ["inquiries"], refresh);
+  useRefreshOnVisible(refresh);
+  useRefreshOnAuth(refresh);
 
   // Wenn ein Drawer offen ist und das Item sich ändert: aktualisiere die Item-Referenz
   useEffect(() => {

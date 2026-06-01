@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import {
   listWorkers, listSites, listAllEntries, listAssignmentsForCompany
 } from "../lib/api";
-import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { getHoliday, isHoliday } from "../lib/holidays";
 import { isoWeek, todayIso, weekDays, fmtHours, workMinutes } from "../lib/utils";
 import { isWorkEntry, type Assignment, type Entry, type Site, type Worker } from "../lib/types";
@@ -65,6 +65,9 @@ export default function Tagesplanung() {
 
   useRealtime(`tagesplanung-${days[0]}`, ["workers", "entries", "assignments", "sites"], refresh);
   useRefreshOnVisible(refresh);
+  // Holt die Daten nach, sobald die Supabase-Session steht (Route mountet
+  // sonst vor dem Session-Restore -> erster Fetch ohne Token -> leerer View).
+  useRefreshOnAuth(refresh);
 
   const team = useMemo(() => {
     const workerIdsInRange = new Set<string>([

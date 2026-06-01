@@ -7,7 +7,7 @@ import {
   cancelCard, uncancelCard,
   type PipelineCard, type Stage, type ReviewStatus
 } from "../lib/pipeline";
-import { useRealtime, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
 import { getInquiryByCardId, SOURCE_ICON, SOURCE_LABEL, type Inquiry } from "../lib/inquiries";
@@ -92,6 +92,9 @@ export default function Angebote() {
   useEffect(() => { setLoading(true); refresh(); /* eslint-disable-next-line */ }, [view]);
   useRealtime("pipeline", ["pipeline_cards"], refresh);
   useRefreshOnVisible(refresh);
+  // Holt die Daten nach, sobald die Supabase-Session steht (Route mountet
+  // sonst vor dem Session-Restore -> erster Fetch ohne Token -> leerer View).
+  useRefreshOnAuth(refresh);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
