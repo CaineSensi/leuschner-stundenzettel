@@ -77,24 +77,6 @@ export default function StundenPrint() {
   if (error) return <div className="p-10 text-rust font-mono text-sm">Fehler: {error}</div>;
   if (!worker) return <div className="p-10 font-mono text-sm">Mitarbeiter nicht gefunden.</div>;
 
-  const target = worker.dailyTargetMinutes ?? 480;
-
-  // Soll = alle regulären Arbeitstage des Workers im Monat (Feiertage drin —
-  // die werden mit Tagessoll bezahlt). Beispiel Rick (Di+Do): 4 Di + 4 Do = 8 Tage.
-  const sollDays = days.filter((iso) => isWorkdayFor(worker.workdays, iso));
-  const sollMinutes = sollDays.length * target;
-
-  // Ist = explizite Entries + automatisch bezahlte Feiertage an Workdays
-  // (für die kein eigener Entry existiert). Wochenende-Feiertage zählen nicht.
-  const datesWithEntry = new Set(entries.map((e) => e.date));
-  const autoHolidayMinutes = days
-    .filter((iso) => isWorkdayFor(worker.workdays, iso) && isHoliday(iso) && !datesWithEntry.has(iso))
-    .length * target;
-  const entryPaid = entries.reduce((s, e) => s + paidMinutes(e, target), 0);
-  const istMinutes = entryPaid + autoHolidayMinutes;
-  const workMinutesTotal = entries.reduce((s, e) => s + workMinutes(e), 0);
-  const pct = sollMinutes > 0 ? Math.round((istMinutes / sollMinutes) * 100) : 0;
-
   return (
     <div className="bg-white text-black min-h-screen">
       {/* Bildschirm-Toolbar — beim Drucken ausgeblendet */}
@@ -124,7 +106,46 @@ export default function StundenPrint() {
         </div>
       </div>
 
-      {/* Druck-Bereich · A4 mit kompakter Skalierung damit alles auf eine Seite passt */}
+      <StundenzettelSheet worker={worker} entries={entries} year={year} month={month} />
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Ein A4-Stundenzettel für genau einen Mitarbeiter/Monat.
+   Wiederverwendet von der Einzel-Druckansicht und der Sammel-Druckansicht
+   (alle Mitarbeiter, je eine Seite).
+   ──────────────────────────────────────────────────────────────────────── */
+export function StundenzettelSheet({
+  worker, entries: allEntries, year, month,
+}: {
+  worker: Worker; entries: Entry[]; year: number; month: number;
+}) {
+  const days = daysOfMonth(year, month);
+  const firstDay = days[0];
+  const lastDay = days[days.length - 1];
+  const entries = allEntries.filter((e) => e.workerId === worker.id);
+
+  const target = worker.dailyTargetMinutes ?? 480;
+
+  // Soll = alle regulären Arbeitstage des Workers im Monat (Feiertage drin —
+  // die werden mit Tagessoll bezahlt). Beispiel Rick (Di+Do): 4 Di + 4 Do = 8 Tage.
+  const sollDays = days.filter((iso) => isWorkdayFor(worker.workdays, iso));
+  const sollMinutes = sollDays.length * target;
+
+  // Ist = explizite Entries + automatisch bezahlte Feiertage an Workdays
+  // (für die kein eigener Entry existiert). Wochenende-Feiertage zählen nicht.
+  const datesWithEntry = new Set(entries.map((e) => e.date));
+  const autoHolidayMinutes = days
+    .filter((iso) => isWorkdayFor(worker.workdays, iso) && isHoliday(iso) && !datesWithEntry.has(iso))
+    .length * target;
+  const entryPaid = entries.reduce((s, e) => s + paidMinutes(e, target), 0);
+  const istMinutes = entryPaid + autoHolidayMinutes;
+  const workMinutesTotal = entries.reduce((s, e) => s + workMinutes(e), 0);
+  const pct = sollMinutes > 0 ? Math.round((istMinutes / sollMinutes) * 100) : 0;
+
+  // Druck-Bereich · A4 mit kompakter Skalierung damit alles auf eine Seite passt
+  return (
       <div className="max-w-[210mm] mx-auto p-6 print:p-4 print:max-w-none">
         {/* Kopf — kompakt */}
         <header className="flex items-end justify-between border-b-2 border-black pb-2 mb-2.5">
@@ -266,7 +287,6 @@ export default function StundenPrint() {
 
         <div className="mt-2 text-center text-[8px] text-gray-400">leuschner-stundenzettel</div>
       </div>
-    </div>
   );
 }
 
