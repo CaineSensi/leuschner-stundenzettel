@@ -20,11 +20,20 @@ export function useRefreshOnVisible(refresh: () => void) {
       // BFCache-Restore (Safari behält die Page samt State im Speicher)
       if (e.persisted) refreshRef.current();
     }
+    // window 'focus' triggert in der installierten PWA (Home-Bildschirm)
+    // zuverlaessiger als visibilitychange, wenn man zur App zurueckkehrt.
+    // 'online' faengt den Fall ab, dass das Netz zwischendurch weg war.
+    function onFocus() { refreshRef.current(); }
+    function onOnline() { refreshRef.current(); }
     document.addEventListener("visibilitychange", onVisibilityChange);
     window.addEventListener("pageshow", onPageShow);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("online", onOnline);
     return () => {
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("pageshow", onPageShow);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("online", onOnline);
     };
   }, []);
 }
@@ -46,6 +55,14 @@ export function useRefreshOnAuth(refresh: () => void) {
 
   useEffect(() => {
     if (!supabase) return;
+    // Beim Mount aktiv die Session holen. getSession() erneuert in supabase-js v2
+    // ein abgelaufenes Token automatisch — DANN laden. Das faengt den haeufigsten
+    // Fall ab: Tab-Wechsel nach laengerer Nutzung mit abgelaufenem Token, der sonst
+    // einen leeren View hinterlaesst, bis man die Seite manuell neu laedt.
+    let cancelled = false;
+    supabase.auth.getSession().then(({ data }) => {
+      if (!cancelled && data.session) refreshRef.current();
+    });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       // Token-Refresh feuert regelmäßig — auch das wollen wir, damit ein
       // abgelaufenes Token nicht unbemerkt einen leeren View hinterlässt.
@@ -53,7 +70,7 @@ export function useRefreshOnAuth(refresh: () => void) {
         refreshRef.current();
       }
     });
-    return () => subscription.unsubscribe();
+    return () => { cancelled = true; subscription.unsubscribe(); };
   }, []);
 }
 
