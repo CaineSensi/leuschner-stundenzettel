@@ -1381,14 +1381,32 @@ function LeafletSatellite({
       attributionControl: true,
     });
 
-    // ESRI World Imagery als Tile-Layer (Satellit)
-    L.tileLayer(
+    // Amtliches Luftbild Niedersachsen (LGLN DOP20, 20 cm, CC BY 4.0) als
+    // Standard — schaerfer + aktueller fuer NI als Esri. Esri World Imagery
+    // bleibt als umschaltbare Alternative (z.B. fuer Grenzgebiete).
+    const dopNI = L.tileLayer.wms(
+      "https://opendata.lgln.niedersachsen.de/doorman/noauth/dop_wms",
+      {
+        layers: "ni_dop20",
+        format: "image/jpeg",
+        version: "1.3.0",
+        attribution: "Luftbild &copy; LGLN (CC BY 4.0)",
+        maxZoom: 20,
+      } as any
+    );
+    const esri = L.tileLayer(
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       {
         attribution: "Tiles &copy; Esri — Source: Esri, Maxar, Earthstar Geographics",
         maxNativeZoom: 19,
         maxZoom: 19,
       }
+    );
+    dopNI.addTo(map);
+    L.control.layers(
+      { "Luftbild · LGLN": dopNI, "Satellit · Esri": esri },
+      {},
+      { position: "topright", collapsed: true }
     ).addTo(map);
 
     // Orangener Crosshair-Marker, draggable
