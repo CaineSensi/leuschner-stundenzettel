@@ -149,16 +149,35 @@ function mapSevContact(o: any): Customer | null {
   };
 }
 
-/** Ermittelt die höchste vergebene AN-Nummer (workaround für Bug getNextOrderNumber). */
+/** Ermittelt die nächste freie AN-Nummer.
+ *
+ *  sevDesks eigenes `getNextOrderNumber` ist KAPUTT: Es liefert eine bereits
+ *  vergebene Nummer zurück (Counter hängt der Realität hinterher) — am
+ *  02.06.2026 belegt: lieferte "AN-1255", obwohl AN-1255 schon zweimal
+ *  existierte. Verlässt man sich darauf (oder auf einen zu kleinen
+ *  `limit=10`-Ausschnitt mit falscher orderBy-Syntax), entstehen Dubletten.
+ *  In sevDesk hatten sich so 9 doppelte AN-Nummern angesammelt
+ *  (1075, 1081, 1090, 1135, 1141, 1158, 1212, 1252, 1255).
+ *
+ *  Robuste Lösung: echtes Maximum über ALLE Aufträge bilden und den Kandidaten
+ *  live gegen sevDesk prüfen — bei Kollision hochzählen, bis frei. So kann
+ *  selbst bei zwischenzeitlich angelegten Aufträgen keine Nummer doppelt
+ *  vergeben werden. */
 export async function sevdeskNextOrderNumber(): Promise<string> {
-  // Wir holen die letzten ~5 Aufträge nach createDate desc, filtern auf AN-Format
-  const r = await sd<any>('Order?limit=10&orderBy=create:desc&depth=0');
-  const nums = (r?.objects ?? [])
+  const r = await sd<any>('Order?limit=1000&depth=0');
+  const nums: number[] = (r?.objects ?? [])
     .map((o: any) => String(o?.orderNumber ?? ''))
     .filter((n: string) => /^AN-\d+$/.test(n))
-    .map((n: string) => parseInt(n.slice(3), 10))
-    .sort((a: number, b: number) => b - a);
-  const next = (nums[0] ?? 1000) + 1;
+    .map((n: string) => parseInt(n.slice(3), 10));
+  let next = (nums.length ? Math.max(...nums) : 1000) + 1;
+
+  // Live-Kollisionsschutz: deckt auch Aufträge ab, die seit dem List-Call
+  // angelegt wurden. Maximal 20 Versuche, dann geben wir auf (sehr defensiv).
+  for (let i = 0; i < 20; i++) {
+    const found = await sd<any>(`Order?orderNumber=${encodeURIComponent('AN-' + next)}&depth=0`);
+    if (!((found?.objects ?? []).length)) break;
+    next++;
+  }
   return `AN-${next}`;
 }
 
