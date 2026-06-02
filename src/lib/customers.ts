@@ -22,6 +22,30 @@ export interface Customer {
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
 
+/** Praefix fuer synthetische IDs von sevDesk-Kontakten, die (noch) keinen
+ *  Spiegel-Datensatz in der App-customers-Tabelle haben. So bleibt im
+ *  Match-Picker und im Speichern klar: dieser Treffer existiert bereits in
+ *  sevDesk, muss aber lokal noch angelegt (gespiegelt) werden — und es darf
+ *  KEIN neuer sevDesk-Contact entstehen. */
+export const SEVDESK_ID_PREFIX = 'sevdesk:';
+export function isSevdeskOnly(c: Customer): boolean {
+  return c.id.startsWith(SEVDESK_ID_PREFIX);
+}
+
+/** Mischt App-Stammkunden mit live aus sevDesk geladenen Kontakten zu einer
+ *  einzigen Trefferliste. Kontakte, die bereits lokal gespiegelt sind (gleiche
+ *  sevdesk_contact_id), werden NICHT doppelt aufgenommen — der lokale
+ *  Datensatz gewinnt, weil er die echte customers.id fuers Verknuepfen traegt. */
+export function mergeCandidates(local: Customer[], sevdesk: Customer[]): Customer[] {
+  const mirrored = new Set(
+    local.map((c) => c.sevdeskContactId).filter(Boolean) as string[],
+  );
+  const extra = sevdesk.filter(
+    (s) => !s.sevdeskContactId || !mirrored.has(s.sevdeskContactId),
+  );
+  return [...local, ...extra];
+}
+
 function rowToCustomer(r: any): Customer {
   return {
     id: r.id,
@@ -54,45 +78,133 @@ export async function listCustomers(): Promise<Customer[]> {
   return (data ?? []).map(rowToCustomer);
 }
 
-/** Sucht passende Kunden zu Name/E-Mail/Telefon — Score 0–100 pro Treffer. */
-export interface CustomerMatch { customer: Customer; score: number; reason: string[] }
+// ── Normalisierungs-Helfer fuer robustes Namens-Matching ──────────────────
+// Deutsche Umlaute falten, Anreden/Rechtsform-Rauschen entfernen, Partikel
+// (de/van/von …) als nicht-diskriminierende Tokens behandeln. Dadurch matcht
+// "Herr de Haan" zuverlaessig auf den Stammkunden "Marco De Haan".
+
+const SALUTATION_RE = /\b(herrn?|frau|familie|fam|hr|fr|firma|fa)\b\.?/g;
+/** Partikel + Rechtsformen, die als Einzel-Token nicht unterscheiden. */
+const PARTICLE = new Set([
+  'de', 'van', 'von', 'der', 'den', 'ter', 'el', 'la', 'le', 'di', 'da', 'do', 'und',
+  'gmbh', 'ug', 'ohg', 'gbr', 'kg', 'ek', 'ag', 'co', 'mbh', 'eg',
+]);
+
+function foldUmlauts(s: string): string {
+  return s
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss');
+}
+
+function normName(s?: string): string {
+  // toLowerCase + Umlaute falten, Anreden raus, dann auf [a-z0-9 ] reduzieren
+  // (entfernt zugleich etwaige restliche Akzente/Sonderzeichen).
+  return foldUmlauts((s ?? '').toLowerCase())
+    .replace(SALUTATION_RE, ' ')
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function nameTokens(s?: string): string[] {
+  return normName(s).split(' ').filter((t) => t.length >= 2 && !PARTICLE.has(t));
+}
+
+/** Levenshtein-Distanz (klein, fuer Tippfehler-Toleranz auf Nachnamen). */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      cur[j] = Math.min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+const onlyDigits = (s?: string) => (s ?? '').replace(/\D/g, '');
+
+/** Sucht passende Kunden zu Name/E-Mail/Telefon — Score 0–100 pro Treffer.
+ *  Harte Anker (E-Mail/Telefon) dominieren; Namens-Scoring ist gegen Anreden,
+ *  Umlaut-Schreibweisen, Partikel und Tippfehler abgehaertet. */
+export interface CustomerMatch { customer: Customer; score: number; reason: string[]; hardAnchor: boolean }
 export function matchCustomers(
   all: Customer[],
   needle: { name?: string; email?: string; phone?: string },
   limit = 5,
 ): CustomerMatch[] {
-  const norm = (s?: string) => (s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const onlyDigits = (s?: string) => (s ?? '').replace(/\D/g, '');
-  const n = norm(needle.name);
-  const e = norm(needle.email);
-  const p = onlyDigits(needle.phone);
+  const e = (needle.email ?? '').trim().toLowerCase();
+  const pTail = onlyDigits(needle.phone).slice(-7);
+  const nNorm = normName(needle.name);
+  const nTokens = nameTokens(needle.name);
+  const nSet = new Set(nTokens);
 
   const out: CustomerMatch[] = [];
   for (const c of all) {
     let score = 0;
+    let hardAnchor = false;
     const reason: string[] = [];
 
-    if (e && norm(c.email) && norm(c.email) === e) { score += 70; reason.push('E-Mail exakt'); }
-    if (p && onlyDigits(c.phone) && onlyDigits(c.phone).slice(-7) === p.slice(-7)) {
-      score += 60; reason.push('Telefon (letzte 7 Stellen)');
+    if (e && c.email && c.email.trim().toLowerCase() === e) {
+      score += 70; hardAnchor = true; reason.push('E-Mail exakt');
     }
-    if (n) {
-      const cn = norm(c.name);
-      if (cn === n) { score += 80; reason.push('Name exakt'); }
-      else if (cn.includes(n) || n.includes(cn)) { score += 35; reason.push('Name enthält'); }
-      else {
-        // Token-Overlap
-        const nt = new Set(n.split(' ').filter((t) => t.length >= 3));
-        const ct = new Set(cn.split(' ').filter((t) => t.length >= 3));
+    if (pTail.length === 7 && onlyDigits(c.phone).slice(-7) === pTail) {
+      score += 60; hardAnchor = true; reason.push('Telefon');
+    }
+
+    if (nTokens.length) {
+      const cNorm = normName(c.name);
+      const cTokens = nameTokens(c.name);
+      const cSet = new Set(cTokens);
+      const familyTokens = nameTokens(c.familyname);
+
+      let nameScore = 0;
+      if (cNorm && cNorm === nNorm) {
+        nameScore = 80; reason.push('Name exakt'); hardAnchor = true;
+      } else if (familyTokens.length && familyTokens.every((t) => nSet.has(t))) {
+        // Alle Nachname-Tokens kommen in der Anfrage vor → starker Treffer
+        nameScore = 58; reason.push('Nachname-Treffer'); hardAnchor = true;
+      } else if (cNorm && nNorm && (cNorm.includes(nNorm) || nNorm.includes(cNorm))) {
+        nameScore = 40; reason.push('Name enthält');
+      } else {
+        // Token-Overlap (Jaccard) + Tippfehler-Toleranz auf laengstem Token
         let common = 0;
-        nt.forEach((t) => { if (ct.has(t)) common++; });
-        if (common && nt.size) { score += Math.round(20 * common / nt.size); reason.push(`Token-Overlap ${common}/${nt.size}`); }
+        cSet.forEach((t) => { if (nSet.has(t)) common++; });
+        const union = new Set([...cSet, ...nSet]).size || 1;
+        if (common) {
+          nameScore = Math.round(45 * common / union);
+          reason.push(`Token-Overlap ${common}`);
+        }
+        // Fuzzy-Nachname: ein Anfrage-Token liegt 1 Edit vom Nachnamen entfernt
+        const fam = familyTokens[familyTokens.length - 1];
+        if (fam && fam.length >= 4) {
+          const near = nTokens.some((t) => t.length >= 4 && levenshtein(t, fam) <= 1);
+          if (near && nameScore < 45) { nameScore = Math.max(nameScore, 45); reason.push('Nachname ~'); }
+        }
       }
+      score += nameScore;
     }
-    if (score > 0) out.push({ customer: c, score, reason });
+
+    if (score > 0) out.push({ customer: c, score, reason, hardAnchor });
   }
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);
+}
+
+/** Liefert den Top-Treffer nur, wenn er sicher genug fuer eine automatische
+ *  Verknuepfung ist: harter Anker (E-Mail/Telefon/exakter Name/Nachname) UND
+ *  klarer Abstand zum Zweitplatzierten — sonst null (nur Vorschlag zeigen). */
+export function bestConfidentMatch(matches: CustomerMatch[]): CustomerMatch | null {
+  const top = matches[0];
+  if (!top || !top.hardAnchor) return null;
+  if (top.score >= 80) return top;
+  const runnerUp = matches[1]?.score ?? 0;
+  if (top.score >= 55 && top.score - runnerUp >= 20) return top;
+  return null;
 }
 
 /** Sucht einen existierenden Kunden anhand harter Anker (sevdesk_contact_id,

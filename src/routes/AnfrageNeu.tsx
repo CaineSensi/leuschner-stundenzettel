@@ -5,10 +5,11 @@ import {
   type ParsedInquiry, type Vorgang, type Confidence, type StreamStep,
 } from "../lib/llm";
 import {
-  listCustomers, matchCustomers, createCustomerLocal, findExistingCustomer,
+  listCustomers, matchCustomers, bestConfidentMatch, createCustomerLocal, findExistingCustomer,
+  mergeCandidates, isSevdeskOnly,
   type Customer, type CustomerMatch
 } from "../lib/customers";
-import { sevdeskCreateContact } from "../lib/sevdesk";
+import { sevdeskCreateContact, sevdeskListContacts } from "../lib/sevdesk";
 import { createInquiry, updateInquiry, findSimilar, type InquirySource, type Inquiry } from "../lib/inquiries";
 import { diffCorrections, logCorrections } from "../lib/corrections";
 import { createCard, linkOrCreateSiteForCard } from "../lib/pipeline";
@@ -97,7 +98,13 @@ export default function AnfrageNeu() {
 
   // Kunden-Match
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
+  // Live aus sevDesk geladene Kontakte — erkennt Personen, die nach dem
+  // letzten Import angelegt wurden und im lokalen Stamm noch fehlen.
+  const [sevdeskContacts, setSevdeskContacts] = useState<Customer[]>([]);
   const [chosenCustomerId, setChosenCustomerId] = useState<string | null>(null);
+  // Sobald der User die Zuordnung selbst anfasst (klickt/trennt), uebernimmt
+  // die Auto-Erkennung nicht mehr — seine Entscheidung gewinnt.
+  const [matchTouched, setMatchTouched] = useState(false);
   const [createSevdesk, setCreateSevdesk] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -120,6 +127,12 @@ export default function AnfrageNeu() {
     listCustomers().then(setAllCustomers).catch(() => {});
   }, []);
 
+  // sevDesk-Kontakte live laden (best effort, unabhaengig vom App-Backend) —
+  // damit „bereits in sevDesk angelegt" schon beim Strukturieren greift.
+  useEffect(() => {
+    sevdeskListContacts().then(setSevdeskContacts).catch(() => {});
+  }, []);
+
   // Auto-Source-Erkennung beim Tippen
   useEffect(() => {
     if (!rawText.trim()) return;
@@ -137,10 +150,30 @@ export default function AnfrageNeu() {
     return () => { if (parseTimer.current) window.clearTimeout(parseTimer.current); };
   }, [rawText]);
 
+  // App-Stamm + live sevDesk-Kontakte zu einer Trefferliste mischen (bereits
+  // gespiegelte Kontakte werden nicht doppelt gefuehrt).
+  const candidates = useMemo(
+    () => mergeCandidates(allCustomers, sevdeskContacts),
+    [allCustomers, sevdeskContacts],
+  );
+
   const matches: CustomerMatch[] = useMemo(() => {
     if (!customerName && !email && !phone) return [];
-    return matchCustomers(allCustomers, { name: customerName, email, phone });
-  }, [allCustomers, customerName, email, phone]);
+    return matchCustomers(candidates, { name: customerName, email, phone });
+  }, [candidates, customerName, email, phone]);
+
+  // Sicherer Top-Treffer (harter Anker + klarer Abstand) → automatisch verknuepfen,
+  // solange der User die Zuordnung nicht selbst angefasst hat.
+  const confident = useMemo(() => bestConfidentMatch(matches), [matches]);
+  useEffect(() => {
+    if (matchTouched) return;
+    setChosenCustomerId(confident ? confident.customer.id : null);
+  }, [confident, matchTouched]);
+
+  const chosenCustomer = useMemo(
+    () => candidates.find((c) => c.id === chosenCustomerId) ?? null,
+    [candidates, chosenCustomerId],
+  );
 
   async function doParse() {
     if (!rawText.trim()) {
@@ -180,6 +213,7 @@ export default function AnfrageNeu() {
         street: p.street ?? "", zip: p.zip ?? "", city: p.city ?? "",
       });
       setConfirmedLowFields(new Set());
+      setMatchTouched(false);
       setStep("edit");
     } catch (e: any) {
       setError(e?.message ?? "Parse-Fehler");
@@ -265,13 +299,17 @@ export default function AnfrageNeu() {
   }
 
   function makeSteps(): SaveStep[] {
-    const useExisting = !!chosenCustomerId;
+    const hasChosen = !!chosenCustomerId;
+    const sevOnly = chosenCustomer ? isSevdeskOnly(chosenCustomer) : false;
+    const useExisting = hasChosen && !sevOnly;       // echter lokaler Stammkunde
+    const willCreateSev = createSevdesk && !hasChosen; // nur wenn gar kein Treffer
     return [
       { key: "precheck", label: "DB-Schema prüfen (inquiries-Tabelle)",  status: "pending" },
       { key: "parse",    label: "Strukturierung übernehmen",              status: "pending" },
-      { key: "match",    label: useExisting ? "Bestandskunde verknüpft" : "Kundenstamm prüfen", status: useExisting ? "done" : "pending" },
-      { key: "sevdesk",  label: createSevdesk && !useExisting ? "sevDesk-Contact anlegen" : "sevDesk übersprungen",
-                         status: createSevdesk && !useExisting ? "pending" : "skipped" },
+      { key: "match",    label: useExisting ? "Bestandskunde verknüpft" : sevOnly ? "In sevDesk gefunden" : "Kundenstamm prüfen",
+                         status: hasChosen ? "done" : "pending" },
+      { key: "sevdesk",  label: willCreateSev ? "sevDesk-Contact anlegen" : sevOnly ? "sevDesk-Contact vorhanden" : "sevDesk übersprungen",
+                         status: willCreateSev ? "pending" : sevOnly ? "done" : "skipped" },
       { key: "customer", label: useExisting ? "Kunde übernommen" : "Kunde in App anlegen",  status: useExisting ? "done" : "pending" },
       { key: "card",     label: 'Pipeline-Karte in Stage „Anfrage"',    status: "pending" },
       { key: "inquiry",  label: "Anfrage in Inbox speichern",            status: "pending" },
@@ -293,8 +331,10 @@ export default function AnfrageNeu() {
     setSteps(initial);
     setProgressOpen(true);
 
-    const useExisting = !!chosenCustomerId;
-    let customerId: string | undefined = chosenCustomerId ?? undefined;
+    const hasChosen = !!chosenCustomerId;
+    const sevOnly = chosenCustomer ? isSevdeskOnly(chosenCustomer) : false;
+    const useExisting = hasChosen && !sevOnly;       // echter lokaler Stammkunde
+    let customerId: string | undefined = useExisting ? chosenCustomerId ?? undefined : undefined;
 
     try {
       // 0) Pre-Check: gibt es die inquiries-Tabelle? Fail-fast bevor wir
@@ -331,16 +371,17 @@ export default function AnfrageNeu() {
       });
 
       // 2) Kundenstamm-Match
-      if (!useExisting) {
+      if (!hasChosen) {
         updateStep("match", { status: "running" });
         await new Promise((r) => setTimeout(r, 80));
         updateStep("match", { status: "done", detail: "keine Bestands-Übereinstimmung — wird neu angelegt" });
       }
 
-      // 3) sevDesk-Contact (optional)
-      let sevdeskContactId: string | undefined;
-      let customerNumber: string | undefined;
-      if (createSevdesk && !useExisting) {
+      // 3) sevDesk-Contact (optional). Bei sevDesk-only-Treffer existiert der
+      //    Contact bereits → wir uebernehmen seine ID, legen KEINEN neuen an.
+      let sevdeskContactId: string | undefined = sevOnly ? chosenCustomer?.sevdeskContactId : undefined;
+      let customerNumber: string | undefined = sevOnly ? chosenCustomer?.customerNumber : undefined;
+      if (createSevdesk && !hasChosen) {
         updateStep("sevdesk", { status: "running" });
         try {
           const isCompany = /gmbh|gbr|e\.k\.|ag\b|kg\b|ohg|ug\b/i.test(customerName);
@@ -788,6 +829,36 @@ export default function AnfrageNeu() {
             {/* Kunden-Match */}
             <div className="bg-bg-2 border border-steel-line/45 rounded-lg p-4">
               <span className="dd-eyebrow text-ink-2 block mb-2">Kunde zuordnen</span>
+
+              {/* Auto-Link-Banner: sicher erkannter Bestandskunde (App-Stamm
+                  oder live aus sevDesk) */}
+              {chosenCustomer && (
+                <div className="flex items-center justify-between gap-3 mb-3 px-3.5 py-2.5 rounded-md bg-copper/10 border-[1.5px] border-copper">
+                  <div>
+                    <div className="font-sans font-bold text-[13.5px] text-ink flex items-center gap-1.5">
+                      <span className="text-copper">✓</span>
+                      {isSevdeskOnly(chosenCustomer)
+                        ? <>Bereits in <b>sevDesk</b> angelegt: {chosenCustomer.name}</>
+                        : <>Bestandskunde {confident && !matchTouched ? "erkannt" : "verknüpft"}: {chosenCustomer.name}</>}
+                    </div>
+                    <div className="font-mono text-[10.5px] text-ink-2 mt-0.5">
+                      {[chosenCustomer.customerNumber && `Kd-Nr ${chosenCustomer.customerNumber}`, chosenCustomer.city, chosenCustomer.email, chosenCustomer.phone].filter(Boolean).join(" · ") || "kein Kontakt hinterlegt"}
+                    </div>
+                    {isSevdeskOnly(chosenCustomer) && (
+                      <div className="font-mono text-[10px] text-ink-mute mt-0.5">
+                        wird beim Speichern in den App-Stamm übernommen — kein neuer sevDesk-Contact
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => { setMatchTouched(true); setChosenCustomerId(null); }}
+                    className="shrink-0 font-sans text-[12px] text-ink-2 underline hover:text-copper"
+                  >
+                    trennen
+                  </button>
+                </div>
+              )}
+
               {matches.length > 0 ? (
                 <div className="space-y-2 mb-3">
                   <p className="font-sans text-[12.5px] text-ink-2">
@@ -798,7 +869,7 @@ export default function AnfrageNeu() {
                     return (
                       <button
                         key={m.customer.id}
-                        onClick={() => setChosenCustomerId(isChosen ? null : m.customer.id)}
+                        onClick={() => { setMatchTouched(true); setChosenCustomerId(isChosen ? null : m.customer.id); }}
                         className={`w-full text-left px-3.5 py-2.5 rounded-md border-[1.5px] transition-colors ${
                           isChosen
                             ? "bg-copper/10 border-copper"
@@ -807,7 +878,14 @@ export default function AnfrageNeu() {
                       >
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <div className="font-sans font-bold text-[13.5px] text-ink">{m.customer.name}</div>
+                            <div className="font-sans font-bold text-[13.5px] text-ink flex items-center gap-1.5">
+                              {m.customer.name}
+                              {isSevdeskOnly(m.customer) && (
+                                <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-copper/15 text-copper border border-copper/30">
+                                  sevDesk
+                                </span>
+                              )}
+                            </div>
                             <div className="font-mono text-[10.5px] text-ink-2 mt-0.5">
                               {[m.customer.customerNumber && `Kd-Nr ${m.customer.customerNumber}`, m.customer.city, m.customer.email].filter(Boolean).join(" · ")}
                             </div>
