@@ -143,7 +143,7 @@ export default function Hours() {
         </div>
       )}
 
-      <main className="px-3 lg:px-10 xl:px-14 py-6">
+      <main className="w-full max-w-[1800px] mx-auto px-3 lg:px-10 xl:px-14 py-6">
         {loading ? (
           <div className="text-center py-16 h-mono text-ink-2 text-[12px]">Wird geladen …</div>
         ) : team.length === 0 ? (

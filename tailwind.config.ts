@@ -4,6 +4,11 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // Zusatz-Breakpoints für große Monitore (4K zuhause): mehr Spalten/Platz
+      screens: {
+        "3xl": "1920px",
+        "4xl": "2560px",
+      },
       colors: {
         // Stahl & Beton · Betongrau / gebürsteter Stahl / Orange als Schweißnaht
         // Outdoor-Lesbarkeit hat Priorität — robust, wertig, kein Lifestyle.

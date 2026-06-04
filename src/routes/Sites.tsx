@@ -128,7 +128,7 @@ export default function Sites() {
         </div>
       )}
 
-      <main className="px-5 lg:px-10 xl:px-14 py-6">
+      <main className="px-5 lg:px-10 xl:px-14 py-6 w-full max-w-[2400px] mx-auto">
         {loading ? (
           <div className="text-center py-16 h-mono text-ink-2 text-[12px]">Wird geladen …</div>
         ) : filtered.length === 0 ? (
@@ -143,7 +143,7 @@ export default function Sites() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 4xl:grid-cols-7 gap-3">
             {filtered.map((site) => (
               <SiteCard
                 key={site.id}

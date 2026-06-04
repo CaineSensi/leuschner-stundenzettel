@@ -154,7 +154,7 @@ export default function Tagesplanung() {
         </div>
       )}
 
-      <main className="flex-1 px-5 lg:px-10 xl:px-14 py-6">
+      <main className="flex-1 w-full max-w-[1800px] mx-auto px-5 lg:px-10 xl:px-14 py-6">
         {loading ? (
           <div className="text-center py-16 font-mono text-ink-2 text-[12px]">Wird geladen …</div>
         ) : (

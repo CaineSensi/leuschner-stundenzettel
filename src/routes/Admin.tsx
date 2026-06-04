@@ -294,7 +294,7 @@ export default function Admin() {
           </header>
 
           {/* Module-Grid · jetzt mit eigenem Padding-Wrapper */}
-          <div className="px-5 py-6 lg:px-10 xl:px-14 lg:py-8">
+          <div className="px-5 py-6 lg:px-10 xl:px-14 lg:py-8 max-w-[1700px] mx-auto">
 
           {loadError && (
             <div className="mb-5 bg-rust/15 border border-rust/40 rounded-xl p-4">
