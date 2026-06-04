@@ -233,9 +233,7 @@ export default function SiteDetail() {
     );
   }
 
-  // Karten-Aggregate
-  const invoicesOpen  = invoices.filter((i) => i.status !== "paid" && i.status !== "cancelled");
-  const invoicesOpenSum = invoicesOpen.reduce((t, i) => t + (i.netEur ?? 0), 0);
+  // Karten-Aggregate (operativ — Finanzen gehören in den Angebotsbereich)
   const posCount = orderRef?.positions.length ?? 0;
   const posSum = orderRef?.sumNet ?? orderRef?.positions.reduce((t, p) => t + (p.sum ?? 0), 0) ?? 0;
   // Aufmaß-Positionen (vom Tablet erfasst) separat. Keine useMemo-Hook hier,
@@ -245,10 +243,9 @@ export default function SiteDetail() {
 
   // Funktions-Verknüpfungen als Text-Links (statt Kacheln) — im Hero-Band-Stil.
   const siteActions: { label: string; value: string | null; onClick: () => void; disabled?: boolean }[] = [
-    { label: "Positionen", value: posCount ? `${posCount} · ${eur(posSum)}` : null, onClick: () => setOpenModal("positions"), disabled: posCount === 0 },
+    { label: "Positionen", value: posCount ? `${posCount}` : null, onClick: () => setOpenModal("positions"), disabled: posCount === 0 },
     { label: "Aufmaß", value: aufmassPositions.length ? `${aufmassPositions.length}` : null, onClick: () => setOpenModal("aufmass"), disabled: aufmassPositions.length === 0 },
     { label: "Stunden", value: entries.length ? `${entries.length}` : null, onClick: () => setOpenModal("hours"), disabled: entries.length === 0 },
-    { label: "Rechnungen", value: invoices.length ? `${invoices.length}${invoicesOpen.length ? " · " + eur(invoicesOpenSum) + " offen" : ""}` : null, onClick: () => setOpenModal("invoices"), disabled: invoices.length === 0 },
     { label: "Material", value: materials.length ? `${materials.length}` : null, onClick: () => setOpenModal("materials") },
     { label: "Fotos", value: photos.length ? `${photos.length}` : null, onClick: () => setOpenModal("photos"), disabled: photos.length === 0 },
     { label: "Anhänge", value: media.length ? `${media.length}` : null, onClick: () => setOpenModal("media"), disabled: media.length === 0 },
@@ -302,7 +299,7 @@ export default function SiteDetail() {
         />
 
         {/* Karte · volle Breite (Side-Panel entfernt) */}
-        <section className="mt-4">
+        <section className="mt-7">
           <div className="flex flex-col gap-2">
             {/* Toggle Karte / Satellit / Google Earth · links oben, AUSSERHALB der Karte */}
             {effectiveGeo && (
@@ -325,7 +322,7 @@ export default function SiteDetail() {
               </div>
             )}
 
-            <div className="relative rounded-2xl overflow-hidden border border-steel-line/45 bg-bg-3 min-h-[240px]">
+            <div className="glow-hover relative rounded-2xl overflow-hidden border border-steel-line/45 bg-bg-3 min-h-[240px]">
             {mapView === "satellite" && effectiveGeo ? (
               <LeafletSatellite
                 lat={effectiveGeo.lat}
@@ -376,13 +373,13 @@ export default function SiteDetail() {
 
         {/* WETTER VOR ORT · wenn GPS bekannt */}
         {effectiveGeo && (
-          <section className="mt-4 bg-white border border-steel-line/45 rounded-lg overflow-hidden">
+          <section className="glow-hover mt-7 bg-white border border-steel-line/45 rounded-lg overflow-hidden">
             <LiveWeather lat={effectiveGeo.lat} lng={effectiveGeo.lng} variant="card" label={`Wetter vor Ort · ${site.city || site.name}`} />
           </section>
         )}
 
         {/* KLÄRPUNKTE — direkt sichtbar, weil handlungsrelevant */}
-        <section className="mt-4 bg-white border border-steel-line/45 rounded-lg p-4">
+        <section className="glow-hover mt-7 bg-white border border-steel-line/45 rounded-lg p-4">
           <QuestionsPanel
             siteId={site.id}
             questions={questions}
@@ -1472,9 +1469,6 @@ function AuftragNotizBlock({
   onSaveNotes: (text: string) => Promise<void>;
   actions: { label: string; value: string | null; onClick: () => void; disabled?: boolean }[];
 }) {
-  const open = invoices.filter((i) => i.status !== "paid" && i.status !== "cancelled");
-  const paidSum = invoices.filter((i) => i.status === "paid").reduce((t, i) => t + (i.netEur ?? 0), 0);
-  const openSum = open.reduce((t, i) => t + (i.netEur ?? 0), 0);
   const an = orderRef?.orderNumber && orderRef.orderNumber !== "—" ? orderRef.orderNumber : null;
   const hasCommercial = !!an || volumeNet > 0 || invoices.length > 0;
 
@@ -1494,33 +1488,16 @@ function AuftragNotizBlock({
   }
 
   return (
-    <section className="mt-4 rounded-xl overflow-hidden shadow-sm border border-steel-line/45">
+    <section className="glow-hover mt-4 rounded-xl overflow-hidden shadow-sm border border-steel-line/45">
       <div className="surface-steel px-5 lg:px-6 py-4" style={{ borderBottom: "3px solid #DC6E2D" }}>
-          <div className="flex items-start justify-between gap-4 flex-wrap">
-            <div className="min-w-0">
-              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-copper-bright mb-1">{hasCommercial ? "Auftrag & Zahlen · live aus sevDesk" : "Baustelle"}</div>
-              <div className="font-display font-black uppercase text-[20px] text-white leading-tight">
-                {site.name}{an ? <span className="text-steel"> · {an}</span> : null}
-              </div>
-              {(site.street || site.city) && (
-                <div className="font-mono text-[11.5px] text-steel mt-1">{[site.street, site.city].filter(Boolean).join(" · ")}</div>
-              )}
-              {open.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {open.slice(0, 3).map((i) => (
-                    <span key={i.id} className="inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-mono"
-                      style={{ background: "rgba(201,133,47,.18)", color: "#F5B45A", border: "1px solid rgba(245,180,90,.3)" }}>
-                      {i.invoiceNumber} offen
-                    </span>
-                  ))}
-                </div>
-              )}
+          <div className="min-w-0">
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-copper-bright mb-1">{hasCommercial ? "Auftrag" : "Baustelle"}</div>
+            <div className="font-display font-black uppercase text-[20px] text-white leading-tight">
+              {site.name}{an ? <span className="text-steel"> · {an}</span> : null}
             </div>
-            <div className="flex gap-2.5 flex-wrap">
-              {volumeNet > 0 && <HeroKpi label="Volumen netto" value={eur(volumeNet)} accent="copper" />}
-              {paidSum > 0 && <HeroKpi label="Bezahlt" value={eur(paidSum)} accent="green" />}
-              {openSum > 0 && <HeroKpi label="Offen" value={eur(openSum)} accent="amber" />}
-            </div>
+            {(site.street || site.city) && (
+              <div className="font-mono text-[11.5px] text-steel mt-1">{[site.street, site.city].filter(Boolean).join(" · ")}</div>
+            )}
           </div>
           <div className="flex gap-x-4 gap-y-1.5 mt-3.5 flex-wrap">
             {actions.map((a) => (
@@ -1590,13 +1567,3 @@ function AuftragNotizBlock({
   );
 }
 
-function HeroKpi({ label, value, accent }: { label: string; value: string; accent: "copper" | "green" | "amber" }) {
-  const col = accent === "green" ? "#22C55E" : accent === "amber" ? "#F5B45A" : "#E8853F";
-  return (
-    <div className="flex flex-col items-center gap-0.5 px-3.5 py-2 rounded-lg min-w-[80px]"
-      style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.14)" }}>
-      <span className="font-mono font-extrabold text-[16px] tabular-nums" style={{ color: col }}>{value}</span>
-      <span className="font-mono text-[8.5px] uppercase tracking-[0.1em] text-steel">{label}</span>
-    </div>
-  );
-}

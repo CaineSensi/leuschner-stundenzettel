@@ -114,6 +114,19 @@
     background: linear-gradient(180deg, #FFF6F5, #F3E2E0);
   }
 
+  /* Weicher weißer Glow hinter Bereichs-Karten beim Hover (auf dunklem Grund) */
+  .glow-hover {
+    transition: box-shadow .22s ease, transform .22s ease, border-color .22s ease;
+  }
+  .glow-hover:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 0 0 1px rgba(255,255,255,.10), 0 8px 30px -6px rgba(255,255,255,.16);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .glow-hover { transition: none !important; }
+    .glow-hover:hover { transform: none; }
+  }
+
   /* Status-Chips — solide, hoher Kontrast, nie Opacity-Text */
   .dd-chip {
     @apply font-sans text-[12.5px] leading-tight px-2.5 py-1 rounded-full;
