@@ -1489,37 +1489,38 @@ function AuftragNotizBlock({
 
   return (
     <section className="glow-hover mt-4 rounded-xl overflow-hidden shadow-sm border border-steel-line/45">
-      <div className="surface-steel px-5 lg:px-6 py-4" style={{ borderBottom: "3px solid #DC6E2D" }}>
+      <div className="surface-steel px-5 lg:px-7 py-5" style={{ borderBottom: "4px solid #DC6E2D", borderLeft: "5px solid #DC6E2D" }}>
           <div className="min-w-0">
-            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-copper-bright mb-1">{hasCommercial ? "Auftrag" : "Baustelle"}</div>
-            <div className="font-display font-black uppercase text-[20px] text-white leading-tight">
-              {site.name}{an ? <span className="text-steel"> · {an}</span> : null}
+            <span className="inline-block font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-bg-deep bg-copper-bright px-2.5 py-1 rounded mb-2.5">{hasCommercial ? "Auftrag" : "Baustelle"}</span>
+            <div className="font-display font-black uppercase text-[24px] lg:text-[28px] text-white leading-[1.05]">
+              {site.name}{an ? <span className="text-copper-bright"> · {an}</span> : null}
             </div>
             {(site.street || site.city) && (
-              <div className="font-mono text-[11.5px] text-steel mt-1">{[site.street, site.city].filter(Boolean).join(" · ")}</div>
+              <div className="font-mono text-[12px] text-steel mt-1.5">{[site.street, site.city].filter(Boolean).join(" · ")}</div>
             )}
           </div>
-          <div className="flex gap-x-4 gap-y-1.5 mt-3.5 flex-wrap">
+          <div className="flex gap-x-5 gap-y-2 mt-4 pt-4 flex-wrap border-t border-white/12">
             {actions.map((a) => (
               <button
                 key={a.label}
                 onClick={a.onClick}
                 disabled={a.disabled}
-                className="font-mono text-[11.5px] text-copper-bright hover:text-white disabled:text-steel/40 disabled:cursor-default transition-colors"
+                className="group font-mono text-[12.5px] font-medium text-white/90 hover:text-white disabled:text-steel/40 disabled:cursor-default transition-colors"
               >
-                → {a.label}{a.value ? <span className="text-steel"> · {a.value}</span> : null}
+                <span className="text-copper-bright group-hover:text-copper-bright group-disabled:text-steel/40">›</span> {a.label}
+                {a.value ? <span className="ml-1 inline-flex items-center justify-center min-w-[20px] px-1.5 py-0.5 rounded-full text-[10.5px] font-bold text-copper-bright bg-copper/15 group-disabled:text-steel/40 group-disabled:bg-white/5">{a.value}</span> : null}
               </button>
             ))}
           </div>
         </div>
 
-      <div className="bg-white px-5 lg:px-6 py-4">
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2">
-            <span className="text-[15px] text-copper">✎</span>
+      <div className="bg-white px-5 lg:px-7 py-5">
+        <div className="flex items-center justify-between gap-3 mb-3.5">
+          <div className="flex items-center gap-3">
+            <span className="flex-shrink-0 w-9 h-9 rounded-lg grid place-items-center text-[16px] text-white" style={{ background: "linear-gradient(180deg,#E8853F,#DC6E2D)" }}>✎</span>
             <div>
-              <div className="font-display font-extrabold uppercase text-[12px] tracking-widest text-ink">Vor-Ort-Bemerkungen</div>
-              <div className="font-sans text-[11px] text-ink-mute">Hinweise für die Mitarbeiter auf der Baustelle</div>
+              <div className="font-display font-extrabold uppercase text-[13.5px] tracking-widest text-ink">Vor-Ort-Bemerkungen</div>
+              <div className="font-sans text-[11.5px] text-ink-mute">Hinweise für die Mitarbeiter auf der Baustelle</div>
             </div>
           </div>
           {!editing && (
