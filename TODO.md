@@ -1,9 +1,15 @@
 # Leuschner Stundenzettel · Offene Aufgaben
 
-**Stand:** 01. Juni 2026 (Feierabend)
-**Hauptapp (`app`):** `main` = `origin/main` = `7f025c3` ✓ gepusht · Live-Bundle `index-BHOcF0CK.js`
+**Stand:** 04. Juni 2026 (Nachmittag)
+**Hauptapp (`app`):** `main` = `77250ca` (lokal) · Live-Bundle `index-CtBis9rX.js` ✓ · **`origin/main` hinkt 9 Commits hinterher** (kein GitHub-Token → kein Push)
 **Aufmaß-App (`aufmass`):** `main` = `8d9afeb` ✓ (lokal committed, KEIN Git-Remote — lebt auf dem Stick) · live `leuschner-aufmass.pages.dev`
-Git = Live = lokal bei beiden Apps. Voller Stand: `../WIEDEREINSTIEG.md`.
+Lokal = Live ✓. Voller Stand: `../WIEDEREINSTIEG.md` (Abschnitt „04.06. · Nachmittag").
+
+## 🔥 Jetzt fällig / im Blick
+- **GitHub-Sync:** 9 Commits lokal vor `origin/main` — Fine-grained PAT erzeugen (Repo Contents R/W) → in KeePass „GitHub Leuschner" → pushen. Nicht nötig fürs Live-Schalten, aber Git driftet.
+- **2 Test-Karteileichen** im Kundenstamm löschen: „RLS-Probe-…", „SinglePr-…" (nur auf Freigabe).
+- **AN-Nummern-Dubletten** in sevDesk noch offen: 1075/1081/1090/1135/1141/1158/1212/1252 (1255/1258 bereinigt).
+- Entscheidung steht: **alter sevDesk-Bestand (~200 historische Kontakte/Belege) wird vorerst NICHT in die App übernommen** — nur aktive Vorgänge.
 
 ---
 
