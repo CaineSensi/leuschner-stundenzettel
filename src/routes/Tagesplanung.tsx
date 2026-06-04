@@ -109,7 +109,8 @@ export default function Tagesplanung() {
   return (
     <div className="min-h-screen safe-bottom bg-bg-DEFAULT flex flex-col">
       {/* HEADER ─ Stahl-Surface wie Zeiterfassung/Plan */}
-      <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
+      <header className="sticky top-0 z-30 surface-steel safe-top">
+        <div className="w-full max-w-[1800px] mx-auto px-5 lg:px-10 xl:px-14 pt-4 pb-4">
         <BackButton title="Zurück zur Betriebs-Übersicht (Dashboard)" />
 
         <div className="flex items-end justify-between gap-4 flex-wrap">
@@ -145,6 +146,7 @@ export default function Tagesplanung() {
               className="font-mono text-[11px] px-3.5 py-1.5 rounded-full border border-copper-bright text-copper-bright hover:bg-copper-bright hover:text-bg-deep disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-copper-bright transition-colors"
             >Heute</button>
           </div>
+        </div>
         </div>
       </header>
 

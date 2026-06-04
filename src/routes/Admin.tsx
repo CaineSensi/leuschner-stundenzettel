@@ -253,7 +253,8 @@ export default function Admin() {
           </header>
 
           {/* STAHL-HEADER · konsistent mit allen anderen Admin-Routen */}
-          <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-5 pb-5 safe-top">
+          <header className="sticky top-0 z-30 surface-steel safe-top">
+          <div className="w-full max-w-[1700px] mx-auto px-5 lg:px-10 xl:px-14 pt-5 pb-5">
             <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 flex-wrap">
               <div>
                 <span className="dd-eyebrow text-copper-bright block">
@@ -291,6 +292,7 @@ export default function Admin() {
                 </Link>
               </div>
             </div>
+          </div>
           </header>
 
           {/* Module-Grid · jetzt mit eigenem Padding-Wrapper */}

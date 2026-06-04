@@ -154,7 +154,8 @@ export default function Zeiterfassung() {
   return (
     <div className="min-h-screen safe-bottom bg-bg-DEFAULT flex flex-col">
       {/* HEADER ─ Stahl-Surface wie Angebote/Plan */}
-      <header className="sticky top-0 z-30 surface-steel px-5 lg:px-10 xl:px-14 pt-4 pb-4 safe-top">
+      <header className="sticky top-0 z-30 surface-steel safe-top">
+        <div className="w-full max-w-[1700px] mx-auto px-5 lg:px-10 xl:px-14 pt-4 pb-4">
         <BackButton title="Zurück zur Betriebs-Übersicht (Dashboard)" />
 
         <div className="flex items-end justify-between gap-4 flex-wrap">
@@ -217,6 +218,7 @@ export default function Zeiterfassung() {
             </div>
           )}
         </div>
+        </div>
       </header>
 
       {/* SUB-TABS */}
@@ -248,7 +250,7 @@ export default function Zeiterfassung() {
         </div>
       )}
 
-      <main className="flex-1 px-5 lg:px-10 xl:px-14 py-6">
+      <main className="flex-1 w-full max-w-[1700px] mx-auto px-5 lg:px-10 xl:px-14 py-6">
         {loading ? (
           <div className="text-center py-16 font-mono text-ink-2 text-[12px]">Wird geladen …</div>
         ) : tab === "monat" ? (
