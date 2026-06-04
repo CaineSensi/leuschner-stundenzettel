@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   archiveSite, createSite, listAllSites, unarchiveSite, updateSite
 } from "../lib/api";
+import { supabase } from "../lib/supabase";
 import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { withTimeout } from "../lib/utils";
 import SiteEditor from "../components/SiteEditor";
@@ -21,16 +22,28 @@ export default function Sites() {
   const [editing, setEditing] = useState<SiteRow | null>(null);
   const [creating, setCreating] = useState(false);
 
+  // Verhindert, dass ein langsamer (z. B. tokenloser) Fetch ein neueres,
+  // volles Ergebnis überschreibt: nur das Resultat des jüngsten Aufrufs zählt.
+  const reqSeq = useRef(0);
+
   async function refresh() {
+    const seq = ++reqSeq.current;
     setLoading(true);
     setError(null);
     try {
+      // Token VOR dem Laden sicherstellen/erneuern. Ohne gültiges Token liefert
+      // RLS eine leere Liste OHNE Fehler — die Baustellen blieben dann leer, bis
+      // man die Seite manuell neu lädt. getSession() erneuert ein abgelaufenes
+      // Token automatisch, solange der Refresh-Token gültig ist.
+      if (supabase) await supabase.auth.getSession();
       const data = await withTimeout(listAllSites(true), 8000, "Baustellen");
+      if (seq !== reqSeq.current) return; // ein neuerer Refresh ist unterwegs
       setSites(data);
     } catch (err: any) {
+      if (seq !== reqSeq.current) return;
       setError(err?.message ?? "Fehler beim Laden");
     } finally {
-      setLoading(false);
+      if (seq === reqSeq.current) setLoading(false);
     }
   }
 
