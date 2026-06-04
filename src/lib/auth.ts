@@ -150,6 +150,34 @@ export async function signInWithCode(code: string): Promise<{ worker?: Worker; e
 }
 
 /**
+ * Stellt sicher, dass die lokale „eingeloggt"-Markierung NUR bestehen bleibt,
+ * wenn es auch eine gültige Server-Anmeldung gibt. Verhindert den „Zombie-Login":
+ * lokale Session lebt, Supabase-Anmeldung ist abgelaufen → Daten würden anonym
+ * geladen (leere Listen) und Speichern scheitert an den Schutzregeln.
+ *
+ * - getSession() erneuert ein abgelaufenes Token automatisch, solange ein gültiger
+ *   Refresh-Token vorliegt — nur wenn das endgültig fehlschlägt, gilt die Anmeldung
+ *   als ungültig.
+ * - OFFLINE-SICHER: Ohne Netz wird NICHT ausgeloggt (die App muss offline nutzbar
+ *   bleiben, z.B. Stundenerfassung auf der Baustelle).
+ *
+ * Rückgabe: null = alles gut (gültig, offline, oder gar nicht eingeloggt).
+ *           String = lokale Zombie-Session wurde verworfen, dorthin umleiten.
+ */
+export async function enforceValidSession(): Promise<string | null> {
+  if (!supabase) return null;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.user) return null;        // gültige (ggf. frisch erneuerte) Anmeldung
+  if (!navigator.onLine) return null;     // offline → kein Urteil, lokale Session behalten
+  const u = currentUser();
+  if (!u) return null;                    // gar nicht „eingeloggt" → nichts zu tun
+  // online + lokal eingeloggt, aber keine Server-Anmeldung → Zombie: verwerfen
+  const dest = u.isAdmin ? "/buero" : "/login";
+  logout();
+  return dest;
+}
+
+/**
  * Wird aufgerufen nach erfolgreicher Magic-Link-Anmeldung
  * oder bei App-Start mit bestehender Session.
  * Lädt den verknüpften Worker und speichert ihn im localStorage.

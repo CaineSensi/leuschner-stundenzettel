@@ -5,14 +5,15 @@ import {
   type ParsedInquiry, type Vorgang, type Confidence, type StreamStep,
 } from "../lib/llm";
 import {
-  listCustomers, matchCustomers, bestConfidentMatch, createCustomerLocal, findExistingCustomer,
+  listCustomers, matchCustomers, bestConfidentMatch,
   mergeCandidates, isSevdeskOnly,
   type Customer, type CustomerMatch
 } from "../lib/customers";
 import { sevdeskCreateContact, sevdeskListContacts } from "../lib/sevdesk";
-import { createInquiry, updateInquiry, findSimilar, type InquirySource, type Inquiry } from "../lib/inquiries";
+import { findSimilar, type InquirySource, type Inquiry } from "../lib/inquiries";
 import { diffCorrections, logCorrections } from "../lib/corrections";
-import { createCard, linkOrCreateSiteForCard } from "../lib/pipeline";
+import { createInquiryBundle, attachSevdeskToCustomer } from "../lib/pipeline";
+import { enforceValidSession } from "../lib/auth";
 import { isBackendConnected } from "../lib/supabase";
 import SaveProgress, { type SaveStep } from "../components/SaveProgress";
 import BackButton from "../components/BackButton";
@@ -304,15 +305,13 @@ export default function AnfrageNeu() {
     const useExisting = hasChosen && !sevOnly;       // echter lokaler Stammkunde
     const willCreateSev = createSevdesk && !hasChosen; // nur wenn gar kein Treffer
     return [
-      { key: "precheck", label: "DB-Schema prüfen (inquiries-Tabelle)",  status: "pending" },
-      { key: "parse",    label: "Strukturierung übernehmen",              status: "pending" },
-      { key: "match",    label: useExisting ? "Bestandskunde verknüpft" : sevOnly ? "In sevDesk gefunden" : "Kundenstamm prüfen",
-                         status: hasChosen ? "done" : "pending" },
-      { key: "sevdesk",  label: willCreateSev ? "sevDesk-Contact anlegen" : sevOnly ? "sevDesk-Contact vorhanden" : "sevDesk übersprungen",
-                         status: willCreateSev ? "pending" : sevOnly ? "done" : "skipped" },
-      { key: "customer", label: useExisting ? "Kunde übernommen" : "Kunde in App anlegen",  status: useExisting ? "done" : "pending" },
-      { key: "card",     label: 'Pipeline-Karte in Stage „Anfrage"',    status: "pending" },
-      { key: "inquiry",  label: "Anfrage in Inbox speichern",            status: "pending" },
+      { key: "anmeldung", label: "Anmeldung prüfen", status: "pending" },
+      { key: "bundle",    label: "Anfrage sichern · Kunde, Vorgang, Anfrage & Baustelle", status: "pending" },
+      { key: "sevdesk",   label: willCreateSev ? "sevDesk-Kontakt anlegen"
+                               : sevOnly ? "sevDesk-Kontakt vorhanden"
+                               : useExisting ? "sevDesk · Bestandskunde"
+                               : "sevDesk übersprungen",
+                          status: "pending" },
     ];
   }
 
@@ -334,115 +333,28 @@ export default function AnfrageNeu() {
     const hasChosen = !!chosenCustomerId;
     const sevOnly = chosenCustomer ? isSevdeskOnly(chosenCustomer) : false;
     const useExisting = hasChosen && !sevOnly;       // echter lokaler Stammkunde
-    let customerId: string | undefined = useExisting ? chosenCustomerId ?? undefined : undefined;
+    const isCompany = /gmbh|gbr|e\.k\.|ag\b|kg\b|ohg|ug\b/i.test(customerName);
+    const parts = customerName.trim().split(/\s+/);
 
     try {
-      // 0) Pre-Check: gibt es die inquiries-Tabelle? Fail-fast bevor wir
-      //    Customer/Card halb anlegen und Karteileichen produzieren.
-      updateStep("precheck", { status: "running" });
-      try {
-        const r = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/inquiries?select=id&limit=1`,
-          {
-            headers: {
-              apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string,
-              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            },
-          }
-        );
-        if (!r.ok) {
-          const body = await r.text();
-          if (/inquiries/.test(body)) throw new Error(`Tabelle 'public.inquiries' fehlt`);
-          throw new Error(`Pre-Check fehlgeschlagen (${r.status})`);
-        }
-        updateStep("precheck", { status: "done", detail: "Schema OK" });
-      } catch (e: any) {
-        const d = diagnoseError(e);
-        updateStep("precheck", { status: "error", detail: d.detail, errorHint: d.hint });
-        throw e;
-      }
-
-      // 1) Strukturierung — synthetischer „Confirm"-Schritt
-      updateStep("parse", { status: "running" });
-      await new Promise((r) => setTimeout(r, 80));
-      updateStep("parse", {
-        status: "done",
-        detail: parsed?.parser ? `via ${parsed.parser}` : "manuell ausgefüllt",
-      });
-
-      // 2) Kundenstamm-Match
-      if (!hasChosen) {
-        updateStep("match", { status: "running" });
-        await new Promise((r) => setTimeout(r, 80));
-        updateStep("match", { status: "done", detail: "keine Bestands-Übereinstimmung — wird neu angelegt" });
-      }
-
-      // 3) sevDesk-Contact (optional). Bei sevDesk-only-Treffer existiert der
-      //    Contact bereits → wir uebernehmen seine ID, legen KEINEN neuen an.
-      let sevdeskContactId: string | undefined = sevOnly ? chosenCustomer?.sevdeskContactId : undefined;
-      let customerNumber: string | undefined = sevOnly ? chosenCustomer?.customerNumber : undefined;
-      if (createSevdesk && !hasChosen) {
-        updateStep("sevdesk", { status: "running" });
-        try {
-          const isCompany = /gmbh|gbr|e\.k\.|ag\b|kg\b|ohg|ug\b/i.test(customerName);
-          const parts = customerName.trim().split(/\s+/);
-          const sev = await sevdeskCreateContact({
-            isCompany,
-            name: isCompany ? customerName : undefined,
-            surename: !isCompany ? parts[0] : undefined,
-            familyname: !isCompany ? parts.slice(1).join(" ") || undefined : undefined,
-            email: email || undefined,
-            phone: phone || undefined,
-            street: street || undefined,
-            zip: zip || undefined,
-            city: city || undefined,
-          });
-          sevdeskContactId = sev.id;
-          customerNumber = sev.customerNumber;
-          updateStep("sevdesk", { status: "done", detail: `Kd-Nr ${customerNumber || sev.id}` });
-        } catch (sevErr: any) {
-          const d = diagnoseError(sevErr);
-          updateStep("sevdesk", { status: "error", detail: d.detail, errorHint: d.hint ?? "sevDesk-Anlage übersprungen — Kunde wird nur in der App angelegt" });
-          // Wir machen aber weiter — App-intern reicht für die Anfrage
-        }
-      }
-
-      // 4) App-Customer (mit Duplikat-Check, sonst hängt's bei wiederholten Tests)
-      if (!useExisting) {
-        updateStep("customer", { status: "running" });
-        const isCompany = /gmbh|gbr|e\.k\.|ag\b|kg\b|ohg|ug\b/i.test(customerName);
-        const parts = customerName.trim().split(/\s+/);
-
-        const existing = await findExistingCustomer({
-          sevdeskContactId,
-          email: email || undefined,
-          phone: phone || phoneMobile || undefined,
+      // 1) Preflight: Anmeldung gültig? Sonst SOFORT stoppen — bevor irgendetwas
+      //    (vor allem in sevDesk) angelegt wird. Verhindert verwaiste Kontakte.
+      updateStep("anmeldung", { status: "running" });
+      const redirect = await enforceValidSession();
+      if (redirect) {
+        updateStep("anmeldung", {
+          status: "error",
+          detail: "Deine Sitzung ist abgelaufen — es wurde noch NICHTS gespeichert.",
+          errorHint: "Bitte neu anmelden, dann die Anfrage erneut speichern.",
         });
-        if (existing) {
-          customerId = existing.id;
-          updateStep("customer", { status: "done", detail: `Wiederverwendet: ${existing.name} (Stamm)` });
-        } else {
-          const newCust = await createCustomerLocal({
-            sevdeskContactId, customerNumber,
-            name: customerName,
-            isCompany,
-            surename: !isCompany ? parts[0] : undefined,
-            familyname: !isCompany ? parts.slice(1).join(" ") || undefined : undefined,
-            email: email || undefined,
-            phone: phone || undefined,
-            street: street || undefined, zip: zip || undefined, city: city || undefined,
-          });
-          customerId = newCust.id;
-          updateStep("customer", { status: "done", detail: customerName });
-        }
+        setTimeout(() => window.location.replace(redirect), 1800);
+        return;
       }
+      updateStep("anmeldung", { status: "done", detail: "OK" });
 
-      // 5) Pipeline-Card — openPoints automatisch um Eckdaten anreichern
-      //    damit Rick im Kanban-Board nicht erst klicken muss
-      updateStep("card", { status: "running" });
+      // openPoints für die Pipeline-Karte aus den erkannten Eckdaten anreichern
       const place = [zip, city].filter(Boolean).join(" ").trim() || street || undefined;
       const tags: string[] = [];
-      // M8: Leistungs-Chips bevorzugt aus leistungen[], sonst Fallback auf leistung-Singular
       if (parsed?.leistungen && parsed.leistungen.length > 0) {
         parsed.leistungen.slice(0, 4).forEach((l) => {
           const meng = l.mengen?.map((m) => `${m.wert}${m.einheit ? m.einheit : ""}`).join("+");
@@ -451,59 +363,97 @@ export default function AnfrageNeu() {
       } else if (parsed?.leistung) {
         parsed.leistung.split(/,\s*/).slice(0, 3).forEach((l) => { if (l.trim()) tags.push(l.trim()); });
       }
-      // Mengen-Hint
       if (parsed?.mengen?.length) tags.push(`${parsed.mengen.length} Positionen`);
-      // Termin-Wunsch
       if (parsed?.termin) tags.push(`Termin: ${parsed.termin}`);
-      // User-Notes ans Ende
       if (notes.trim()) tags.push(notes.trim());
 
-      const card = await createCard({
-        stage: "Anfrage",
-        customerName,
-        place,
-        description: description || undefined,
-        openPoints: tags.length > 0 ? tags.join(" · ") : undefined,
-      });
-      updateStep("card", { status: "done", detail: place ? `${customerName} · ${place}` : customerName });
-      setCreatedCardId(card.id);
+      // bei sevDesk-only-Treffer ist die Kontakt-ID bereits bekannt
+      const existingSevId = sevOnly ? chosenCustomer?.sevdeskContactId : undefined;
 
-      // 6) Inquiry
-      updateStep("inquiry", { status: "running" });
-      const inq = await createInquiry({
-        source,
-        rawText,
-        // Mobil hat keine eigene DB-Spalte: wir spiegeln sie in parsedJson,
-        // damit Drawer/Inbox/Pipeline-Karte sie sehen können. Bei Bedarf
-        // später als Migration in eigene Spalte ziehen.
-        parsedJson: { ...(parsed ?? { parser: "heuristic" }), vorgang, phone_mobile: phoneMobile || undefined },
-        customerName, customerPhone: phone, customerEmail: email,
-        street, zip, city, description, notes,
-        customerId,
+      // 2) ALLES-ODER-NICHTS: Kunde, Karte, Anfrage und Baustelle entstehen in
+      //    EINER Datenbank-Transaktion — oder bei einem Fehler gar nichts.
+      updateStep("bundle", { status: "running" });
+      const bundle = await createInquiryBundle({
+        customerId: useExisting ? chosenCustomerId ?? undefined : undefined,
+        customer: useExisting ? undefined : {
+          sevdeskContactId: existingSevId,
+          customerNumber: sevOnly ? chosenCustomer?.customerNumber : undefined,
+          name: customerName, isCompany,
+          surename: !isCompany ? parts[0] : undefined,
+          familyname: !isCompany ? parts.slice(1).join(" ") || undefined : undefined,
+          email: email || undefined,
+          phone: phone || phoneMobile || undefined,
+          street: street || undefined, zip: zip || undefined, city: city || undefined,
+        },
+        card: {
+          customerName, place,
+          description: description || undefined,
+          openPoints: tags.length > 0 ? tags.join(" · ") : undefined,
+        },
+        inquiry: {
+          source, rawText,
+          parsedJson: { ...(parsed ?? { parser: "heuristic" }), vorgang, phone_mobile: phoneMobile || undefined },
+          customerName, customerPhone: phone, customerEmail: email,
+          street, zip, city, description, notes,
+        },
+        site: {
+          name: customerName, customerName,
+          street: street || undefined, zip: zip || undefined, city: city || undefined,
+          customerPhone: phone || phoneMobile || undefined, customerEmail: email || undefined,
+          sevdeskContactId: existingSevId,
+        },
       });
-      await updateInquiry(inq.id, { pipelineCardId: card.id, status: "in_arbeit" });
+      setCreatedCardId(bundle.cardId);
+      updateStep("bundle", { status: "done", detail: place ? `${customerName} · ${place}` : customerName });
 
-      // Proaktiv: direkt eine Baustelle anlegen + mit der Karte verknuepfen,
-      // damit jede Anfrage von Anfang an vollstaendig ist (Kunde, Ort, Karte,
-      // Baustelle). So laeuft das Aufmaß-Tablet spaeter reibungslos -> die
-      // Baustelle existiert bereits und Positionen/Fotos haben einen Platz.
-      // Dedupe in linkOrCreateSiteForCard verhindert Dubletten. Best effort.
-      try {
-        await linkOrCreateSiteForCard(card);
-      } catch (e) {
-        console.warn("Baustelle zur neuen Anfrage anlegen fehlgeschlagen:", e);
+      // 3) sevDesk als LETZTER, idempotenter Schritt. Erst live prüfen, ob der
+      //    Kontakt schon existiert (kein Doppel!), sonst neu anlegen. Schlägt das
+      //    fehl, bleibt die Anfrage vollständig — nur die sevDesk-Nummer fehlt.
+      if (createSevdesk && !hasChosen) {
+        updateStep("sevdesk", { status: "running" });
+        try {
+          let sevId: string | undefined;
+          let sevNr: string | undefined;
+          const live = await sevdeskListContacts(true); // frische Liste gegen Duplikate
+          const best = bestConfidentMatch(matchCustomers(live, { name: customerName, email, phone: phone || phoneMobile }));
+          if (best && isSevdeskOnly(best.customer)) {
+            sevId = best.customer.sevdeskContactId;
+            sevNr = best.customer.customerNumber;
+            updateStep("sevdesk", { status: "done", detail: `Bereits vorhanden: ${best.customer.name}` });
+          } else {
+            const sev = await sevdeskCreateContact({
+              isCompany,
+              name: isCompany ? customerName : undefined,
+              surename: !isCompany ? parts[0] : undefined,
+              familyname: !isCompany ? parts.slice(1).join(" ") || undefined : undefined,
+              email: email || undefined,
+              phone: phone || undefined,
+              phoneMobile: phoneMobile || undefined,
+              street: street || undefined, zip: zip || undefined, city: city || undefined,
+            });
+            sevId = sev.id; sevNr = sev.customerNumber;
+            updateStep("sevdesk", { status: "done", detail: `Kd-Nr ${sev.customerNumber || sev.id}` });
+          }
+          if (sevId) await attachSevdeskToCustomer(bundle.customerId, bundle.siteId, sevId, sevNr);
+        } catch (sevErr: any) {
+          const d = diagnoseError(sevErr);
+          updateStep("sevdesk", {
+            status: "error", detail: d.detail,
+            errorHint: "Die Anfrage ist vollständig gespeichert — nur der sevDesk-Kontakt fehlt und kann später nachgetragen werden.",
+          });
+        }
+      } else {
+        updateStep("sevdesk", {
+          status: sevOnly ? "done" : "skipped",
+          detail: sevOnly ? "bereits in sevDesk" : useExisting ? "Bestandskunde" : "übersprungen",
+        });
       }
 
-      // M11: Korrektur-Log — wenn der User Parsed-Werte verändert hat,
-      // schreiben wir die Diffs in parse_corrections (still bei Fehler).
+      // Korrektur-Log (still bei Fehler) — wenn der User Parsed-Werte geändert hat
       const diffs = diffCorrections(parsed, parsedSnapshot, {
         customerName, phone, phone_mobile: phoneMobile, email, street, zip, city,
       });
-      if (diffs.length > 0) {
-        void logCorrections(inq.id, parsed, diffs, vorgang);
-      }
-
-      updateStep("inquiry", { status: "done", detail: `Quelle ${source} · in_arbeit${diffs.length ? ` · ${diffs.length} Korrektur${diffs.length === 1 ? "" : "en"} geloggt` : ""}` });
+      if (diffs.length > 0) void logCorrections(bundle.inquiryId, parsed, diffs, vorgang);
     } catch (e: any) {
       // Welcher Schritt war running?
       setSteps((prev) => {

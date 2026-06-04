@@ -172,6 +172,7 @@ Regeln:
 - Bei unsicheren Werten lieber null + confidence "low" statt zu raten
 - Mengen mit Einheit (m, m², m³, lfm, Stk, t, Std — IMMER Standardform aus Glossar) und IMMER "was" füllen (was ist gemeint, z.B. "Zaun", "Pflasterfläche", "Mutterboden")
 - WICHTIG bei mehreren Gewerken: leistungen[] enthält JEDE einzelne Leistung mit ihrer eigenen mengen[]-Liste. leistung (Singular) ist dann leistungen[0].name. Das globale mengen[]-Array darf zusätzlich existieren als Gesamtübersicht, ist aber redundant.
+- GRANULARITÄT der leistungen[]: Ein Eintrag ist ein echtes GEWERK bzw. eine Arbeitsart (z.B. "Pflasterarbeiten", "Zaunbau", "Drainage", "Erdarbeiten", "Rasen anlegen", "Heckenschnitt"), NICHT ein einzelner Arbeitsort, ein Bauteil oder eine Teilaufgabe. Beispiel: "Ausbesserung am bestehenden Pflaster", "Führungsschienen der Poolabdeckung absenken", "Gartenhütte lasieren" sind KEINE drei Leistungen — das sind Teilaufgaben, die unter EIN passendes Gewerk gehören (hier "Pflaster-/Ausbesserungsarbeiten"). Lieber 1–2 saubere Gewerke mit mehreren source_quotes als viele Mini-Leistungen. Nur klar getrennte Gewerke (z.B. Zaun UND Pflaster) bekommen eigene Einträge.
 - MATERIAL-ERKENNUNG pro Leistung: Konkrete Material-Wünsche (Farbe wie "anthrazit"/"RAL 7016", Qualität wie "Schwer"/"8/6/8", Material-Art wie "Naturstein"/"Granit"/"Beton C30/37"/"Splitt 8/16", Sondermaß wie "183×250cm", Lieferant wie "Hesse") gehören in leistungen[].materialien[]. Jedes Material klar EINER Leistung zuordnen (z.B. anthrazit gehört zum Zaun, nicht zum Pflaster). Bei ALTERNATIVEN ("Naturstein oder Betonrandsteine") beide als separate Materialien aufnehmen + note="Alternativ-Wahl gewünscht" am ersten. Wenn ein konkretes Maß oder eine Menge zum Material genannt ist, in menge füllen (z.B. "Doppelstabmatte schwer 183×250 anthrazit" → spec="183×250", menge=null, name="Doppelstabmatte", weil Stückzahl woanders).
 - QUELLEN-ZITATE pro Leistung (source_quotes): Liste WÖRTLICHER kurzer Phrasen aus dem Originaltext (1–8 Wörter, max 3 Phrasen pro Leistung), die diese Leistung im Text belegen. ZWINGEND wörtlich (Zeichen-für-Zeichen, mit Umlauten und Satzzeichen wie im Original), damit das Frontend sie im Text wiederfinden und farbig markieren kann. Mengen-Angaben dürfen Teil der Quote sein. Beispiel: für "Pflasterung einer Terrasse, ca. 30 m²." gehören "Pflasterung einer Terrasse" und "ca. 30 m²" in source_quotes.
 - Telefon im Originalformat lassen
@@ -417,12 +418,19 @@ function parseHeuristic(text: string): Parsed {
   const mail = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
   if (mail) out.email = mail[0];
 
-  // Telefon — alle Nummern finden, dann nach Mobil vs. Festnetz sortieren
-  const phoneRe = /(?:(Tel\.?|Telefon|Festnetz|Mobil|Handy|Mobil-Nr\.?|Phone)?[:\s]*)?((?:\+49|0)[\d\s\-/]{6,})/gi;
+  // Telefon — alle Nummern finden, dann nach Mobil vs. Festnetz sortieren.
+  // Das Lookbehind (?<![\w-]) verhindert Treffer MITTEN in Datei-/Datums-Tokens
+  // wie "VID-20260424-WA0016.mp4" (WhatsApp-Export) oder "20260424" — eine echte
+  // Nummer steht frei (nach Leerzeichen/Zeilenanfang/Doppelpunkt), nicht direkt
+  // hinter einem Wortzeichen oder Bindestrich.
+  const phoneRe = /(?:(Tel\.?|Telefon|Festnetz|Mobil|Handy|Mobil-Nr\.?|Phone)?[:\s]*)?((?<![\w-])(?:\+49|0)[\d\s\-/]{6,})/gi;
   const phones: { tag: string; value: string }[] = [];
   let pm: RegExpExecArray | null;
   while ((pm = phoneRe.exec(text)) !== null) {
     const value = pm[2].replace(/\s+/g, ' ').trim();
+    // Echte DE-Nummer hat mind. 8 Ziffern (Vorwahl + Anschluss). Kürzeres ist
+    // fast immer Müll aus Datei-/Datumsstrings ("0260424" aus VID-20260424).
+    if (value.replace(/\D/g, '').length < 8) continue;
     const tag = (pm[1] || '').toLowerCase();
     if (!phones.find((p) => p.value === value)) phones.push({ tag, value });
   }
@@ -524,7 +532,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
     preclean: '' as string,
   };
   try {
-    const body = (await request.json()) as { text?: string; skipSelfCheck?: boolean };
+    const body = (await request.json()) as { text?: string; selfCheck?: boolean };
     const rawText = (body?.text ?? '').trim();
     if (!rawText) {
       return new Response(JSON.stringify({ error: 'no text' }), { status: 400 });
@@ -549,9 +557,9 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
       const wa70 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
       if (wa70.parsed) {
         debug.aiPath = 'llama-3.3-70b';
-        const merged = mergeCrossValidate(wa70.parsed, heur);
+        const merged = mergeCrossValidate(wa70.parsed, heur, rawText);
         attachPrecleanMeta(merged, pre);
-        if (shouldSelfCheck(rawText, body?.skipSelfCheck)) {
+        if (shouldSelfCheck(rawText, body?.selfCheck)) {
           merged.meta = { ...(merged.meta ?? {}), review_hints: await selfCheck(rawText, merged, env.AI) };
         }
         return jsonResponse(merged, debug);
@@ -562,7 +570,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
       const wa8 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.1-8b-instruct');
       if (wa8.parsed) {
         debug.aiPath = 'llama-3.1-8b-fallback';
-        const merged = mergeCrossValidate(wa8.parsed, heur);
+        const merged = mergeCrossValidate(wa8.parsed, heur, rawText);
         attachPrecleanMeta(merged, pre);
         // Self-Check beim 8B-Fallback skippen — 8B als Self-Check ist zu unzuverlässig.
         return jsonResponse(merged, debug);
@@ -575,7 +583,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
       const an = await parseWithAnthropic(llmInput, env.ANTHROPIC_API_KEY);
       if (an) {
         debug.aiPath = 'anthropic-haiku';
-        const merged = mergeCrossValidate(an, heur);
+        const merged = mergeCrossValidate(an, heur, rawText);
         attachPrecleanMeta(merged, pre);
         return jsonResponse(merged, debug);
       }
@@ -608,10 +616,12 @@ function attachPrecleanMeta(p: Parsed, pre: PrecleanResult): void {
   };
 }
 
-/** Self-Check nur lohnenswert wenn der Originaltext substantiell ist
- *  UND der User es nicht explizit deaktiviert hat (z.B. bei Live-Tippen). */
-function shouldSelfCheck(rawText: string, skip?: boolean): boolean {
-  if (skip) return false;
+/** Self-Check ist standardmäßig AUS: Der zweite 70B-Call hat in der Praxis
+ *  zu oft „Hinweise" produziert, obwohl die Extraktion stimmte (gefühlte
+ *  Fehler), und kostete 1–3 s extra. Er läuft nur noch, wenn der Client ihn
+ *  ausdrücklich anfordert (`selfCheck: true`) UND der Text substantiell ist. */
+function shouldSelfCheck(rawText: string, optIn?: boolean): boolean {
+  if (!optIn) return false;
   return rawText.length >= 100;
 }
 
@@ -695,7 +705,7 @@ ${JSON.stringify({
    ──────────────────────────────────────────────────────────────────────── */
 
 async function streamResponse(request: Request, env: Env): Promise<Response> {
-  const body = (await request.json().catch(() => ({}))) as { text?: string; skipSelfCheck?: boolean };
+  const body = (await request.json().catch(() => ({}))) as { text?: string; selfCheck?: boolean };
   const rawText = (body?.text ?? '').trim();
 
   const encoder = new TextEncoder();
@@ -746,7 +756,7 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
             step('llm', 'done', { model: 'Llama 3.3 70B', info: 'JSON erfolgreich geparst' });
             // 4) Cross-Validate
             step('crossvalidate', 'start');
-            merged = mergeCrossValidate(wa70.parsed, heur);
+            merged = mergeCrossValidate(wa70.parsed, heur, rawText);
             attachPrecleanMeta(merged, pre);
             const conflicts = merged.meta?.conflicts?.length ?? 0;
             step('crossvalidate', 'done', { info: conflicts ? `${conflicts} Konflikte gelöst` : 'keine Konflikte' });
@@ -758,7 +768,7 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
               usedPath = 'llama-3.1-8b-fallback';
               step('llm', 'done', { model: 'Llama 3.1 8B', info: 'Fallback erfolgreich' });
               step('crossvalidate', 'start');
-              merged = mergeCrossValidate(wa8.parsed, heur);
+              merged = mergeCrossValidate(wa8.parsed, heur, rawText);
               attachPrecleanMeta(merged, pre);
               const conflicts = merged.meta?.conflicts?.length ?? 0;
               step('crossvalidate', 'done', { info: conflicts ? `${conflicts} Konflikte gelöst` : 'keine Konflikte' });
@@ -772,7 +782,7 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
           if (an) {
             usedPath = 'anthropic-haiku';
             step('llm', 'done', { model: 'Claude Haiku' });
-            merged = mergeCrossValidate(an, heur);
+            merged = mergeCrossValidate(an, heur, rawText);
             attachPrecleanMeta(merged, pre);
           }
         }
@@ -784,8 +794,10 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
           attachPrecleanMeta(merged, pre);
         }
 
-        // 5) Self-Check (nur 70B-Pfad + lange Texte)
-        if (env.AI && usedPath === 'llama-3.3-70b' && shouldSelfCheck(rawText, body?.skipSelfCheck)) {
+        // 5) Self-Check — standardmäßig AUS (war zu meckerig + kostet einen
+        //    kompletten zweiten 70B-Call). Nur wenn der Client ihn ausdrücklich
+        //    per selfCheck:true anfordert und der 70B-Pfad griff.
+        if (env.AI && usedPath === 'llama-3.3-70b' && shouldSelfCheck(rawText, body?.selfCheck)) {
           step('selfcheck', 'start');
           const hints = await selfCheck(rawText, merged, env.AI);
           if (hints) {
@@ -796,7 +808,7 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
             step('selfcheck', 'done', { info: 'kein Befund' });
           }
         } else {
-          step('selfcheck', 'skipped', { info: 'übersprungen (kurzer Text oder Fallback-Pfad)' });
+          step('selfcheck', 'skipped', { info: 'aus (auf Wunsch per Button zuschaltbar)' });
         }
 
         // 6) Done
@@ -842,14 +854,30 @@ function jsonResponse(p: Parsed, debug: any): Response {
    Die Confidence-Anhebung bei Heuristik-Bestätigung passiert in M6 unten.
    ──────────────────────────────────────────────────────────────────────── */
 
-const HEURISTIC_WINS = new Set(['email','phone','phone_mobile','zip']);
-const LLM_WINS       = new Set(['customerName','leistung','description','vorgang','firma']);
+/** Kontaktfelder: hier kopiert die Regex zeichengenau, während LLMs gern
+ *  Ziffern verdrehen. Stehen beide Werte im Text, gewinnt darum die Regex. */
+const CONTACT_FIELDS = new Set(['email','phone','phone_mobile','zip']);
 
 function normPhone(s?: string): string {
   return (s ?? '').replace(/\s|\-|\/|\(|\)|\./g, '').toLowerCase();
 }
 function normStr(s?: string): string {
   return (s ?? '').trim().toLowerCase();
+}
+
+/** Steht ein extrahierter Wert wörtlich im Originaltext? Das ist der stärkste
+ *  Beleg dafür, dass er korrekt ist (kein LLM-Halluzinat, kein Regex-Fehlgriff).
+ *  - Telefon: über die letzten 7+ Ziffern (prefix-/format-unabhängig)
+ *  - sonst: normalisierter Teilstring-Vergleich (case-insensitiv) */
+function appearsInText(field: string, value: string | undefined, rawText: string, textLower: string): boolean {
+  if (!value) return false;
+  if (field === 'phone' || field === 'phone_mobile') {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length < 4) return false;
+    const anchor = digits.slice(-7);
+    return rawText.replace(/\D/g, '').includes(anchor);
+  }
+  return textLower.includes(value.trim().toLowerCase());
 }
 
 function valuesEqual(field: string, a?: string, b?: string): boolean {
@@ -859,9 +887,10 @@ function valuesEqual(field: string, a?: string, b?: string): boolean {
   return normStr(a) === normStr(b);
 }
 
-function mergeCrossValidate(primary: Parsed, heur: Parsed): Parsed {
+function mergeCrossValidate(primary: Parsed, heur: Parsed, rawText: string): Parsed {
   const out: any = { ...primary };
   const conflicts: NonNullable<Parsed['meta']>['conflicts'] = [];
+  const textLower = rawText.toLowerCase();
 
   const allFields = ['email','phone','phone_mobile','zip','city','street','customerName','leistung','description','firma'] as const;
   for (const k of allFields) {
@@ -874,15 +903,23 @@ function mergeCrossValidate(primary: Parsed, heur: Parsed): Parsed {
       continue;
     }
     if (llmVal && heuVal && !valuesEqual(k, llmVal, heuVal)) {
-      // Konflikt: entscheiden je nach Feld-Klasse
-      let chosen = llmVal;
-      let reason = 'llm-default';
-      if (HEURISTIC_WINS.has(k)) {
-        chosen = heuVal;
-        reason = 'regex-präziser-als-LLM';
-      } else if (LLM_WINS.has(k)) {
-        chosen = llmVal;
-        reason = 'llm-semantisch-besser';
+      // Konflikt: NICHT mehr blind nach Feld-Klasse entscheiden (das hat gute
+      // LLM-Werte mit fehleranfälligen Regex-Treffern überschrieben). Stattdessen
+      // gewinnt der Wert, der WÖRTLICH im Originaltext steht — der stärkste
+      // Korrektheits-Beleg. Stehen beide drin, gewinnt bei Kontaktfeldern die
+      // zeichengenaue Regex, sonst das semantisch bessere LLM.
+      const llmInText = appearsInText(k, llmVal, rawText, textLower);
+      const heuInText = appearsInText(k, heuVal, rawText, textLower);
+      let chosen: string;
+      let reason: string;
+      if (llmInText && !heuInText) {
+        chosen = llmVal; reason = 'llm-wörtlich-im-text';
+      } else if (heuInText && !llmInText) {
+        chosen = heuVal; reason = 'heuristik-wörtlich-im-text';
+      } else if (CONTACT_FIELDS.has(k) && heuInText) {
+        chosen = heuVal; reason = 'kontaktfeld-regex-zeichengenau';
+      } else {
+        chosen = llmVal; reason = 'llm-semantisch-besser';
       }
       out[k] = chosen;
       conflicts.push({ field: k, llm: llmVal, heuristic: heuVal, chosen, reason });
@@ -897,7 +934,7 @@ function mergeCrossValidate(primary: Parsed, heur: Parsed): Parsed {
   if (!out.vorgang && heur.vorgang) out.vorgang = heur.vorgang;
 
   // M6: Confidence nach Cross-Validation neu kalibrieren
-  out.confidence = scoreConfidence(out, primary, heur);
+  out.confidence = scoreConfidence(out, primary, heur, rawText);
 
   // Diagnose anhängen
   if (conflicts.length) {
@@ -921,9 +958,11 @@ function scoreConfidence(
   merged: Parsed,
   llm: Parsed,
   heur: Parsed,
+  rawText: string,
 ): Parsed['confidence'] {
   const llmConf = (llm.confidence ?? {}) as Record<string, Confidence | null | undefined>;
   const out: any = {};
+  const textLower = rawText.toLowerCase();
 
   const bumpUp = (c: Confidence | null | undefined): Confidence =>
     c === 'low' ? 'medium' : c === 'medium' ? 'high' : 'high';
@@ -933,6 +972,11 @@ function scoreConfidence(
   for (const f of fields) {
     const val = (merged as any)[f] as string | undefined;
     if (!val) { out[f] = null; continue; }
+
+    // Stärkster Beleg: Wert steht wörtlich im Originaltext → high. (Genau das
+    // versprach der M6-Kommentar, war aber nie implementiert — dadurch landeten
+    // korrekte Werte unnötig auf „medium"/„low" und blockierten das Speichern.)
+    if (appearsInText(f, val, rawText, textLower)) { out[f] = 'high'; continue; }
 
     const llmHas = !!(llm as any)[f];
     const heuHas = !!(heur as any)[f];
