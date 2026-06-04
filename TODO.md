@@ -1,12 +1,13 @@
 # Leuschner Stundenzettel · Offene Aufgaben
 
-**Stand:** 04. Juni 2026 (Nachmittag)
-**Hauptapp (`app`):** `main` = `77250ca` (lokal) · Live-Bundle `index-CtBis9rX.js` ✓ · **`origin/main` hinkt 9 Commits hinterher** (kein GitHub-Token → kein Push)
+**Stand:** 04. Juni 2026 (Abend)
+**Hauptapp (`app`):** `main` = `9764f3b` (lokal) · Live-Bundle `index-BGgkUpC9.js` ✓ (Deployment `80ab30ca`) · **`origin/main` hinkt nun 10 Commits hinterher** (kein GitHub-Token → kein Push)
 **Aufmaß-App (`aufmass`):** `main` = `8d9afeb` ✓ (lokal committed, KEIN Git-Remote — lebt auf dem Stick) · live `leuschner-aufmass.pages.dev`
-Lokal = Live ✓. Voller Stand: `../WIEDEREINSTIEG.md` (Abschnitt „04.06. · Nachmittag").
+Lokal = Live ✓. Voller Stand: `../WIEDEREINSTIEG.md` (Abschnitt „04.06. · Abend").
 
 ## 🔥 Jetzt fällig / im Blick
-- **GitHub-Sync:** 9 Commits lokal vor `origin/main` — Fine-grained PAT erzeugen (Repo Contents R/W) → in KeePass „GitHub Leuschner" → pushen. Nicht nötig fürs Live-Schalten, aber Git driftet.
+- **Minor (Baustellen-Detail):** Hero zeigt bei abgerechneten Karten die RE-Nummer statt der AN-Nummer (`orderRef.orderNumber` bevorzugt Rechnungsnr.) — bei Gelegenheit auf AN-Nummer umstellen.
+- **GitHub-Sync:** 10 Commits lokal vor `origin/main` — Fine-grained PAT erzeugen (Repo Contents R/W) → in KeePass „GitHub Leuschner" → pushen. Nicht nötig fürs Live-Schalten, aber Git driftet.
 - **2 Test-Karteileichen** im Kundenstamm löschen: „RLS-Probe-…", „SinglePr-…" (nur auf Freigabe).
 - **AN-Nummern-Dubletten** in sevDesk noch offen: 1075/1081/1090/1135/1141/1158/1212/1252 (1255/1258 bereinigt).
 - Entscheidung steht: **alter sevDesk-Bestand (~200 historische Kontakte/Belege) wird vorerst NICHT in die App übernommen** — nur aktive Vorgänge.
