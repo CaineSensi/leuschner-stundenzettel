@@ -234,18 +234,26 @@ export default function SiteDetail() {
   }
 
   // Karten-Aggregate
-  const hoursTotalMin = entries.reduce((t, e) => t + workMinutes(e), 0);
-  const workersOnSite = new Set(entries.map((e) => e.workerId)).size;
   const invoicesOpen  = invoices.filter((i) => i.status !== "paid" && i.status !== "cancelled");
-  const invoicesSum   = invoices.reduce((t, i) => t + (i.netEur ?? 0), 0);
   const invoicesOpenSum = invoicesOpen.reduce((t, i) => t + (i.netEur ?? 0), 0);
   const posCount = orderRef?.positions.length ?? 0;
   const posSum = orderRef?.sumNet ?? orderRef?.positions.reduce((t, p) => t + (p.sum ?? 0), 0) ?? 0;
   // Aufmaß-Positionen (vom Tablet erfasst) separat. Keine useMemo-Hook hier,
   // da diese Stelle hinter bedingten Returns liegt (Hooks-Regeln).
   const aufmassPositions = (orderRef?.positions ?? []).filter((p) => p.source === "aufmass");
-  const latestPhoto = photos[0];
   const mapAddr = [site.street, site.city].filter(Boolean).join(", ");
+
+  // Funktions-Verknüpfungen als Text-Links (statt Kacheln) — im Hero-Band-Stil.
+  const siteActions: { label: string; value: string | null; onClick: () => void; disabled?: boolean }[] = [
+    { label: "Positionen", value: posCount ? `${posCount} · ${eur(posSum)}` : null, onClick: () => setOpenModal("positions"), disabled: posCount === 0 },
+    { label: "Aufmaß", value: aufmassPositions.length ? `${aufmassPositions.length}` : null, onClick: () => setOpenModal("aufmass"), disabled: aufmassPositions.length === 0 },
+    { label: "Stunden", value: entries.length ? `${entries.length}` : null, onClick: () => setOpenModal("hours"), disabled: entries.length === 0 },
+    { label: "Rechnungen", value: invoices.length ? `${invoices.length}${invoicesOpen.length ? " · " + eur(invoicesOpenSum) + " offen" : ""}` : null, onClick: () => setOpenModal("invoices"), disabled: invoices.length === 0 },
+    { label: "Material", value: materials.length ? `${materials.length}` : null, onClick: () => setOpenModal("materials") },
+    { label: "Fotos", value: photos.length ? `${photos.length}` : null, onClick: () => setOpenModal("photos"), disabled: photos.length === 0 },
+    { label: "Anhänge", value: media.length ? `${media.length}` : null, onClick: () => setOpenModal("media"), disabled: media.length === 0 },
+    { label: "Garten-Skizze", value: null, onClick: () => navigate(`/admin/garten?site=${id}`) },
+  ];
 
   // Effektive Koordinaten: explizit gesetzt oder via Geocoding ermittelt
   const effectiveGeo = site.geo ?? geocoded;
@@ -290,8 +298,7 @@ export default function SiteDetail() {
           volumeNet={posSum}
           notes={notes}
           onSaveNotes={saveNotes}
-          onOpenInvoices={() => setOpenModal("invoices")}
-          onOpenPositions={() => { if (orderRef) setOpenModal("positions"); }}
+          actions={siteActions}
         />
 
         {/* Karte · volle Breite (Side-Panel entfernt) */}
@@ -384,74 +391,6 @@ export default function SiteDetail() {
           />
         </section>
 
-        {/* QUICK-ACCESS · 8 Cards (Positionen · Aufmaß · Stunden · Rechnungen · Material · Fotos · Anhaenge · Garten-Skizze) */}
-        <section className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-8">
-          <QuickCard
-            label="Positionen"
-            value={posCount === 0 ? "—" : `${posCount} · ${eur(posSum)}`}
-            icon="📋"
-            disabled={posCount === 0}
-            onClick={() => setOpenModal("positions")}
-          />
-          <QuickCard
-            label="Aufmaß"
-            value={aufmassPositions.length === 0 ? "—" : `${aufmassPositions.length} vom Tablet`}
-            icon="📐"
-            disabled={aufmassPositions.length === 0}
-            onClick={() => setOpenModal("aufmass")}
-          />
-          <QuickCard
-            label="Stunden"
-            value={entries.length === 0 ? "—" : `${fmtHm(hoursTotalMin)} · ${workersOnSite} MA`}
-            icon="⏱"
-            disabled={entries.length === 0}
-            onClick={() => setOpenModal("hours")}
-          />
-          <QuickCard
-            label="Rechnungen"
-            value={invoices.length === 0 ? "—" : invoicesOpen.length > 0
-              ? `${invoices.length} · ${eur(invoicesOpenSum)} offen`
-              : `${invoices.length} · ${eur(invoicesSum)} bezahlt`}
-            icon="€"
-            disabled={invoices.length === 0}
-            onClick={() => setOpenModal("invoices")}
-          />
-          <QuickCard
-            label="Material"
-            value={materials.length === 0
-              ? (materialsLoading ? "lädt …" : "—")
-              : (() => {
-                  const installed = materials.filter((m) => m.status === "installed").length;
-                  const active = materials.filter((m) => m.status !== "returned").length;
-                  return `${installed}/${active} verbaut`;
-                })()}
-            icon="🧱"
-            onClick={() => setOpenModal("materials")}
-          />
-          <QuickCard
-            label="Fotos"
-            value={photos.length === 0 ? "—" : `${photos.length} · neuestes ${latestPhoto?.date ? fmtShort(latestPhoto.date) : ""}`}
-            iconPhoto={latestPhoto ?? undefined}
-            onClick={() => setOpenModal("photos")}
-          />
-          <QuickCard
-            label="Anhänge"
-            value={media.length === 0 ? "—" : (() => {
-              const v = media.filter((m) => m.kind === "video").length;
-              const a = media.filter((m) => m.kind === "audio").length;
-              return [v ? `${v} Video${v === 1 ? "" : "s"}` : null, a ? `${a} Audio` : null].filter(Boolean).join(" · ");
-            })()}
-            icon="🎬"
-            disabled={media.length === 0}
-            onClick={() => setOpenModal("media")}
-          />
-          <QuickCard
-            label="Garten-Skizze"
-            value="Planer öffnen"
-            icon="🌿"
-            onClick={() => navigate(`/admin/garten?site=${id}`)}
-          />
-        </section>
       </main>
 
       {/* Modals */}
@@ -524,44 +463,6 @@ export default function SiteDetail() {
 }
 
 /* ── Quick-Card ─────────────────────────────────────────────────────────── */
-
-function QuickCard({
-  label, value, icon, iconPhoto, disabled, onClick
-}: {
-  label: string; value: string; icon?: string; iconPhoto?: PhotoWithContext;
-  disabled?: boolean; onClick: () => void;
-}) {
-  const [thumbUrl, setThumbUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!iconPhoto) return;
-    let cancelled = false;
-    photoUrl(iconPhoto, "stamped").then((u) => { if (!cancelled) setThumbUrl(u); });
-    return () => { cancelled = true; };
-  }, [iconPhoto?.id]);
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="bg-white border-[1.5px] border-steel-line/45 rounded-2xl p-3.5 shadow-sm flex items-center gap-3 text-left hover:border-copper hover:shadow-md transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:border-steel-line/45 disabled:hover:shadow-sm"
-    >
-      <div
-        className="w-9 h-9 rounded-xl bg-copper/15 text-copper grid place-items-center flex-shrink-0 overflow-hidden text-[18px]"
-        style={iconPhoto ? { background: "#0B0B0C" } : undefined}
-      >
-        {iconPhoto && thumbUrl ? (
-          <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
-        ) : (
-          <span aria-hidden>{icon}</span>
-        )}
-      </div>
-      <div className="min-w-0">
-        <div className="font-mono text-[10px] tracking-wider uppercase text-ink-2">{label}</div>
-        <div className="font-bold text-[13.5px] text-ink mt-0.5 truncate">{value}</div>
-      </div>
-    </button>
-  );
-}
 
 /* ── Modal-Wrapper ──────────────────────────────────────────────────────── */
 
@@ -1561,7 +1462,7 @@ function PhotoLightbox({
    (operative Vor-Ort-Bemerkungen). Trennt sauber: Zahlen kommen live aus dem
    verknüpften Vorgang/sevDesk, das Notizfeld bleibt frei für die Baustelle. ── */
 function AuftragNotizBlock({
-  site, orderRef, invoices, volumeNet, notes, onSaveNotes, onOpenInvoices, onOpenPositions
+  site, orderRef, invoices, volumeNet, notes, onSaveNotes, actions
 }: {
   site: SiteRow;
   orderRef: OrderRef | null;
@@ -1569,8 +1470,7 @@ function AuftragNotizBlock({
   volumeNet: number;
   notes: string;
   onSaveNotes: (text: string) => Promise<void>;
-  onOpenInvoices: () => void;
-  onOpenPositions: () => void;
+  actions: { label: string; value: string | null; onClick: () => void; disabled?: boolean }[];
 }) {
   const open = invoices.filter((i) => i.status !== "paid" && i.status !== "cancelled");
   const paidSum = invoices.filter((i) => i.status === "paid").reduce((t, i) => t + (i.netEur ?? 0), 0);
@@ -1595,11 +1495,10 @@ function AuftragNotizBlock({
 
   return (
     <section className="mt-4 rounded-xl overflow-hidden shadow-sm border border-steel-line/45">
-      {hasCommercial && (
-        <div className="surface-steel px-5 lg:px-6 py-4" style={{ borderBottom: "3px solid #DC6E2D" }}>
+      <div className="surface-steel px-5 lg:px-6 py-4" style={{ borderBottom: "3px solid #DC6E2D" }}>
           <div className="flex items-start justify-between gap-4 flex-wrap">
             <div className="min-w-0">
-              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-copper-bright mb-1">Auftrag &amp; Zahlen · live aus sevDesk</div>
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-copper-bright mb-1">{hasCommercial ? "Auftrag & Zahlen · live aus sevDesk" : "Baustelle"}</div>
               <div className="font-display font-black uppercase text-[20px] text-white leading-tight">
                 {site.name}{an ? <span className="text-steel"> · {an}</span> : null}
               </div>
@@ -1623,12 +1522,19 @@ function AuftragNotizBlock({
               {openSum > 0 && <HeroKpi label="Offen" value={eur(openSum)} accent="amber" />}
             </div>
           </div>
-          <div className="flex gap-4 mt-3">
-            {an && <button onClick={onOpenPositions} className="font-mono text-[11px] text-copper-bright hover:text-white">→ Positionen</button>}
-            {invoices.length > 0 && <button onClick={onOpenInvoices} className="font-mono text-[11px] text-copper-bright hover:text-white">→ Rechnungen ({invoices.length})</button>}
+          <div className="flex gap-x-4 gap-y-1.5 mt-3.5 flex-wrap">
+            {actions.map((a) => (
+              <button
+                key={a.label}
+                onClick={a.onClick}
+                disabled={a.disabled}
+                className="font-mono text-[11.5px] text-copper-bright hover:text-white disabled:text-steel/40 disabled:cursor-default transition-colors"
+              >
+                → {a.label}{a.value ? <span className="text-steel"> · {a.value}</span> : null}
+              </button>
+            ))}
           </div>
         </div>
-      )}
 
       <div className="bg-white px-5 lg:px-6 py-4">
         <div className="flex items-center justify-between gap-3 mb-3">
