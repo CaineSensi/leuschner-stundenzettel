@@ -20,7 +20,8 @@ export interface SevContactInput {
   name?: string;          // Firmenname falls is_company
   isCompany?: boolean;
   email?: string;
-  phone?: string;
+  phone?: string;         // Festnetz
+  phoneMobile?: string;   // Mobil/Handy — wird als ZWEITE Telefonnummer angelegt
   street?: string;
   zip?: string;
   city?: string;
@@ -67,14 +68,29 @@ export async function sevdeskCreateContact(input: SevContactInput): Promise<{ id
       }),
     }).catch(() => {});
   }
+  // Telefonnummern als CommunicationWay. key.id=2 = bestandskonform (alle 28
+  // vorhandenen sevDesk-Telefonnummern nutzen key 2). Festnetz UND Mobil werden
+  // BEIDE angelegt — sonst fehlt bei reinen Mobil-Kontakten (Telefon/WhatsApp-
+  // Anfragen, der Normalfall) die Nummer komplett im sevDesk-Kontakt.
+  // Hier KEIN .catch()-Schlucken: scheitert die Telefon-Anlage, soll der Fehler
+  // hochblubbern, damit kein Kontakt unbemerkt ohne Nummer entsteht.
   if (input.phone) {
     await sd('CommunicationWay', {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         contact: { id: contactId, objectName: 'Contact' },
-        type: 'PHONE', value: input.phone, key: { id: '1', objectName: 'CommunicationWayKey' },
+        type: 'PHONE', value: input.phone, key: { id: '2', objectName: 'CommunicationWayKey' },
       }),
-    }).catch(() => {});
+    });
+  }
+  if (input.phoneMobile && input.phoneMobile.replace(/\D/g, '') !== (input.phone ?? '').replace(/\D/g, '')) {
+    await sd('CommunicationWay', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contact: { id: contactId, objectName: 'Contact' },
+        type: 'PHONE', value: input.phoneMobile, key: { id: '2', objectName: 'CommunicationWayKey' },
+      }),
+    });
   }
 
   return {
@@ -275,4 +291,225 @@ export async function sevdeskCancelOrder(orderRef: { id?: string; orderNumber?: 
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ status: 500, headText }),
   });
+}
+
+// ── Live-Beleg-Abgleich: liest den AKTUELLEN Stand einer sevDesk-Order
+//    (Status, Summe, Positionen) als Schnappschuss. Rein lesend — verändert
+//    in sevDesk NICHTS. Damit spiegelt die Pipeline-Karte den Beleg, der die
+//    Quelle der Wahrheit ist (Positionen/Beträge/Status können in sevDesk
+//    nachträglich geändert worden sein). ─────────────────────────────────────
+
+/** sevDesk-Einheiten (translationCode) → kurzes deutsches Kürzel für die Anzeige. */
+const UNITY_LABEL: Record<string, string> = {
+  UNITY_PIECE: 'Stk',
+  UNITY_HOUR: 'Std',
+  UNITY_SQUARE_METER: 'm²',
+  UNITY_CUBIC_METER: 'm³',
+  UNITY_METER: 'm',
+  UNITY_RUNNING_METER: 'lfm',
+  UNITY_BLANKET: 'pausch.',
+  UNITY_KILOGRAM: 'kg',
+  UNITY_TON: 't',
+  UNITY_DAY: 'Tag',
+  UNITY_LITER: 'l',
+  UNITY_PERCENT: '%',
+};
+
+/** sevDesk-Order-Status (AN) → menschenlesbar. */
+const ORDER_STATUS_LABEL: Record<number, string> = {
+  100: 'Entwurf',
+  200: 'Offen / versendet',
+  300: 'Teilweise berechnet',
+  500: 'Abgelehnt / storniert',
+  750: 'Angenommen',
+  1000: 'Abgerechnet',
+};
+
+export interface SevOrderPos {
+  positionNumber: number;
+  name: string;
+  quantity: number;
+  price: number;       // Einzelpreis netto
+  sumNet: number;      // Zeilensumme netto
+  unityLabel: string;  // z. B. "Std", "m²", "Stk"
+  text: string;
+}
+
+/** Kontaktdaten des Kunden hinter dem Beleg (für den Stammdaten-Abgleich). */
+export interface SevContactData {
+  sevdeskContactId: string;
+  name: string;
+  customerNumber?: string;
+  phone?: string;
+  email?: string;
+  street?: string;
+  zip?: string;
+  city?: string;
+}
+
+export interface SevOrderSnapshot {
+  id: string;
+  orderNumber: string;
+  status: number;
+  statusLabel: string;
+  sumNet: number;
+  positions: SevOrderPos[];
+  contact?: SevContactData;
+}
+
+/** Lädt Telefon/E-Mail/Adresse eines sevDesk-Kontakts (rein lesend). */
+async function loadContactData(contactId: string): Promise<SevContactData | undefined> {
+  if (!contactId) return undefined;
+  try {
+    const r = await sd<any>(`Contact/${contactId}?embed=communicationWays,addresses`);
+    const c = Array.isArray(r?.objects) ? r.objects[0] : r?.objects;
+    if (!c) return undefined;
+    let phone: string | undefined;
+    let email: string | undefined;
+    for (const cw of (c.communicationWays ?? [])) {
+      const val = String(cw?.value ?? '').trim();
+      if (!val) continue;
+      const type = String(cw?.type ?? '').toUpperCase();
+      const isMain = String(cw?.main ?? '') === '1';
+      if (type === 'EMAIL') { if (!email || isMain) email = val; }
+      else if (type === 'PHONE' || type === 'MOBILE' || type === 'LANDLINE') { if (!phone || isMain) phone = val; }
+    }
+    const a = (c.addresses ?? [])[0] ?? {};
+    const sur = String(c.surename ?? '').trim();
+    const fam = String(c.familyname ?? '').trim();
+    const company = String(c.name ?? '').trim();
+    return {
+      sevdeskContactId: String(contactId),
+      name: [sur, fam].filter(Boolean).join(' ').trim() || company,
+      customerNumber: c.customerNumber ? String(c.customerNumber) : undefined,
+      phone, email,
+      street: a.street ? String(a.street).trim() : undefined,
+      zip: a.zip ? String(a.zip).trim() : undefined,
+      city: a.city ? String(a.city).trim() : undefined,
+    };
+  } catch { return undefined; }
+}
+
+/** Liest Kopf + Positionen + Kontaktdaten einer Order als Schnappschuss (nur lesen). */
+export async function sevdeskGetOrderSnapshot(ref: { id?: string; orderNumber?: string }): Promise<SevOrderSnapshot> {
+  // Order-ID auflösen (wie beim Storno): erst direkte ID, sonst per Nummer.
+  let orderId = ref.id?.trim();
+  if (!orderId && ref.orderNumber) {
+    const found = await sd<any>(`Order?orderNumber=${encodeURIComponent(ref.orderNumber)}&depth=0`);
+    orderId = String(found?.objects?.[0]?.id ?? '');
+  }
+  if (!orderId) throw new Error('Kein sevDesk-Beleg verknüpft (keine Order-ID/Nummer).');
+
+  // Kopf (mit Kontakt-Referenz für den Stammdaten-Abgleich)
+  const head = await sd<any>(`Order/${orderId}?embed=contact`);
+  const o = Array.isArray(head?.objects) ? head.objects[0] : head?.objects;
+  if (!o) throw new Error(`sevDesk-Beleg ${orderId} nicht gefunden.`);
+  const status = parseInt(String(o.status ?? '0'), 10) || 0;
+  const contact = await loadContactData(String((o.contact ?? {}).id ?? ''));
+
+  // Positionen (mit Einheit)
+  const posR = await sd<any>(`Order/${orderId}/getPositions?embed=unity`);
+  const positions: SevOrderPos[] = (posR?.objects ?? []).map((p: any) => {
+    const u = p.unity || {};
+    const code = String(u.translationCode ?? '');
+    return {
+      positionNumber: parseInt(String(p.positionNumber ?? '0'), 10) || 0,
+      name: String(p.name ?? '').trim(),
+      quantity: parseFloat(String(p.quantity ?? '0')) || 0,
+      price: parseFloat(String(p.price ?? '0')) || 0,
+      sumNet: parseFloat(String(p.sumNet ?? '0')) || 0,
+      unityLabel: UNITY_LABEL[code] ?? (code ? code.replace(/^UNITY_/, '').toLowerCase() : ''),
+      text: String(p.text ?? '').trim(),
+    };
+  }).sort((a: SevOrderPos, b: SevOrderPos) => a.positionNumber - b.positionNumber);
+
+  return {
+    id: String(orderId),
+    orderNumber: String(o.orderNumber ?? ref.orderNumber ?? ''),
+    status,
+    statusLabel: ORDER_STATUS_LABEL[status] ?? `Status ${status}`,
+    sumNet: parseFloat(String(o.sumNet ?? '0')) || 0,
+    positions,
+    contact,
+  };
+}
+
+// ── Beleg-Suche für noch nicht verknüpfte Karten: findet den passenden
+//    sevDesk-Beleg über den Kundennamen, damit eine „nackte" Pipeline-Karte
+//    (ohne AN-Nummer) mit ihrem Beleg verbunden werden kann. ─────────────────
+
+export interface SevOrderRef {
+  id: string;
+  orderNumber: string;
+  status: number;
+  statusLabel: string;
+  sumNet: number;
+  contactName: string;
+  contactId: string;
+}
+
+let _orderCache: { at: number; data: SevOrderRef[] } | null = null;
+
+/** Lädt ALLE Aufträge/Angebote (mit Kontaktnamen via embed=contact),
+ *  paginiert. 5-Min-Cache. WICHTIG: embed=contact statt depth — sonst kommen
+ *  die Kontakt-Namensfelder nicht mit und eine Namenssuche läuft ins Leere. */
+export async function sevdeskListOrders(force = false): Promise<SevOrderRef[]> {
+  if (!force && _orderCache && Date.now() - _orderCache.at < CONTACT_TTL) {
+    return _orderCache.data;
+  }
+  const all: SevOrderRef[] = [];
+  let offset = 0;
+  for (let page = 0; page < 50; page++) { // Sicherheits-Cap (50×100)
+    const r = await sd<any>(`Order?embed=contact&limit=100&offset=${offset}`);
+    const objs: any[] = r?.objects ?? [];
+    if (!objs.length) break;
+    for (const o of objs) {
+      const c = o.contact || {};
+      const name = [c.surename, c.familyname].filter(Boolean).join(' ').trim() || String(c.name ?? '').trim();
+      const status = parseInt(String(o.status ?? '0'), 10) || 0;
+      all.push({
+        id: String(o.id ?? ''),
+        orderNumber: String(o.orderNumber ?? ''),
+        status,
+        statusLabel: ORDER_STATUS_LABEL[status] ?? `Status ${status}`,
+        sumNet: parseFloat(String(o.sumNet ?? '0')) || 0,
+        contactName: name,
+        contactId: String(c.id ?? ''),
+      });
+    }
+    if (objs.length < 100) break;
+    offset += 100;
+  }
+  _orderCache = { at: Date.now(), data: all };
+  return all;
+}
+
+/** Normalisiert einen Namen für den Vergleich (Umlaute, Kleinschreibung). */
+function normName(s: string): string {
+  return s.toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+/** Sucht sevDesk-Belege, deren Kontaktname zum Kundennamen der Karte passt.
+ *  Bei mehrteiligen Namen müssen ALLE Namensteile vorkommen (verhindert, dass
+ *  z. B. alle „Daniel" auftauchen). Sortiert: beste Übereinstimmung zuerst. */
+export async function sevdeskFindOrdersForName(name: string, force = false): Promise<SevOrderRef[]> {
+  const target = normName(name);
+  const tokens = target.split(' ').filter((t) => t.length > 2);
+  if (!tokens.length) return [];
+  const orders = await sevdeskListOrders(force);
+  const minScore = tokens.length > 1 ? 70 : 40;
+  const scored = orders.map((o) => {
+    const cn = normName(o.contactName);
+    let score = 0;
+    if (cn && cn === target) score = 100;
+    else if (cn) {
+      const matched = tokens.filter((t) => cn.includes(t)).length;
+      score = matched === tokens.length ? 70 : matched * 40;
+    }
+    return { o, score };
+  }).filter((x) => x.score >= minScore);
+  scored.sort((a, b) => b.score - a.score || b.o.status - a.o.status);
+  return scored.map((x) => x.o);
 }

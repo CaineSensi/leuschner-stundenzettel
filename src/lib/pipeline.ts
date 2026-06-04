@@ -3,7 +3,7 @@
 // werfen die Calls einen klaren Fehler (Demo-Modus entfernt 26.05.2026).
 
 import { supabase, isBackendConnected } from "./supabase";
-import { sevdeskCancelOrder } from "./sevdesk";
+import { sevdeskCancelOrder, type SevOrderPos } from "./sevdesk";
 
 export const STAGES = [
   "Anfrage",
@@ -207,35 +207,56 @@ export async function unarchiveCard(id: string): Promise<void> {
 }
 
 /**
- * Automatik Stufe „Auftrag": sorgt dafür, dass der Vorgang eine Baustelle hat.
- * Dedupe: existiert eine Baustelle mit gleicher sevDesk-/AN-Nummer oder
- * gleichem Kundennamen, wird damit verknüpft (keine Dublette), sonst wird
- * eine neue Baustelle aus den Kartendaten angelegt. Verknüpft die Karte
- * (site_id) und füllt plan_eur für die Nachkalkulation.
+ * Sorgt dafür, dass der Vorgang eine Baustelle hat. Dedupe NUR über die
+ * eindeutige sevDesk-/AN-Nummer (kein Kundenname-Match) — so bekommt jeder
+ * Folgeauftrag eines Bestandskunden seine eigene Baustelle, statt fälschlich an
+ * eine alte angehängt zu werden. Verknüpft die Karte (site_id), füllt plan_eur
+ * für die Nachkalkulation und — über `details` — Adresse/Kontakt/Kundenbezug.
  * Gibt zurück, was passiert ist (für den UI-Hinweis), oder null wenn nichts
  * zu tun war (kein Backend / schon verknüpft).
  */
+/** Aufgegliederte Stamm-/Kontaktdaten aus der Anfrage, damit die Baustelle von
+ *  Anfang an vollständig ist (Adresse in eigenen Spalten statt nur als notes-
+ *  Freitext, Telefon/Mail/Kundenverknüpfung). Alle Felder optional — was zum
+ *  Zeitpunkt des Aufrufs bekannt ist, wird übernommen. */
+export interface SiteDetails {
+  street?: string;
+  zip?: string;
+  city?: string;
+  phone?: string;
+  email?: string;
+  customerId?: string;
+  sevdeskContactId?: string;
+}
+
 export async function linkOrCreateSiteForCard(
-  card: PipelineCard
+  card: PipelineCard,
+  details?: SiteDetails
 ): Promise<{ siteId: string; created: boolean; siteName: string } | null> {
   if (!isBackendConnected() || !supabase) return null;
   if (card.siteId) return null;
   const sb: any = supabase;
 
-  // 1) Dedupe: passende Baustelle suchen
+  // 1) Dedupe: passende Baustelle suchen (inkl. Adress-/Kontaktspalten, damit
+  //    wir bei einem Treffer fehlende Felder nachtragen können).
   const { data: sites, error: sErr } = await sb
     .from("sites")
-    .select("id, name, customer_name, sevdesk_order_number");
+    .select("id, name, customer_name, sevdesk_order_number, street, zip, city, customer_phone, customer_email, customer_id, sevdesk_contact_id");
   if (sErr) throw sErr;
   const norm = (s?: string) => (s ?? "").trim().toLowerCase();
-  const match =
-    (card.docNumber &&
-      (sites ?? []).find(
+  // Folgeauftrag-fest: NICHT per Kundenname deduplizieren. Bestandskunden haben
+  // mehrere Baustellen (eine pro Projekt/Objekt — z.B. Weener Plastik 5, Ramona
+  // Tirrel 3). Jede neue Anfrage bekommt daher ihre EIGENE Baustelle; verknüpft
+  // wird nur der Kunde (customer_id/sevdesk_contact_id). Dedupe ausschließlich
+  // über die eindeutige AN-/Auftragsnummer — verhindert Dubletten beim
+  // Stage-Wechsel, wenn die Baustelle aus der Anfrage bereits existiert.
+  const match = card.docNumber
+    ? (sites ?? []).find(
         (s: any) => norm(s.sevdesk_order_number) === norm(card.docNumber)
-      )) ||
-    (sites ?? []).find(
-      (s: any) => norm(s.customer_name) === norm(card.customerName)
-    );
+      )
+    : undefined;
+
+  const clean = (s?: string) => (s && s.trim() ? s.trim() : null);
 
   let siteId: string;
   let siteName: string;
@@ -244,11 +265,31 @@ export async function linkOrCreateSiteForCard(
   if (match) {
     siteId = match.id;
     siteName = match.name;
+    // Backfill: nur LEERE Felder der bestehenden Baustelle aus den Anfrage-Daten
+    // ergänzen — niemals vorhandene (manuell gepflegte) Werte überschreiben.
+    const backfill: Record<string, unknown> = {};
+    const setIfEmpty = (col: string, val: string | null) => {
+      if (val && !match[col]) backfill[col] = val;
+    };
+    if (details) {
+      setIfEmpty("street", clean(details.street));
+      setIfEmpty("zip", clean(details.zip));
+      setIfEmpty("city", clean(details.city));
+      setIfEmpty("customer_phone", clean(details.phone));
+      setIfEmpty("customer_email", clean(details.email));
+      setIfEmpty("customer_id", details.customerId ?? null);
+      setIfEmpty("sevdesk_contact_id", details.sevdeskContactId ?? null);
+    }
+    if (Object.keys(backfill).length) {
+      const { error: bErr } = await sb.from("sites").update(backfill).eq("id", siteId);
+      if (bErr) throw bErr;
+    }
   } else {
-    // 2) Neue Baustelle aus den Kartendaten
+    // 2) Neue Baustelle aus den Kartendaten + aufgegliederten Anfrage-Details
     const company_id = await adminCompanyId(sb);
     const notes = [
-      card.place ? `Ort: ${card.place}` : null,
+      // Ort nur dann als Freitext-Fallback, wenn keine strukturierte Adresse da ist
+      !details?.street && !details?.city && card.place ? `Ort: ${card.place}` : null,
       card.description || null,
       card.openPoints ? `Offen: ${card.openPoints}` : null,
       card.docNumber ? `Aus Pipeline-Vorgang ${card.docNumber}` : null
@@ -261,6 +302,13 @@ export async function linkOrCreateSiteForCard(
         company_id,
         name: card.customerName.trim(),
         customer_name: card.customerName.trim(),
+        street: clean(details?.street),
+        zip: clean(details?.zip),
+        city: clean(details?.city) ?? clean(card.place),
+        customer_phone: clean(details?.phone),
+        customer_email: clean(details?.email),
+        customer_id: details?.customerId ?? null,
+        sevdesk_contact_id: details?.sevdeskContactId ?? null,
         sevdesk_order_number: card.docNumber?.trim() || null,
         estimate_net_eur: card.valueEur ?? card.planEur ?? null,
         notes: notes || null,
@@ -368,6 +416,96 @@ async function adminCompanyId(sb: any): Promise<string> {
   return w.company_id;
 }
 
+/** Eingabe für die atomare Anfrage-Anlage (eine DB-Transaktion: Kunde + Karte
+ *  + Anfrage + Baustelle gemeinsam, oder gar nichts). */
+export interface InquiryBundleInput {
+  /** Bestehender Kunde (App-Stammkunde) → wird wiederverwendet statt neu angelegt. */
+  customerId?: string;
+  /** Neuer Kunde — nur nötig, wenn customerId fehlt. */
+  customer?: {
+    sevdeskContactId?: string; customerNumber?: string;
+    name: string; surename?: string; familyname?: string; isCompany?: boolean;
+    email?: string; phone?: string; street?: string; zip?: string; city?: string;
+  };
+  card: { customerName: string; place?: string; description?: string; openPoints?: string };
+  inquiry: {
+    source: string; rawText: string; parsedJson?: any;
+    customerName?: string; customerPhone?: string; customerEmail?: string;
+    street?: string; zip?: string; city?: string; description?: string; notes?: string;
+  };
+  site: {
+    name?: string; customerName?: string; street?: string; zip?: string; city?: string;
+    customerPhone?: string; customerEmail?: string; sevdeskContactId?: string;
+  };
+}
+
+/**
+ * Legt eine komplette Anfrage als EINE Datenbank-Transaktion an (Kunde, Pipeline-
+ * Karte, Anfrage, Baustelle – alle verknüpft). Entweder alles entsteht, oder bei
+ * einem Fehler gar nichts. Verhindert halbe Zustände. sevDesk wird NICHT hier
+ * angelegt (externe API) – das macht der Aufrufer als idempotenten letzten Schritt.
+ */
+export async function createInquiryBundle(
+  input: InquiryBundleInput
+): Promise<{ customerId: string; cardId: string; inquiryId: string; siteId: string }> {
+  if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
+  const sb: any = supabase;
+  const c = input.customer;
+  const payload = {
+    customer_id: input.customerId ?? null,
+    customer: c ? {
+      sevdesk_contact_id: c.sevdeskContactId ?? null,
+      customer_number: c.customerNumber ?? null,
+      name: c.name, surename: c.surename ?? null, familyname: c.familyname ?? null,
+      is_company: !!c.isCompany,
+      email: c.email ?? null, phone: c.phone ?? null,
+      street: c.street ?? null, zip: c.zip ?? null, city: c.city ?? null,
+    } : {},
+    card: {
+      customer_name: input.card.customerName,
+      place: input.card.place ?? null,
+      description: input.card.description ?? null,
+      open_points: input.card.openPoints ?? null,
+    },
+    inquiry: {
+      source: input.inquiry.source, raw_text: input.inquiry.rawText,
+      parsed_json: input.inquiry.parsedJson ?? null,
+      customer_name: input.inquiry.customerName ?? null,
+      customer_phone: input.inquiry.customerPhone ?? null,
+      customer_email: input.inquiry.customerEmail ?? null,
+      street: input.inquiry.street ?? null, zip: input.inquiry.zip ?? null, city: input.inquiry.city ?? null,
+      description: input.inquiry.description ?? null, notes: input.inquiry.notes ?? null,
+    },
+    site: {
+      name: input.site.name ?? null, customer_name: input.site.customerName ?? null,
+      street: input.site.street ?? null, zip: input.site.zip ?? null, city: input.site.city ?? null,
+      customer_phone: input.site.customerPhone ?? null, customer_email: input.site.customerEmail ?? null,
+      sevdesk_contact_id: input.site.sevdeskContactId ?? null,
+    },
+  };
+  const { data, error } = await sb.rpc("create_inquiry_bundle", { payload });
+  if (error) throw error;
+  return {
+    customerId: data.customer_id, cardId: data.card_id,
+    inquiryId: data.inquiry_id, siteId: data.site_id,
+  };
+}
+
+/** Trägt die sevDesk-Verknüpfung nachträglich an Kunde + Baustelle ein (nach der
+ *  idempotenten sevDesk-Anlage). Best effort – schlägt das fehl, bleiben die
+ *  App-Daten vollständig, nur die sevDesk-Nummer fehlt und kann nachgezogen werden. */
+export async function attachSevdeskToCustomer(
+  customerId: string, siteId: string, sevdeskContactId: string, customerNumber?: string
+): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  await sb.from("customers").update({
+    sevdesk_contact_id: sevdeskContactId,
+    ...(customerNumber ? { customer_number: customerNumber } : {}),
+  }).eq("id", customerId);
+  await sb.from("sites").update({ sevdesk_contact_id: sevdeskContactId }).eq("id", siteId);
+}
+
 export async function createCard(input: PipelineCardInput): Promise<PipelineCard> {
   if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
   const sb: any = supabase;
@@ -441,6 +579,60 @@ export async function deleteCard(id: string): Promise<void> {
   if (!isBackendConnected() || !supabase) return;
   const sb: any = supabase;
   const { error } = await sb.from("pipeline_cards").delete().eq("id", id);
+  if (error) throw error;
+}
+
+// ── sevDesk-Beleg-Abgleich: spiegelt den Live-Stand einer Order in die Karte.
+//    Geschrieben wird NUR in die App-DB (pipeline_cards); sevDesk bleibt
+//    unberührt (der Schnappschuss wurde rein lesend geholt). ─────────────────
+
+function fmtQuantity(q: number, unityLabel: string): string {
+  const n = Number.isInteger(q) ? String(q) : String(q).replace(".", ",");
+  return unityLabel ? `${n} ${unityLabel}` : n;
+}
+
+/** Wandelt sevDesk-Positionen ins Karten-Format (PipelinePosition) um.
+ *  Bestehende Chef-Reviews werden positionsweise (über die Pos-Nummer)
+ *  erhalten — der Abgleich darf Freigaben nicht wegwerfen. */
+export function sevPositionsToPipeline(
+  positions: SevOrderPos[],
+  prev?: PipelinePosition[]
+): PipelinePosition[] {
+  const byPos = new Map<number, PipelinePosition>();
+  (prev ?? []).forEach((p) => byPos.set(p.pos, p));
+  return positions.map((p) => {
+    const old = byPos.get(p.positionNumber);
+    return {
+      pos: p.positionNumber,
+      name: p.name,
+      quantity: fmtQuantity(p.quantity, p.unityLabel),
+      unitPrice: p.price.toFixed(2).replace(".", ","),
+      sum: p.sumNet,
+      ...(old?.review ? { review: old.review } : {}),
+    };
+  });
+}
+
+/** Schreibt die abgeglichenen Beleg-Felder in die Karte. Alle Felder optional —
+ *  nur was Rick im Vorschau-Dialog bestätigt hat, wird gesetzt.
+ *
+ *  Die Pipeline-Stufe wird hier ABSICHTLICH nicht gespiegelt: Der sevDesk-Status
+ *  bildet die Vertriebsstufe nicht ab (Status 200 „offen" steht z. B. sowohl auf
+ *  „Versendet" als auch „Auftrag"). Das Kanban-Board ist für die Stufe maßgebend. */
+export async function syncCardFromSevdesk(
+  id: string,
+  patch: { positions?: PipelinePosition[]; valueEur?: number; docNumber?: string; sevdeskOrderId?: string; customerId?: string }
+): Promise<void> {
+  if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
+  const sb: any = supabase;
+  const row: Record<string, unknown> = {};
+  if (patch.positions !== undefined) row.positions = patch.positions;
+  if (patch.valueEur !== undefined) { row.value_eur = patch.valueEur; row.plan_eur = patch.valueEur; }
+  if (patch.docNumber !== undefined) row.doc_number = patch.docNumber.trim() || null;
+  if (patch.sevdeskOrderId !== undefined) row.sevdesk_order_id = patch.sevdeskOrderId || null;
+  if (patch.customerId !== undefined) row.customer_id = patch.customerId;
+  if (Object.keys(row).length === 0) return;
+  const { error } = await sb.from("pipeline_cards").update(row).eq("id", id);
   if (error) throw error;
 }
 

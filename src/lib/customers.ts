@@ -282,3 +282,47 @@ export async function createCustomerLocal(input: {
   if (error) throw error;
   return rowToCustomer(data);
 }
+
+/** Findet einen App-Kunden über den (normalisierten) Namen. Konservativ:
+ *  nur exakte Namensgleichheit nach Normalisierung — verhindert Dubletten,
+ *  wenn ein sevDesk-Beleg auf einen anderen Kontakt als der bestehende
+ *  App-Kunde zeigt (sevDesk-Kontakt-Dubletten kommen vor). */
+export async function findCustomerByName(name: string): Promise<Customer | null> {
+  const target = normName(name);
+  if (!target) return null;
+  const all = await listCustomers();
+  return all.find((c) => normName(c.name) === target) ?? null;
+}
+
+/** Lädt den App-Kunden zu einer sevDesk-Kontakt-ID (für den Stammdaten-Abgleich). */
+export async function getCustomerBySevdeskContactId(contactId: string): Promise<Customer | null> {
+  if (!isBackendConnected() || !supabase || !contactId) return null;
+  const sb: any = supabase;
+  const { data, error } = await sb
+    .from('customers')
+    .select(COLS)
+    .eq('company_id', COMPANY_ID)
+    .eq('sevdesk_contact_id', contactId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToCustomer(data) : null;
+}
+
+/** Schreibt einzelne Kontaktfelder (Telefon/E-Mail/Adresse) in einen Kunden.
+ *  Nur übergebene Felder werden gesetzt — leere Werte überschreiben nichts. */
+export async function updateCustomerContact(
+  customerId: string,
+  fields: { phone?: string; email?: string; street?: string; zip?: string; city?: string }
+): Promise<void> {
+  if (!isBackendConnected() || !supabase) throw new Error('Backend nicht verbunden');
+  const sb: any = supabase;
+  const row: Record<string, unknown> = {};
+  if (fields.phone !== undefined) row.phone = fields.phone;
+  if (fields.email !== undefined) row.email = fields.email;
+  if (fields.street !== undefined) row.street = fields.street;
+  if (fields.zip !== undefined) row.zip = fields.zip;
+  if (fields.city !== undefined) row.city = fields.city;
+  if (Object.keys(row).length === 0) return;
+  const { error } = await sb.from('customers').update(row).eq('id', customerId);
+  if (error) throw error;
+}

@@ -5,8 +5,11 @@ import {
   archiveCard, unarchiveCard, linkOrCreateSiteForCard, FOLLOWUP_DAYS,
   reviewPosition, releaseCard, revokeRelease,
   cancelCard, uncancelCard,
-  type PipelineCard, type Stage, type ReviewStatus
+  sevPositionsToPipeline, syncCardFromSevdesk,
+  type PipelineCard, type Stage, type ReviewStatus, type PipelinePosition
 } from "../lib/pipeline";
+import { sevdeskGetOrderSnapshot, sevdeskFindOrdersForName, type SevOrderSnapshot, type SevOrderRef } from "../lib/sevdesk";
+import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContact, createCustomerLocal, type Customer } from "../lib/customers";
 import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
@@ -57,6 +60,15 @@ function fmtDateTime(iso?: string): string {
   return d.toLocaleString("de-DE", {
     day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
   }) + " Uhr";
+}
+
+/** True, wenn die „Leistung"-Beschreibung nur die Belegnummer wiederholt
+ *  (z. B. „Angebot AN-1248" oder „AN-1248"). Die Nummer steht schon im
+ *  Karten-/Drawer-Kopf — dann ist die Leistungs-Zeile redundant und wird
+ *  ausgeblendet, statt die (evtl. veraltete) Nummer doppelt zu zeigen. */
+function descIsJustDocNumber(desc?: string): boolean {
+  if (!desc) return false;
+  return /^([A-Za-zÄÖÜäöü]+\s+)?[A-Z]{2}-?\d+$/.test(desc.trim());
 }
 
 export default function Angebote() {
@@ -523,7 +535,7 @@ function CardView({
 
       <div className="font-sans font-bold text-[16px] text-ink leading-tight">{card.customerName}</div>
       {card.place && <div className="font-sans text-[13px] text-ink-2 mt-0.5 leading-snug">{card.place}</div>}
-      {card.description && (
+      {card.description && !descIsJustDocNumber(card.description) && (
         <div className="font-sans text-[14px] text-ink-body mt-2 leading-snug">{card.description}</div>
       )}
 
@@ -547,19 +559,27 @@ function CardView({
         </div>
       )}
 
-      {card.openPoints && (
-        <div className="flex flex-wrap gap-1.5 mt-3">
-          {card.openPoints.split(" · ").map((p, idx) => {
-            const ok = /versendet|bezahlt|angelegt|DATEV|✓/i.test(p);
-            const warn = /abgelaufen|knapp|nachfass|offen/i.test(p);
-            return (
-              <span key={idx} className={`dd-chip ${ok ? "dd-chip-ok" : warn ? "dd-chip-warn" : ""}`}>
-                {p}
-              </span>
-            );
-          })}
-        </div>
-      )}
+      {(() => {
+        // Nachfassen ist ein abgeleiteter Zustand und gilt NUR in „Versendet".
+        // Statische „Nachfass…"-Schnipsel (Alt-Last aus Importen) werden in
+        // jeder weiteren Stufe ausgeblendet — der Auftrag läuft ja schon.
+        const points = (card.openPoints?.split(" · ") ?? [])
+          .filter((p) => !(/nachfass/i.test(p) && card.stage !== "Versendet"));
+        if (points.length === 0) return null;
+        return (
+          <div className="flex flex-wrap gap-1.5 mt-3">
+            {points.map((p, idx) => {
+              const ok = /versendet|bezahlt|angelegt|DATEV|✓/i.test(p);
+              const warn = /abgelaufen|knapp|nachfass|offen/i.test(p);
+              return (
+                <span key={idx} className={`dd-chip ${ok ? "dd-chip-ok" : warn ? "dd-chip-warn" : ""}`}>
+                  {p}
+                </span>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {card.stage === "Angebot" && card.validUntil && (
         <div className={`font-sans text-[12.5px] mt-3 pt-2.5 border-t border-[#D5D8DB] ${
@@ -637,6 +657,105 @@ function DetailDrawer({
   const [commenting, setCommenting] = useState<{ pos: number; status: "kommentar" | "aenderung"; text: string } | null>(null);
   // Original-Anfrage hinter der Karte (Rohtext + Verlauf + Bilder)
   const [inquiry, setInquiry] = useState<Inquiry | null>(null);
+  // sevDesk-Abgleich: Schnappschuss des Live-Belegs für den Vorschau-Dialog
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncErr, setSyncErr] = useState<string | null>(null);
+  const [syncSnap, setSyncSnap] = useState<SevOrderSnapshot | null>(null);
+  // Aktueller App-Kunde hinter dem Beleg (für den Kontaktdaten-Abgleich)
+  const [syncCustomer, setSyncCustomer] = useState<Customer | null>(null);
+
+  // Beleg hat eine sevDesk-Order (ID oder AN-Nummer) → Abgleich möglich
+  const hasBeleg = !!card.sevdeskOrderId || /^AN-\d+/i.test(card.docNumber ?? "");
+  const canSync = !reviewerOnly && !card.archivedAt && hasBeleg;
+  // Karte ohne Beleg, aber ab Stufe „Angebot" → in sevDesk suchen + verknüpfen
+  const canLink = !reviewerOnly && !card.archivedAt && !hasBeleg && card.stage !== "Anfrage";
+
+  // Beleg-Suche (Verknüpfen): gefundene Kandidaten + Auswahl-Status
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkErr, setLinkErr] = useState<string | null>(null);
+  const [linkCands, setLinkCands] = useState<SevOrderRef[] | null>(null); // null = Dialog zu
+
+  /** Lädt den App-Kunden hinter dem Beleg, damit der Dialog Kontaktdaten
+   *  (Telefon/E-Mail/Adresse) gegenüberstellen kann. */
+  async function loadCustomerFor(snap: SevOrderSnapshot) {
+    let c = snap.contact ? await getCustomerBySevdeskContactId(snap.contact.sevdeskContactId).catch(() => null) : null;
+    // Fallback per Name: die Order kann auf einen anderen sevDesk-Kontakt zeigen
+    // als der bestehende App-Kunde — so vermeiden wir eine Kunden-Dublette.
+    if (!c) c = await findCustomerByName(snap.contact?.name || card.customerName).catch(() => null);
+    setSyncCustomer(c);
+  }
+
+  async function doSync() {
+    setSyncBusy(true); setSyncErr(null);
+    try {
+      const snap = await sevdeskGetOrderSnapshot({ id: card.sevdeskOrderId, orderNumber: card.docNumber });
+      await loadCustomerFor(snap);
+      setSyncSnap(snap);
+    } catch (e: any) {
+      setSyncErr(e?.message ?? "Abgleich fehlgeschlagen");
+    } finally { setSyncBusy(false); }
+  }
+
+  /** Sucht in sevDesk nach Belegen, die zum Kundennamen der Karte passen. */
+  async function doFindOrders() {
+    setLinkBusy(true); setLinkErr(null);
+    try {
+      const found = await sevdeskFindOrdersForName(card.customerName);
+      setLinkCands(found);
+    } catch (e: any) {
+      setLinkErr(e?.message ?? "Suche fehlgeschlagen");
+    } finally { setLinkBusy(false); }
+  }
+
+  /** Ein Kandidat wurde gewählt → Beleg laden und in die Abgleich-Vorschau
+   *  überführen (von dort wird verknüpft + übernommen). */
+  async function pickOrder(ref: SevOrderRef) {
+    setLinkBusy(true); setLinkErr(null);
+    try {
+      const snap = await sevdeskGetOrderSnapshot({ id: ref.id, orderNumber: ref.orderNumber });
+      await loadCustomerFor(snap);
+      setLinkCands(null);
+      setSyncSnap(snap);
+    } catch (e: any) {
+      setLinkErr(e?.message ?? "Beleg konnte nicht geladen werden");
+    } finally { setLinkBusy(false); }
+  }
+
+  /** Übernimmt die im Vorschau-Dialog bestätigten Felder in die Karte.
+   *  Die Pipeline-Stufe wird bewusst NICHT aus sevDesk abgeleitet — das
+   *  Kanban-Board ist dafür maßgebend (sevDesk-Status ≠ Vertriebsstufe). */
+  async function applySync(patch: {
+    positions?: PipelinePosition[]; valueEur?: number; docNumber?: string; sevdeskOrderId?: string;
+    contact?: { phone?: string; email?: string; street?: string; zip?: string; city?: string };
+  }) {
+    setSyncBusy(true); setSyncErr(null);
+    try {
+      const { contact, ...cardPatch } = patch;
+      await syncCardFromSevdesk(card.id, cardPatch);
+
+      // Kontaktdaten in den Kundenstamm: bestehenden Kunden aktualisieren oder
+      // (wenn die Karte noch keinen hat) aus dem sevDesk-Kontakt anlegen + verknüpfen.
+      if (contact && syncSnap?.contact) {
+        if (syncCustomer) {
+          await updateCustomerContact(syncCustomer.id, contact);
+        } else {
+          const nc = await createCustomerLocal({
+            sevdeskContactId: syncSnap.contact.sevdeskContactId,
+            customerNumber: syncSnap.contact.customerNumber,
+            name: syncSnap.contact.name || card.customerName,
+            ...contact,
+          });
+          await syncCardFromSevdesk(card.id, { customerId: nc.id });
+        }
+      }
+
+      onUpdate(cardPatch as Partial<PipelineCard>);
+      setSyncSnap(null);
+      setSyncCustomer(null);
+    } catch (e: any) {
+      setSyncErr(e?.message ?? "Übernehmen fehlgeschlagen");
+    } finally { setSyncBusy(false); }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -702,7 +821,9 @@ function DetailDrawer({
   }
 
   const i = STAGES.indexOf(card.stage);
-  const klärungen = card.openPoints ? card.openPoints.split(" · ") : [];
+  // Nachfass-Schnipsel nur in „Versendet" zeigen (gilt nicht mehr ab „Auftrag").
+  const klärungen = (card.openPoints ? card.openPoints.split(" · ") : [])
+    .filter((p) => !(/nachfass/i.test(p) && card.stage !== "Versendet"));
   const value = card.valueEur ?? card.planEur;
 
   return (
@@ -759,7 +880,7 @@ function DetailDrawer({
 
             {/* LINKS · Eckdaten, Leistung, Klärungen */}
             <div className="space-y-5">
-              {card.description && (
+              {card.description && !descIsJustDocNumber(card.description) && (
                 <div>
                   <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
                     Leistung
@@ -801,7 +922,8 @@ function DetailDrawer({
 
             {/* RECHTS · Anfrage + Beleg-Positionen */}
             <div className="space-y-5">
-              {inquiry && <InquiryPanel inquiry={inquiry} />}
+              <ContactCard card={card} inquiry={inquiry} />
+              {inquiry && <InquiryHistory inquiry={inquiry} />}
               {card.positions && card.positions.length > 0 ? (
                 <>
                   <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
@@ -977,6 +1099,48 @@ function DetailDrawer({
           </div>
         </div>
 
+        {canSync && (
+          <div className="flex-shrink-0 px-5 lg:px-6 pt-3 pb-1 bg-[#E2E4E7] border-t border-steel">
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={doSync}
+                disabled={syncBusy}
+                className="btn-ghost !min-h-[44px] !px-4 text-[12px] !text-copper !border-copper/50 inline-flex items-center gap-2 disabled:opacity-50"
+                title={`Positionen, Summe und Status aus dem sevDesk-Beleg ${card.docNumber ?? ""} holen und vergleichen (sevDesk wird nur gelesen)`}
+              >
+                {syncBusy ? "↻ sevDesk wird gelesen …" : "↻ Daten mit sevDesk abgleichen"}
+              </button>
+              <span className="font-sans text-[11.5px] text-ink-2">
+                Holt den Live-Stand des Belegs — du bestätigst, was übernommen wird.
+              </span>
+            </div>
+            {syncErr && (
+              <div className="mt-2 font-sans text-[12px] text-rust">⚠ {syncErr}</div>
+            )}
+          </div>
+        )}
+
+        {canLink && (
+          <div className="flex-shrink-0 px-5 lg:px-6 pt-3 pb-1 bg-[#E2E4E7] border-t border-steel">
+            <div className="flex items-center gap-3 flex-wrap">
+              <button
+                onClick={doFindOrders}
+                disabled={linkBusy}
+                className="btn-ghost !min-h-[44px] !px-4 text-[12px] !text-copper !border-copper/50 inline-flex items-center gap-2 disabled:opacity-50"
+                title={`In sevDesk nach einem Beleg für „${card.customerName}" suchen und mit dieser Karte verknüpfen`}
+              >
+                {linkBusy ? "🔗 sevDesk wird durchsucht …" : "🔗 sevDesk-Beleg suchen & verknüpfen"}
+              </button>
+              <span className="font-sans text-[11.5px] text-ink-2">
+                Diese Karte hat noch keinen sevDesk-Beleg — hier den passenden suchen.
+              </span>
+            </div>
+            {linkErr && (
+              <div className="mt-2 font-sans text-[12px] text-rust">⚠ {linkErr}</div>
+            )}
+          </div>
+        )}
+
         <div className="flex-shrink-0 px-5 lg:px-6 py-3.5 bg-[#E2E4E7] border-t border-steel flex gap-2.5 flex-wrap">
           {reviewerOnly ? (
             <button onClick={onClose} className="btn-primary flex-1 !min-h-[52px] text-[13px]">
@@ -1037,7 +1201,263 @@ function DetailDrawer({
           )}
         </div>
       </aside>
+      {syncSnap && (
+        <SyncPreviewModal
+          card={card}
+          snap={syncSnap}
+          customer={syncCustomer}
+          busy={syncBusy}
+          onCancel={() => { setSyncSnap(null); setSyncCustomer(null); }}
+          onApply={applySync}
+        />
+      )}
+      {linkCands !== null && (
+        <LinkPickerModal
+          customerName={card.customerName}
+          candidates={linkCands}
+          busy={linkBusy}
+          onPick={pickOrder}
+          onCancel={() => setLinkCands(null)}
+        />
+      )}
     </>
+  );
+}
+
+/** Auswahl-Dialog: zeigt die in sevDesk gefundenen Belege zu einem Kunden,
+ *  damit die Karte mit dem richtigen verknüpft werden kann. */
+function LinkPickerModal({
+  customerName, candidates, busy, onPick, onCancel
+}: {
+  customerName: string;
+  candidates: SevOrderRef[];
+  busy: boolean;
+  onPick: (ref: SevOrderRef) => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center p-4 bg-black/50" role="dialog" aria-modal="true">
+      <div className="w-full max-w-lg max-h-[88vh] overflow-y-auto bg-bg-1 rounded-xl shadow-2xl border border-steel">
+        <div className="surface-steel px-5 py-4 sticky top-0">
+          <div className="font-display font-black uppercase text-[18px] text-white leading-tight">sevDesk-Beleg verknüpfen</div>
+          <div className="font-mono text-[12px] text-steel mt-1">Treffer für „{customerName}"</div>
+        </div>
+        <div className="px-5 py-4 space-y-2.5">
+          {candidates.length === 0 ? (
+            <div className="px-4 py-6 text-center font-sans text-[13.5px] text-ink-2">
+              In sevDesk wurde kein Beleg gefunden, der zu „{customerName}" passt.
+              <div className="mt-1.5 text-[12px]">Tipp: Schreibweise des Namens prüfen — oder der Beleg existiert noch nicht.</div>
+            </div>
+          ) : (
+            candidates.map((o) => (
+              <button
+                key={o.id}
+                onClick={() => onPick(o)}
+                disabled={busy}
+                className="w-full text-left px-4 py-3 rounded-lg border border-steel/50 bg-white/70 hover:border-copper hover:bg-[#FBF3E9] transition-colors disabled:opacity-50"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono font-bold text-[13px] text-ink">{o.orderNumber || "(ohne Nr.)"}</span>
+                  <span className="font-display font-black text-[15px] text-ink tabular-nums">{eur(o.sumNet)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-3 mt-1">
+                  <span className="font-sans text-[12.5px] text-ink-body truncate">{o.contactName || "—"}</span>
+                  <span className="font-sans text-[11.5px] text-ink-2 whitespace-nowrap">{o.statusLabel}</span>
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+        <div className="px-5 py-3.5 bg-[#E2E4E7] border-t border-steel sticky bottom-0">
+          <button onClick={onCancel} disabled={busy} className="btn-ghost w-full !min-h-[48px] text-[13px]">
+            {busy ? "lädt …" : "Abbrechen"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Vorschau-Dialog für den sevDesk-Abgleich: zeigt alt → neu (Positionen,
+ *  Summe, Beleg-Nummer, Status/Stufe) und übernimmt nur die angehakten Felder. */
+function SyncPreviewModal({
+  card, snap, customer, busy, onCancel, onApply
+}: {
+  card: PipelineCard;
+  snap: SevOrderSnapshot;
+  customer: Customer | null;
+  busy: boolean;
+  onCancel: () => void;
+  onApply: (patch: {
+    positions?: PipelinePosition[]; valueEur?: number; docNumber?: string; sevdeskOrderId?: string;
+    contact?: { phone?: string; email?: string; street?: string; zip?: string; city?: string };
+  }) => void;
+}) {
+  const newPositions = useMemo(
+    () => sevPositionsToPipeline(snap.positions, card.positions),
+    [snap, card.positions]
+  );
+  const newValue = snap.sumNet;
+  const oldValue = card.valueEur ?? card.planEur;
+
+  // Karte war vorher gar nicht mit sevDesk verknüpft → dieser Abgleich verbindet sie
+  const isNewLink = !card.sevdeskOrderId;
+
+  // Was sich tatsächlich unterscheidet. Die Pipeline-Stufe ist BEWUSST nicht
+  // dabei — sie wird im Kanban gepflegt, nicht aus dem sevDesk-Status abgeleitet.
+  const posChanged = JSON.stringify(card.positions ?? []) !== JSON.stringify(newPositions);
+  const valueChanged = (oldValue ?? null) !== (newValue ?? null);
+  const linkChanged =
+    ((card.docNumber ?? "") !== (snap.orderNumber ?? "") && !!snap.orderNumber) ||
+    ((card.sevdeskOrderId ?? "") !== snap.id && !!snap.id);
+
+  // Kontaktdaten-Abgleich: sevDesk-Wert übernehmen, wenn vorhanden UND er sich
+  // vom App-Kunden unterscheidet (füllt auch leere Felder).
+  const norm = (s?: string) => (s ?? "").trim();
+  // Telefon nur über die Ziffern vergleichen (00049/+49/0 vereinheitlicht) —
+  // sonst gilt „+49 162 …" ≠ „0162 …", obwohl es dieselbe Nummer ist.
+  const phoneDigits = (s?: string) => (s ?? "").replace(/\D/g, "").replace(/^0049/, "0").replace(/^49/, "0");
+  const sc = snap.contact;
+  const contactDiff: { phone?: string; email?: string; street?: string; zip?: string; city?: string } = {};
+  if (sc) {
+    if (sc.phone && phoneDigits(sc.phone) !== phoneDigits(customer?.phone)) contactDiff.phone = sc.phone;
+    if (sc.email && norm(sc.email).toLowerCase() !== norm(customer?.email).toLowerCase()) contactDiff.email = sc.email;
+    if (sc.street && norm(sc.street) !== norm(customer?.street)) contactDiff.street = sc.street;
+    if (sc.zip && norm(sc.zip) !== norm(customer?.zip)) contactDiff.zip = sc.zip;
+    if (sc.city && norm(sc.city) !== norm(customer?.city)) contactDiff.city = sc.city;
+  }
+  const contactChanged = Object.keys(contactDiff).length > 0;
+  const addrStr = (c?: { street?: string; zip?: string; city?: string } | null) =>
+    [c?.street, [c?.zip, c?.city].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+
+  // Häkchen — standardmäßig alles übernehmen, was sich geändert hat
+  const [takePos, setTakePos] = useState(posChanged);
+  const [takeValue, setTakeValue] = useState(valueChanged);
+  const [takeDoc, setTakeDoc] = useState(linkChanged);
+  const [takeContact, setTakeContact] = useState(contactChanged);
+
+  const nothingToDo = !posChanged && !valueChanged && !linkChanged && !contactChanged;
+  const nothingPicked = !takePos && !takeValue && !takeDoc && !takeContact;
+
+  function apply() {
+    const patch: {
+      positions?: PipelinePosition[]; valueEur?: number; docNumber?: string; sevdeskOrderId?: string;
+      contact?: { phone?: string; email?: string; street?: string; zip?: string; city?: string };
+    } = {};
+    if (takePos) patch.positions = newPositions;
+    if (takeValue) patch.valueEur = newValue;
+    if (takeDoc) { patch.docNumber = snap.orderNumber; patch.sevdeskOrderId = snap.id; }
+    if (takeContact && contactChanged) patch.contact = contactDiff;
+    onApply(patch);
+  }
+
+  const Row = ({ on, set, label, children, changed }: {
+    on: boolean; set: (v: boolean) => void; label: string; children: React.ReactNode; changed: boolean;
+  }) => (
+    <label className={`flex items-start gap-3 px-4 py-3 rounded-lg border ${changed ? "border-copper/40 bg-[#FBF3E9]" : "border-steel/40 bg-white/60"} cursor-pointer`}>
+      <input type="checkbox" checked={on} disabled={!changed} onChange={(e) => set(e.target.checked)} className="mt-1 accent-copper w-4 h-4 flex-shrink-0" />
+      <div className="min-w-0 flex-1">
+        <div className="font-display font-extrabold uppercase text-[11.5px] tracking-wider text-ink mb-1">{label}</div>
+        {changed ? children : <div className="font-sans text-[12.5px] text-ink-2">Unverändert — schon aktuell.</div>}
+      </div>
+    </label>
+  );
+
+  return (
+    <div className="fixed inset-0 z-[70] grid place-items-center p-4 bg-black/50" role="dialog" aria-modal="true">
+      <div className="w-full max-w-2xl max-h-[88vh] overflow-y-auto bg-bg-1 rounded-xl shadow-2xl border border-steel">
+        <div className="surface-steel px-5 py-4 sticky top-0">
+          <div className="font-display font-black uppercase text-[18px] text-white leading-tight">sevDesk-Abgleich</div>
+          <div className="font-mono text-[12px] text-steel mt-1">
+            Beleg {snap.orderNumber || "—"} · Status {snap.statusLabel} · {snap.positions.length} Positionen · netto {eur(snap.sumNet)}
+          </div>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          {nothingToDo ? (
+            <div className="px-4 py-6 text-center font-sans text-[13.5px] text-ink-2">
+              ✓ Die Karte ist bereits auf dem Stand des sevDesk-Belegs — nichts abzugleichen.
+            </div>
+          ) : (
+            <>
+              <Row on={takePos} set={setTakePos} label="Positionen" changed={posChanged}>
+                <div className="font-sans text-[12.5px] text-ink-body">
+                  <span className="text-ink-2">{card.positions?.length ?? 0} alt</span>
+                  {" → "}
+                  <b>{newPositions.length} aus sevDesk</b>
+                </div>
+                <div className="mt-2 border border-steel/40 rounded-md overflow-hidden">
+                  {newPositions.slice(0, 12).map((p) => (
+                    <div key={p.pos} className="flex justify-between gap-3 px-3 py-1.5 text-[12px] border-b border-steel/20 last:border-0 bg-white/70">
+                      <span className="truncate text-ink-body">{p.pos + 1}. {p.name}</span>
+                      <span className="font-mono tabular-nums whitespace-nowrap text-ink-2">{p.quantity} · {eur(p.sum)}</span>
+                    </div>
+                  ))}
+                  {newPositions.length > 12 && (
+                    <div className="px-3 py-1.5 text-[11.5px] text-ink-2 bg-white/70">+ {newPositions.length - 12} weitere …</div>
+                  )}
+                </div>
+                <div className="mt-1.5 font-sans text-[11px] text-ink-2">Chef-Freigaben je Position bleiben erhalten.</div>
+              </Row>
+
+              <Row on={takeValue} set={setTakeValue} label="Volumen netto" changed={valueChanged}>
+                <div className="font-sans text-[13px]">
+                  <span className="text-ink-2 line-through">{oldValue != null ? eur(oldValue) : "offen"}</span>
+                  {" → "}
+                  <b className="text-ink">{eur(newValue)}</b>
+                </div>
+              </Row>
+
+              <Row on={takeDoc} set={setTakeDoc} label={isNewLink ? "Beleg verknüpfen" : "Beleg-Nummer"} changed={linkChanged}>
+                {isNewLink ? (
+                  <div className="font-sans text-[13px]">
+                    Karte wird mit sevDesk-Beleg <b className="text-ink">{snap.orderNumber}</b> verbunden.
+                  </div>
+                ) : (
+                  <div className="font-sans text-[13px]">
+                    <span className="text-ink-2 line-through">{card.docNumber || "—"}</span>
+                    {" → "}
+                    <b className="text-ink">{snap.orderNumber}</b>
+                  </div>
+                )}
+              </Row>
+
+              <Row on={takeContact} set={setTakeContact} label="Kontaktdaten (Kunde)" changed={contactChanged}>
+                <div className="font-sans text-[12.5px] space-y-1">
+                  {contactDiff.phone && (
+                    <div><span className="text-ink-mute">Telefon: </span><span className="text-ink-2 line-through">{customer?.phone || "—"}</span> → <b className="text-ink">{contactDiff.phone}</b></div>
+                  )}
+                  {contactDiff.email && (
+                    <div><span className="text-ink-mute">E-Mail: </span><span className="text-ink-2 line-through">{customer?.email || "—"}</span> → <b className="text-ink">{contactDiff.email}</b></div>
+                  )}
+                  {(contactDiff.street || contactDiff.zip || contactDiff.city) && (
+                    <div><span className="text-ink-mute">Adresse: </span><span className="text-ink-2 line-through">{addrStr(customer) || "—"}</span> → <b className="text-ink">{addrStr(snap.contact)}</b></div>
+                  )}
+                  {!customer && (
+                    <div className="text-[11px] text-copper pt-0.5">Kunde „{snap.contact?.name}" wird dabei neu angelegt und mit der Karte verknüpft.</div>
+                  )}
+                </div>
+              </Row>
+
+              <div className="px-1 pt-1 font-sans text-[11.5px] text-ink-2">
+                Die Pipeline-Stufe bleibt unberührt — dafür ist das Kanban-Board maßgebend.
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-3.5 bg-[#E2E4E7] border-t border-steel flex gap-2.5 sticky bottom-0">
+          <button onClick={onCancel} disabled={busy} className="btn-ghost flex-1 !min-h-[48px] text-[13px]">
+            {nothingToDo ? "Schließen" : "Abbrechen"}
+          </button>
+          {!nothingToDo && (
+            <button onClick={apply} disabled={busy || nothingPicked} className="btn-primary flex-1 !min-h-[48px] text-[13px] disabled:opacity-50">
+              {busy ? "Übernehme …" : "Ausgewähltes übernehmen"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1273,37 +1693,119 @@ function CancelModal({
 }
 
 /* ── Original-Anfrage-Panel (Pipeline-Drawer) ──────────────────────────── */
-function InquiryPanel({ inquiry }: { inquiry: Inquiry }) {
+/** Initialen aus einem Namen, z. B. „Mischa Nitschke" → „MN". */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (parts[0][0] + last).toUpperCase();
+}
+
+function CcBadge({ children, style }: { children: React.ReactNode; style: React.CSSProperties }) {
+  return (
+    <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-[3px] rounded-full border whitespace-nowrap" style={style}>
+      {children}
+    </span>
+  );
+}
+
+function statusStyle(s: string): React.CSSProperties {
+  const open = /offen|neu|unbearb|wartet/i.test(s);
+  return open
+    ? { background: "rgba(201,133,47,.22)", color: "#F5B45A", borderColor: "rgba(245,180,90,.3)" }
+    : { background: "rgba(31,122,61,.25)", color: "#4ADE80", borderColor: "rgba(74,222,128,.3)" };
+}
+function prioStyle(p: string): React.CSSProperties {
+  if (/dringend|hoch|urgent|eilig/i.test(p))
+    return { background: "rgba(185,28,28,.28)", color: "#F87171", borderColor: "rgba(248,113,113,.35)" };
+  return { background: "rgba(107,114,128,.2)", color: "rgba(255,255,255,.6)", borderColor: "rgba(255,255,255,.15)" };
+}
+
+/**
+ * Kontakt- & Herkunft-Block (Design „Variante 7 · Dunkle Stahl-Karte").
+ * Erscheint in JEDER Karte: nutzt die Anfrage-Daten, wenn vorhanden, sonst die
+ * Karten-Stammdaten als Fallback (graceful — fehlende Felder „nicht erfasst").
+ */
+function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry | null }) {
+  const name = inquiry?.customerName || card.customerName || "—";
+  const phone = inquiry?.customerPhone;
+  const email = inquiry?.customerEmail;
+  const ort = inquiry?.city || card.place;
+  const anliegen = inquiry?.description || card.description;
+  const sub = [card.docNumber, ort].filter(Boolean).join(" · ");
+
+  const avatarBg = inquiry
+    ? "linear-gradient(135deg,#DC6E2D 0%,#8A3A10 100%)"
+    : "linear-gradient(135deg,#8C6E45,#4A3010)";
+
+  return (
+    <div className="rounded-lg overflow-hidden" style={{ background: "linear-gradient(180deg,#272A2D,#1C1F22)", border: "1px solid #3A3F44" }}>
+      {/* Header: Avatar + Name + Badges */}
+      <div className="flex items-center gap-2.5 px-4 py-3" style={{ borderBottom: "1px solid #3A3F44" }}>
+        <div className="w-10 h-10 rounded-full flex items-center justify-center text-[15px] font-extrabold text-white flex-shrink-0"
+             style={{ background: avatarBg, boxShadow: "0 0 0 2px rgba(220,110,45,.3)" }}>
+          {initials(name)}
+        </div>
+        <div className="min-w-0">
+          <div className="text-[15px] font-bold truncate" style={{ color: "#F0F2F4" }}>{name}</div>
+          {sub && <div className="text-[10.5px] font-mono tracking-wide mt-px truncate" style={{ color: "rgba(255,255,255,.45)" }}>{sub}</div>}
+        </div>
+        <div className="ml-auto flex flex-col items-end gap-1 flex-shrink-0">
+          {inquiry ? (
+            <CcBadge style={{ background: "rgba(220,110,45,.2)", color: "#E8853F", borderColor: "rgba(220,110,45,.35)" }}>
+              {SOURCE_ICON[inquiry.source] ?? "✉"} {SOURCE_LABEL[inquiry.source] ?? inquiry.source} · {fmtDate(inquiry.createdAt.slice(0, 10)).slice(0, 5)}
+            </CcBadge>
+          ) : (
+            <CcBadge style={{ background: "rgba(140,110,69,.2)", color: "#D4A870", borderColor: "rgba(140,110,69,.35)" }}>🗂 sevDesk</CcBadge>
+          )}
+          {inquiry?.status && <CcBadge style={statusStyle(inquiry.status)}>{inquiry.status}</CcBadge>}
+          {inquiry?.priority && <CcBadge style={prioStyle(inquiry.priority)}>{inquiry.priority}</CcBadge>}
+        </div>
+      </div>
+
+      {/* Body: Feld-Zeilen */}
+      <div className="px-4 py-1.5 [&>*:last-child]:border-b-0">
+        <div className="flex justify-between items-center py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+          <span className="text-[11px] font-mono tracking-wide" style={{ color: "rgba(255,255,255,.4)" }}>Telefon</span>
+          {phone
+            ? <a href={`tel:${phone.replace(/\s/g, "")}`} className="font-mono text-[12px] font-bold no-underline" style={{ color: "#4ADE80" }}>{phone}</a>
+            : <span className="text-[12px]" style={{ color: "rgba(255,255,255,.3)" }}>nicht erfasst</span>}
+        </div>
+        {email && (
+          <div className="flex justify-between items-center gap-3 py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+            <span className="text-[11px] font-mono tracking-wide flex-shrink-0" style={{ color: "rgba(255,255,255,.4)" }}>E-Mail</span>
+            <a href={`mailto:${email}`} className="text-[12px] no-underline truncate" style={{ color: "#E8853F" }}>{email}</a>
+          </div>
+        )}
+        <div className="flex justify-between items-center py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+          <span className="text-[11px] font-mono tracking-wide" style={{ color: "rgba(255,255,255,.4)" }}>Ort</span>
+          {ort
+            ? <span className="font-medium" style={{ color: "rgba(255,255,255,.85)" }}>{ort}</span>
+            : <span className="text-[12px]" style={{ color: "rgba(255,255,255,.3)" }}>nicht erfasst</span>}
+        </div>
+      </div>
+
+      {/* Copper-Schweißnaht + Anliegen */}
+      {anliegen && (
+        <>
+          <div style={{ height: 2, margin: "0 16px 12px", background: "linear-gradient(90deg,#DC6E2D,#E8853F,transparent)" }} />
+          <div className="px-4 pb-3.5">
+            <div className="text-[9.5px] font-mono uppercase tracking-[.12em] font-bold mb-1.5" style={{ color: "#DC6E2D" }}>Anliegen</div>
+            <p className="text-[12.5px] italic leading-relaxed whitespace-pre-wrap" style={{ color: "rgba(255,255,255,.7)" }}>{anliegen}</p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Verlaufs-Timeline + Original-Rohtext einer Anfrage (unter der ContactCard). */
+function InquiryHistory({ inquiry }: { inquiry: Inquiry }) {
   const log = [...inquiry.notesLog].sort((a, b) => a.at.localeCompare(b.at));
   return (
-    <div>
-      <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5 flex items-center gap-2">
-        <span>{SOURCE_ICON[inquiry.source] ?? "✉"}</span>
-        Original-Anfrage · {SOURCE_LABEL[inquiry.source] ?? inquiry.source}
-        <span className="ml-auto font-mono text-[11px] text-ink-mute">{fmtDate(inquiry.createdAt.slice(0, 10))}</span>
-      </div>
-
-      {/* Kontaktdaten kompakt */}
-      <div className="border border-steel rounded-lg bg-white px-4 py-3 grid grid-cols-2 gap-x-4 gap-y-1.5 text-[12.5px] font-sans">
-        {inquiry.customerName && <div><span className="text-ink-mute">Kunde · </span><b>{inquiry.customerName}</b></div>}
-        {inquiry.customerPhone && <div><span className="text-ink-mute">Telefon · </span><b>{inquiry.customerPhone}</b></div>}
-        {inquiry.customerEmail && <div><span className="text-ink-mute">E-Mail · </span><b>{inquiry.customerEmail}</b></div>}
-        {inquiry.city && <div><span className="text-ink-mute">Ort · </span><b>{inquiry.city}</b></div>}
-        <div><span className="text-ink-mute">Status · </span><b>{inquiry.status}</b></div>
-        <div><span className="text-ink-mute">Priorität · </span><b>{inquiry.priority}</b></div>
-      </div>
-
-      {/* Was der Kunde will */}
-      {inquiry.description && (
-        <div className="mt-3 border border-steel rounded-lg bg-white px-4 py-3">
-          <div className="dd-eyebrow text-ink-mute mb-1">Was der Kunde will</div>
-          <p className="font-sans text-[13.5px] text-ink-body leading-relaxed whitespace-pre-wrap">{inquiry.description}</p>
-        </div>
-      )}
-
-      {/* Verlaufs-Timeline */}
+    <div className="space-y-3">
       {log.length > 0 && (
-        <div className="mt-3 border border-steel rounded-lg bg-white px-4 py-3">
+        <div className="border border-steel rounded-lg bg-white px-4 py-3">
           <div className="dd-eyebrow text-ink-mute mb-2">Verlauf · {log.length} Eintrag{log.length === 1 ? "" : "e"}</div>
           <ol className="flex flex-col gap-2">
             {log.map((e, i) => (
@@ -1319,9 +1821,8 @@ function InquiryPanel({ inquiry }: { inquiry: Inquiry }) {
         </div>
       )}
 
-      {/* Roh-Verlauf zum Aufklappen */}
       {inquiry.rawText && (
-        <details className="mt-3 border border-steel rounded-lg bg-white px-4 py-3">
+        <details className="border border-steel rounded-lg bg-white px-4 py-3">
           <summary className="cursor-pointer dd-eyebrow text-ink-mute">
             Original-Nachricht ({inquiry.rawText.length.toLocaleString("de")} Zeichen)
           </summary>
