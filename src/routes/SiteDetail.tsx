@@ -72,6 +72,7 @@ export default function SiteDetail() {
   const [entries, setEntries] = useState<WorkEntry[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [orderRef, setOrderRef] = useState<OrderRef | null>(null);
+  const [notes, setNotes] = useState<string>("");  // operative Vor-Ort-Bemerkungen (sites.notes)
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,7 +95,7 @@ export default function SiteDetail() {
     setLoading(true);
     setError(null);
     try {
-      const [allSites, allWorkers, sitePhotos, siteMedia, eRows, iRows, cRows, inqRow] = await Promise.all([
+      const [allSites, allWorkers, sitePhotos, siteMedia, eRows, iRows, cRows, inqRow, nRow] = await Promise.all([
         withTimeout(listAllSites(true), 8000, "Baustellen"),
         withTimeout(listWorkers(), 8000, "Mitarbeiter").catch(() => [] as Worker[]),
         withTimeout(listPhotosForSite(id), 8000, "Fotos").catch(() => [] as PhotoWithContext[]),
@@ -103,6 +104,12 @@ export default function SiteDetail() {
         withTimeout(loadInvoicesForSite(id), 8000, "Rechnungen").catch(() => [] as InvoiceRow[]),
         withTimeout(loadPipelineCardForSite(id), 8000, "Pipeline-Karte").catch(() => null as OrderRef | null),
         withTimeout(loadInquiryForSite(id), 8000, "Anfrage").catch(() => null as InquiryRef | null),
+        withTimeout((async () => {
+          if (!isBackendConnected() || !supabase) return "";
+          const sb: any = supabase;
+          const { data } = await sb.from("sites").select("notes").eq("id", id).maybeSingle();
+          return (data?.notes as string) ?? "";
+        })(), 8000, "Bemerkungen").catch(() => ""),
       ]);
       const found = allSites.find((s) => s.id === id) ?? null;
       setSite(found);
@@ -113,6 +120,7 @@ export default function SiteDetail() {
       setInvoices(iRows);
       setOrderRef(cRows);
       setInquiry(inqRow);
+      setNotes(nRow);
     } catch (err: any) {
       setError(err?.message ?? "Fehler beim Laden");
     } finally {
@@ -124,6 +132,16 @@ export default function SiteDetail() {
   useRealtime(`site-detail-${id}`, ["entry_photos", "entries", "sites", "site_invoices", "pipeline_cards", "inquiries"], refresh);
   useRefreshOnVisible(refresh);
   useRefreshOnAuth(refresh);
+
+  /** Speichert die operativen Vor-Ort-Bemerkungen (sites.notes). */
+  async function saveNotes(text: string) {
+    if (!isBackendConnected() || !supabase || !id) return;
+    const sb: any = supabase;
+    const clean = text.trim();
+    const { error } = await sb.from("sites").update({ notes: clean || null }).eq("id", id);
+    if (error) throw error;
+    setNotes(clean);
+  }
 
   // Material-Liste separat laden (kann sich unabhängig ändern)
   async function refreshMaterials() {
@@ -376,6 +394,18 @@ export default function SiteDetail() {
             )}
           </aside>
         </section>
+
+        {/* AUFTRAG & ZAHLEN (live aus sevDesk) + VOR-ORT-BEMERKUNGEN */}
+        <AuftragNotizBlock
+          site={site}
+          orderRef={orderRef}
+          invoices={invoices}
+          volumeNet={posSum}
+          notes={notes}
+          onSaveNotes={saveNotes}
+          onOpenInvoices={() => setOpenModal("invoices")}
+          onOpenPositions={() => { if (orderRef) setOpenModal("positions"); }}
+        />
 
         {/* WETTER VOR ORT · wenn GPS bekannt */}
         {effectiveGeo && (
@@ -1563,6 +1593,144 @@ function PhotoLightbox({
           </button>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/* ── Variante 5 · Dark Hero-Band (kaufmännisch, live) + helle Notiz-Karte
+   (operative Vor-Ort-Bemerkungen). Trennt sauber: Zahlen kommen live aus dem
+   verknüpften Vorgang/sevDesk, das Notizfeld bleibt frei für die Baustelle. ── */
+function AuftragNotizBlock({
+  site, orderRef, invoices, volumeNet, notes, onSaveNotes, onOpenInvoices, onOpenPositions
+}: {
+  site: SiteRow;
+  orderRef: OrderRef | null;
+  invoices: InvoiceRow[];
+  volumeNet: number;
+  notes: string;
+  onSaveNotes: (text: string) => Promise<void>;
+  onOpenInvoices: () => void;
+  onOpenPositions: () => void;
+}) {
+  const open = invoices.filter((i) => i.status !== "paid" && i.status !== "cancelled");
+  const paidSum = invoices.filter((i) => i.status === "paid").reduce((t, i) => t + (i.netEur ?? 0), 0);
+  const openSum = open.reduce((t, i) => t + (i.netEur ?? 0), 0);
+  const an = orderRef?.orderNumber && orderRef.orderNumber !== "—" ? orderRef.orderNumber : null;
+  const hasCommercial = !!an || volumeNet > 0 || invoices.length > 0;
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(notes);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => { setDraft(notes); }, [notes]);
+
+  const lines = notes.split("\n").map((l) => l.trim()).filter(Boolean);
+
+  async function save() {
+    setBusy(true); setErr(null);
+    try { await onSaveNotes(draft); setEditing(false); }
+    catch (e: any) { setErr(e?.message ?? "Speichern fehlgeschlagen"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <section className="mt-4 rounded-xl overflow-hidden shadow-sm border border-steel-line/45">
+      {hasCommercial && (
+        <div className="surface-steel px-5 lg:px-6 py-4" style={{ borderBottom: "3px solid #DC6E2D" }}>
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div className="min-w-0">
+              <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-copper-bright mb-1">Auftrag &amp; Zahlen · live aus sevDesk</div>
+              <div className="font-display font-black uppercase text-[20px] text-white leading-tight">
+                {site.name}{an ? <span className="text-steel"> · {an}</span> : null}
+              </div>
+              {(site.street || site.city) && (
+                <div className="font-mono text-[11.5px] text-steel mt-1">{[site.street, site.city].filter(Boolean).join(" · ")}</div>
+              )}
+              {open.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {open.slice(0, 3).map((i) => (
+                    <span key={i.id} className="inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-mono"
+                      style={{ background: "rgba(201,133,47,.18)", color: "#F5B45A", border: "1px solid rgba(245,180,90,.3)" }}>
+                      {i.invoiceNumber} offen
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex gap-2.5 flex-wrap">
+              {volumeNet > 0 && <HeroKpi label="Volumen netto" value={eur(volumeNet)} accent="copper" />}
+              {paidSum > 0 && <HeroKpi label="Bezahlt" value={eur(paidSum)} accent="green" />}
+              {openSum > 0 && <HeroKpi label="Offen" value={eur(openSum)} accent="amber" />}
+            </div>
+          </div>
+          <div className="flex gap-4 mt-3">
+            {an && <button onClick={onOpenPositions} className="font-mono text-[11px] text-copper-bright hover:text-white">→ Positionen</button>}
+            {invoices.length > 0 && <button onClick={onOpenInvoices} className="font-mono text-[11px] text-copper-bright hover:text-white">→ Rechnungen ({invoices.length})</button>}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white px-5 lg:px-6 py-4">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[15px] text-copper">✎</span>
+            <div>
+              <div className="font-display font-extrabold uppercase text-[12px] tracking-widest text-ink">Vor-Ort-Bemerkungen</div>
+              <div className="font-sans text-[11px] text-ink-mute">Hinweise für die Mitarbeiter auf der Baustelle</div>
+            </div>
+          </div>
+          {!editing && (
+            <button onClick={() => setEditing(true)} className="btn-ghost !min-h-[36px] !px-3 text-[11px]">
+              {lines.length ? "✎ Bearbeiten" : "+ Bemerkung"}
+            </button>
+          )}
+        </div>
+
+        {editing ? (
+          <div>
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              rows={5}
+              placeholder="z. B. Zufahrt über Feldweg · Schlüssel beim Nachbarn Nr. 4 · Ansprechpartner Herr … 0171 … · Schotter-Lager an der Garage · Achtung: Wasserleitung im Vorgarten"
+              className="w-full px-3 py-2.5 border border-steel rounded-lg text-[13px] font-sans text-ink-body leading-relaxed focus:outline-none focus:border-copper resize-y"
+            />
+            <div className="font-sans text-[11px] text-ink-mute mt-1">Eine Bemerkung pro Zeile. Wörter wie „Achtung/Wasserleitung/Strom/Hund" werden hervorgehoben.</div>
+            {err && <div className="font-sans text-[12px] text-rust mt-1">⚠ {err}</div>}
+            <div className="flex gap-2 mt-2">
+              <button onClick={save} disabled={busy} className="btn-primary !min-h-[40px] text-[12px] disabled:opacity-50">{busy ? "Speichert …" : "Speichern"}</button>
+              <button onClick={() => { setDraft(notes); setEditing(false); setErr(null); }} disabled={busy} className="btn-ghost !min-h-[40px] text-[12px]">Abbrechen</button>
+            </div>
+          </div>
+        ) : lines.length ? (
+          <ul className="grid sm:grid-cols-2 gap-x-5 gap-y-1.5">
+            {lines.map((l, idx) => {
+              const warn = /achtung|vorsicht|gefahr|wasserleitung|strom|hund|gas/i.test(l);
+              return (
+                <li key={idx} className="flex items-start gap-2 text-[13px] font-sans leading-snug">
+                  <span className="mt-1.5 w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: warn ? "#C9852F" : "#8B9197" }} />
+                  <span className={warn ? "text-bronze font-semibold" : "text-ink-body"}>{l}</span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="text-center py-4 font-sans text-[12.5px] text-ink-mute">
+            Noch keine Vor-Ort-Bemerkungen. <button onClick={() => setEditing(true)} className="text-copper hover:text-copper-bright font-semibold">+ jetzt hinzufügen</button>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function HeroKpi({ label, value, accent }: { label: string; value: string; accent: "copper" | "green" | "amber" }) {
+  const col = accent === "green" ? "#22C55E" : accent === "amber" ? "#F5B45A" : "#E8853F";
+  return (
+    <div className="flex flex-col items-center gap-0.5 px-3.5 py-2 rounded-lg min-w-[80px]"
+      style={{ background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.14)" }}>
+      <span className="font-mono font-extrabold text-[16px] tabular-nums" style={{ color: col }}>{value}</span>
+      <span className="font-mono text-[8.5px] uppercase tracking-[0.1em] text-steel">{label}</span>
     </div>
   );
 }
