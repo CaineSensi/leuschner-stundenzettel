@@ -1,0 +1,448 @@
+<!DOCTYPE html><html lang="de"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Garten-Skizzen-Editor · Leuschner</title>
+<style>
+:root{--ink:#1f2620;--mute:#6b7269;--line:#e3e2da;--bg:#f5f4ee;--panel:#fff;--accent:#E8722A;--olive:#5f6b3a}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,'Segoe UI',sans-serif;display:flex;flex-direction:column;overflow:hidden}
+header{display:flex;align-items:center;gap:14px;padding:8px 14px;background:#1f2620;color:#fff;flex:0 0 auto}
+header b{font-weight:800;letter-spacing:.5px}
+header .accent{color:var(--accent)}
+.bar{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:7px 12px;background:#fff;border-bottom:1px solid var(--line);flex:0 0 auto}
+.bar .grp{display:flex;gap:4px;align-items:center;padding-right:10px;margin-right:6px;border-right:1px solid var(--line)}
+button,select,input[type=text],input[type=number]{font:inherit}
+button{cursor:pointer;border:1px solid #cfcabc;background:#fff;color:#222;border-radius:8px;padding:6px 10px;font-size:13px}
+button:hover{background:#f3f1ea}
+button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+button.mini{padding:3px 8px;font-size:12px}
+.main{flex:1 1 auto;display:flex;min-height:0}
+.canvas{flex:1 1 auto;position:relative;overflow:hidden;background:#e9ece2}
+svg{width:100%;height:100%;display:block;touch-action:none;background:#eef2e6}
+.panel{flex:0 0 300px;background:var(--panel);border-left:1px solid var(--line);overflow:auto;padding:12px}
+.panel h3{font-size:12px;text-transform:uppercase;letter-spacing:.12em;color:var(--olive);margin:16px 0 7px}
+.panel h3:first-child{margin-top:0}
+.row{display:flex;gap:6px;align-items:center;margin:5px 0}
+.row label{font-size:12px;color:var(--mute);flex:0 0 78px}
+.row input[type=text],.row input[type=number],.row select{flex:1 1 auto;min-width:0;padding:5px 7px;border:1px solid #d3cdbf;border-radius:7px}
+.row input[type=range]{flex:1 1 auto}
+.layers{border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.lyr{display:flex;align-items:center;gap:7px;padding:6px 9px;font-size:13px;border-bottom:1px solid #f0eee6;cursor:pointer}
+.lyr:last-child{border-bottom:0}
+.lyr.sel{background:#fbe9dc}
+.lyr .dot{width:14px;height:14px;border-radius:4px;border:1px solid #bbb;flex:0 0 auto}
+.lyr .nm{flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hint{font-size:11.5px;color:var(--mute);line-height:1.45;margin:7px 0}
+.big{font-size:18px;font-weight:800}
+.tag{display:inline-block;background:#f0ede4;border-radius:6px;padding:2px 7px;font-size:11.5px;color:#555}
+.handle{fill:#fff;stroke:var(--accent);stroke-width:2;cursor:grab}
+.lblTxt{font-weight:800;fill:#5a513f;paint-order:stroke;stroke:#fff;stroke-width:3px}
+kbd{background:#eee;border:1px solid #ccc;border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:11px}
+.palette{flex:0 0 138px;background:#fff;border-right:1px solid var(--line);overflow:auto;padding:8px}
+.palette h4{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--olive);margin:4px 2px 8px}
+.chip{display:flex;align-items:center;gap:7px;padding:6px 7px;border:1px solid var(--line);border-radius:8px;margin:5px 0;cursor:grab;font-size:12.5px;background:#fff;user-select:none}
+.chip:hover{background:#faf8f2;border-color:#d8c2ab}
+.chip:active{cursor:grabbing}
+.chip .dot{width:16px;height:16px;border-radius:4px;border:1px solid #bbb;flex:0 0 auto}
+.canvas.drop{outline:3px dashed var(--accent);outline-offset:-6px}
+</style></head>
+<body>
+<header>
+  <b>🌿 Garten-Skizzen-Editor <span class="accent">· Leuschner</span></b>
+  <span class="tag" id="projname">Hainke · Vorgarten</span>
+  <span style="flex:1"></span>
+  <span class="hint" style="color:#bfc3b6;margin:0">Auto-Speicherung aktiv</span>
+</header>
+
+<div class="bar">
+  <div class="grp">
+    <button id="tSelect" class="on" title="Auswählen / verschieben">▢ Auswählen</button>
+    <button id="tRect" title="Rechteck ziehen">▭ Rechteck</button>
+    <button id="tPoly" title="Polygon: klicken, Doppelklick = fertig">⬡ Polygon</button>
+  </div>
+  <div class="grp">
+    <label class="hint" style="margin:0">Neu als:</label>
+    <select id="newType"></select>
+  </div>
+  <div class="grp">
+    <button id="bCalib" title="Zwei Punkte klicken, dann Meter eingeben">📏 Maßstab</button>
+    <span class="hint" id="scaleInfo" style="margin:0">kein Maßstab</span>
+  </div>
+  <div class="grp">
+    <button id="bDup" class="mini">Duplizieren</button>
+    <button id="bDel" class="mini">Löschen</button>
+    <button id="bFwd" class="mini">▲</button>
+    <button id="bBwd" class="mini">▼</button>
+  </div>
+  <div class="grp" style="border:0">
+    <button id="bSaveJson" class="mini">⬇ JSON</button>
+    <button id="bLoadJson" class="mini">⬆ JSON</button>
+    <button id="bSaveSvg" class="mini">⬇ SVG</button>
+    <button id="bReset" class="mini">Reset</button>
+    <input type="file" id="fileJson" accept=".json" hidden>
+  </div>
+</div>
+
+<div class="main">
+  <div class="palette" id="palette"></div>
+  <div class="canvas">
+    <svg id="svg" viewBox="0 0 1000 820" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+  <div class="panel">
+    <h3>Auswahl</h3>
+    <div id="props"><div class="hint">Nichts ausgewählt. Klicke eine Fläche an.</div></div>
+
+    <h3>Ebenen <span class="hint" style="text-transform:none">(oben = vorne)</span></h3>
+    <div class="layers" id="layers"></div>
+
+    <h3>Luftbild-Vorlage</h3>
+    <div class="row"><label>Bild</label><button id="bBg" class="mini" style="flex:1">Bild laden…</button><input type="file" id="fileBg" accept="image/*" hidden></div>
+    <div class="row"><label>Sichtbar</label><input type="checkbox" id="bgShow"></div>
+    <div class="row"><label>Deckkraft</label><input type="range" id="bgOp" min="0" max="100" value="60"></div>
+    <div class="row"><label>Größe</label><input type="range" id="bgScale" min="10" max="400" value="100"></div>
+    <div class="row"><label>↔ X</label><input type="range" id="bgX" min="-800" max="800" value="0"></div>
+    <div class="row"><label>↕ Y</label><input type="range" id="bgY" min="-800" max="800" value="0"></div>
+    <div class="row"><label>Drehen</label><input type="range" id="bgRot" min="-180" max="180" value="0"></div>
+    <div class="hint">Tipp: Bild laden, Deckkraft ~50 %, dann mit Größe/X/Y/Drehen unter die Zeichnung schieben und Flächen drüber nachzeichnen.</div>
+
+    <h3>Hilfe</h3>
+    <div class="hint">
+      <b>Verschieben:</b> Fläche packen & ziehen.<br>
+      <b>Eckpunkt:</b> orangen Punkt ziehen. <kbd>Alt</kbd>+Klick = Punkt löschen.<br>
+      <b>Punkt einfügen:</b> <kbd>Shift</kbd>+Klick auf eine Kante.<br>
+      <b>Löschen:</b> <kbd>Entf</kbd>. <b>Abbrechen:</b> <kbd>Esc</kbd>.
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const SVGNS="http://www.w3.org/2000/svg";
+const svg=document.getElementById("svg");
+const VW=1000, VH=820;
+
+/* ---------- Typen ---------- */
+const TYPES={
+  kies:      {name:"Kiesbeet",        fill:"url(#pat_gravel)",  stroke:"#A99B7E", dash:"3 7"},
+  pflasterH: {name:"Pflaster hell",   fill:"url(#pat_slab)",    stroke:"#BDB5A2", dash:""},
+  pflasterG: {name:"Pflaster grau",   fill:"url(#pat_pflaster)",stroke:"#B3AC9D", dash:""},
+  weg:       {name:"Plattenweg",      fill:"url(#pat_slab)",    stroke:"#BDB5A2", dash:""},
+  rasen:     {name:"Rasen",           fill:"#DDE8CF",           stroke:"#bcd0a8", dash:""},
+  hecke:     {name:"Hecke",           fill:"#5E7D4F",           stroke:"#4d6640", dash:""},
+  beet:      {name:"Pflanzbeet",      fill:"#6E5A44",           stroke:"#5a4836", dash:"3 6"},
+  wasser:    {name:"Wasser",          fill:"#BCD8E6",           stroke:"#8fb6c8", dash:""},
+  haus:      {name:"Gebäude",         fill:"#E2D7C4",           stroke:"#C4B596", dash:""},
+  vordach:   {name:"Vordach/Terrasse",fill:"#D9CBB0",           stroke:"#BBAA88", dash:""},
+  tor:       {name:"Tor/Zaun",        fill:"#3b3b3b",           stroke:"#222",    dash:""},
+  strasse:   {name:"Straße",          fill:"#B5AEA0",           stroke:"#9A927F", dash:""},
+  text:      {name:"Textmarke",       fill:"none",              stroke:"none",    dash:""}
+};
+
+/* ---------- State ---------- */
+let state=null;
+let sel=null;            // selected id
+let mode="select";       // select | rect | poly | calibrate
+let drag=null;           // active drag info
+let polyPts=null;        // poly in progress
+let calib=null;          // calibrate in progress
+let uid=1;
+const nid=()=>"s"+(uid++);
+
+function seed(){
+  const S=(type,points,label,extra={})=>({id:nid(),type,points,label,...extra});
+  return {
+    project:"Hainke · Vorgarten",
+    scale:null, // {px, m}
+    bg:{href:"",show:false,op:60,scale:100,x:0,y:0,rot:0},
+    shapes:[
+      S("rasen",   rect(0,170,132,745), "Rasen"),
+      S("hecke",   rect(0,150,16,745),  "Hecke"),
+      S("strasse", rect(0,745,1000,818),"Drosselgasse"),
+      S("pflasterG",rect(768,205,1000,745),"Auffahrt"),
+      S("pflasterG",rect(132,620,768,745),"Vorplatz"),
+      S("pflasterG",rect(132,520,230,625),"Pflaster-Zunge"),
+      S("kies",    [[135,260],[215,305],[415,305],[415,620],[230,620],[230,520],[135,520]],"Kiesbeet links"),
+      S("kies",    rect(485,305,770,620),"Kiesbeet rechts"),
+      S("pflasterH",[[135,175],[770,175],[770,305],[215,305],[135,260]],"Pflaster Hausfront"),
+      S("weg",     rect(415,175,485,745),"Plattenweg"),
+      S("haus",    rect(130,40,770,175),"Wohnhaus"),
+      S("haus",    rect(770,95,804,175),"Verbinder"),
+      S("haus",    rect(804,55,980,205),"Garage"),
+      S("vordach", rect(345,175,555,253),"Vordach/Eingang"),
+      S("tor",     rect(118,452,133,526),"Tor"),
+      S("text",    [[92,500]], "Rosenbogen"),
+      S("text",    [[884,470]], "Garage→"),
+    ]
+  };
+}
+function rect(x1,y1,x2,y2){return [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];}
+
+/* ---------- Persistenz ---------- */
+const LS="leuschner_garten_editor_v1";
+function save(){try{localStorage.setItem(LS,JSON.stringify(state));}catch(e){}}
+function load(){
+  try{const s=localStorage.getItem(LS); if(s){state=JSON.parse(s);}}catch(e){}
+  if(!state||!state.shapes) state=seed();
+  // uid fortsetzen
+  state.shapes.forEach(s=>{const n=parseInt((s.id||"").replace(/\D/g,""));if(n>=uid)uid=n+1;});
+}
+
+/* ---------- Koordinaten ---------- */
+function toSvg(evt){
+  const pt=svg.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY;
+  const m=svg.getScreenCTM().inverse(); const p=pt.matrixTransform(m);
+  return [Math.round(p.x*10)/10, Math.round(p.y*10)/10];
+}
+function shoelace(pts){let a=0;for(let i=0;i<pts.length;i++){const [x1,y1]=pts[i],[x2,y2]=pts[(i+1)%pts.length];a+=x1*y2-x2*y1;}return Math.abs(a)/2;}
+function perim(pts){let l=0;for(let i=0;i<pts.length;i++){const [x1,y1]=pts[i],[x2,y2]=pts[(i+1)%pts.length];l+=Math.hypot(x2-x1,y2-y1);}return l;}
+function mpp(){return state.scale? state.scale.m/state.scale.px : null;}
+function fmtArea(pxArea){const k=mpp();return k? (pxArea*k*k).toFixed(1)+" m²" : Math.round(pxArea)+" px²";}
+function fmtLen(pxLen){const k=mpp();return k? (pxLen*k).toFixed(2)+" m" : Math.round(pxLen)+" px";}
+
+/* ---------- Render ---------- */
+function defs(){
+  return `<defs>
+   <pattern id="pat_gravel" width="16" height="16" patternUnits="userSpaceOnUse"><rect width="16" height="16" fill="#ECE8DE"/><circle cx="3" cy="4" r="1.2" fill="#B6AF9F"/><circle cx="9.5" cy="8" r="1.1" fill="#C2BBAB"/><circle cx="13" cy="3" r="1" fill="#ADA593"/><circle cx="6" cy="13" r="1.2" fill="#BEB7A6"/><circle cx="12.5" cy="12.5" r="1" fill="#B0A896"/></pattern>
+   <pattern id="pat_slab" width="70" height="36" patternUnits="userSpaceOnUse"><rect width="70" height="36" fill="#E8E2D4"/><rect x="0.6" y="0.6" width="68.8" height="34.8" fill="none" stroke="#CDC5B2" stroke-width="1.3"/></pattern>
+   <pattern id="pat_pflaster" width="46" height="24" patternUnits="userSpaceOnUse"><rect width="46" height="24" fill="#CBC5B9"/><rect x="0.5" y="0.5" width="22" height="11" fill="none" stroke="#B3AC9D" stroke-width="0.9"/><rect x="23" y="0.5" width="22" height="11" fill="none" stroke="#B3AC9D" stroke-width="0.9"/><rect x="-11" y="12" width="22" height="11" fill="none" stroke="#B3AC9D" stroke-width="0.9"/><rect x="12" y="12" width="22" height="11" fill="none" stroke="#B3AC9D" stroke-width="0.9"/><rect x="35" y="12" width="22" height="11" fill="none" stroke="#B3AC9D" stroke-width="0.9"/></pattern>
+  </defs>`;
+}
+function ptsStr(pts){return pts.map(p=>p.join(",")).join(" ");}
+function centroid(pts){let x=0,y=0;pts.forEach(p=>{x+=p[0];y+=p[1];});return [x/pts.length,y/pts.length];}
+
+function render(){
+  let h=defs();
+  // Hintergrundbild
+  const bg=state.bg;
+  if(bg.href && bg.show){
+    const cx=VW/2+bg.x, cy=VH/2+bg.y, sc=bg.scale/100;
+    h+=`<g transform="translate(${cx} ${cy}) rotate(${bg.rot}) scale(${sc}) translate(${-VW/2} ${-VH/2})" opacity="${bg.op/100}">
+        <image href="${bg.href}" x="0" y="0" width="${VW}" height="${VH}" preserveAspectRatio="xMidYMid slice"/></g>`;
+  }
+  // Flächen
+  for(const s of state.shapes){
+    const t=TYPES[s.type]||TYPES.beet;
+    if(s.type==="text"){
+      const [x,y]=s.points[0];
+      h+=`<text data-id="${s.id}" x="${x}" y="${y}" font-size="14" text-anchor="middle" class="lblTxt" style="cursor:move">${esc(s.label||"Text")}</text>`;
+      continue;
+    }
+    const dash=t.dash?`stroke-dasharray="${t.dash}"`:"";
+    h+=`<polygon data-id="${s.id}" points="${ptsStr(s.points)}" fill="${t.fill}" stroke="${t.stroke}" stroke-width="2.2" ${dash} style="cursor:move"/>`;
+    if(s.label){const [cx,cy]=centroid(s.points);h+=`<text x="${cx}" y="${cy}" font-size="13" text-anchor="middle" class="lblTxt" pointer-events="none">${esc(s.label)}</text>`;}
+  }
+  // Auswahl-Overlay (Eckpunkte)
+  const cur=state.shapes.find(s=>s.id===sel);
+  if(cur){
+    h+=`<polygon points="${ptsStr(cur.points)}" fill="none" stroke="#E8722A" stroke-width="2" stroke-dasharray="5 4" pointer-events="none"/>`;
+    cur.points.forEach((p,i)=>{h+=`<circle class="handle" data-vert="${i}" data-id="${cur.id}" cx="${p[0]}" cy="${p[1]}" r="6"/>`;});
+  }
+  // Polygon in Arbeit
+  if(polyPts){
+    h+=`<polyline points="${ptsStr(polyPts)}" fill="rgba(232,114,42,.12)" stroke="#E8722A" stroke-width="2"/>`;
+    polyPts.forEach(p=>{h+=`<circle cx="${p[0]}" cy="${p[1]}" r="5" fill="#E8722A"/>`;});
+  }
+  // Kalibrier-Linie
+  if(calib&&calib.length){h+=`<polyline points="${ptsStr(calib)}" stroke="#d11" stroke-width="2.5" fill="none"/>`;calib.forEach(p=>h+=`<circle cx="${p[0]}" cy="${p[1]}" r="5" fill="#d11"/>`);}
+  // temporäres Rechteck
+  if(drag&&drag.kind==="newrect"&&drag.cur){const[a,b]=drag.start,[c,d]=drag.cur;h+=`<rect x="${Math.min(a,c)}" y="${Math.min(b,d)}" width="${Math.abs(c-a)}" height="${Math.abs(d-b)}" fill="rgba(232,114,42,.15)" stroke="#E8722A" stroke-width="2"/>`;}
+  svg.innerHTML=h;
+  renderPanel(); renderLayers(); save();
+}
+function esc(s){return (s+"").replace(/[<>&]/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;"}[c]));}
+
+/* ---------- Panel ---------- */
+function renderPanel(){
+  const box=document.getElementById("props");
+  const cur=state.shapes.find(s=>s.id===sel);
+  if(!cur){box.innerHTML='<div class="hint">Nichts ausgewählt. Klicke eine Fläche an.</div>';return;}
+  const isText=cur.type==="text";
+  let opts=Object.entries(TYPES).map(([k,v])=>`<option value="${k}" ${k===cur.type?"selected":""}>${v.name}</option>`).join("");
+  let meas="";
+  if(!isText){const a=shoelace(cur.points),p=perim(cur.points);meas=`<div class="row"><label>Fläche</label><span class="big">${fmtArea(a)}</span></div><div class="row"><label>Umfang</label><span>${fmtLen(p)}</span></div>`;}
+  box.innerHTML=`
+    <div class="row"><label>Name</label><input type="text" id="pName" value="${esc(cur.label||"")}"></div>
+    <div class="row"><label>Typ</label><select id="pType">${opts}</select></div>
+    ${meas}
+    <div class="hint">${isText?"Textmarke – Position per Ziehen.":cur.points.length+" Eckpunkte"}</div>`;
+  document.getElementById("pName").oninput=e=>{cur.label=e.target.value;quickText();};
+  document.getElementById("pType").onchange=e=>{cur.type=e.target.value;render();};
+}
+function quickText(){ // nur Labels neu zeichnen wäre teuer genug -> komplett, aber ohne Fokusverlust beim Tippen:
+  renderLayers(); save();
+  // Label im SVG live aktualisieren ohne Re-Render des Inputs:
+  render();
+  const el=document.getElementById("pName"); if(el){el.focus();el.setSelectionRange(el.value.length,el.value.length);}
+}
+function renderLayers(){
+  const box=document.getElementById("layers");
+  // oben = vorne => Liste in umgekehrter Zeichenreihenfolge
+  box.innerHTML=state.shapes.slice().reverse().map(s=>{
+    const t=TYPES[s.type]||TYPES.beet;
+    const col=t.fill.startsWith("url")?"#d9d3c4":t.fill;
+    return `<div class="lyr ${s.id===sel?"sel":""}" data-id="${s.id}"><span class="dot" style="background:${col}"></span><span class="nm">${esc(s.label||t.name)}</span><span class="hint" style="margin:0">${t.name}</span></div>`;
+  }).join("")||'<div class="hint" style="padding:8px">leer</div>';
+  [...box.querySelectorAll(".lyr")].forEach(el=>el.onclick=()=>{sel=el.dataset.id;mode="select";setTool();render();});
+}
+
+/* ---------- Maus / Pointer ---------- */
+svg.addEventListener("pointerdown",e=>{
+  const [x,y]=toSvg(e);
+  if(mode==="calibrate"){
+    calib=calib||[]; calib.push([x,y]);
+    if(calib.length===2){const px=Math.hypot(calib[1][0]-calib[0][0],calib[1][1]-calib[0][1]);askMeters(px);calib=null;mode="select";setTool();}
+    render();return;
+  }
+  if(mode==="rect"){drag={kind:"newrect",start:[x,y],cur:[x,y]};svg.setPointerCapture(e.pointerId);return;}
+  if(mode==="poly"){
+    polyPts=polyPts||[];
+    if(polyPts.length>2){const f=polyPts[0];if(Math.hypot(x-f[0],y-f[1])<10){finishPoly();return;}}
+    polyPts.push([x,y]);render();return;
+  }
+  // select-Modus
+  const tgt=e.target;
+  if(tgt.classList&&tgt.classList.contains("handle")){
+    const id=tgt.dataset.id, vi=+tgt.dataset.vert; sel=id;
+    const s=state.shapes.find(z=>z.id===id);
+    if(e.altKey&&s.points.length>3){s.points.splice(vi,1);render();return;}
+    drag={kind:"vert",id,vi};svg.setPointerCapture(e.pointerId);render();return;
+  }
+  const id=tgt.dataset&&tgt.dataset.id;
+  if(id){
+    const s=state.shapes.find(z=>z.id===id); sel=id;
+    if(e.shiftKey&&s.type!=="text"){insertPointOnEdge(s,[x,y]);render();return;}
+    drag={kind:"move",id,last:[x,y]};svg.setPointerCapture(e.pointerId);render();return;
+  }
+  sel=null;render();
+});
+svg.addEventListener("pointermove",e=>{
+  if(!drag)return; const [x,y]=toSvg(e);
+  if(drag.kind==="newrect"){drag.cur=[x,y];render();}
+  else if(drag.kind==="vert"){const s=state.shapes.find(z=>z.id===drag.id);s.points[drag.vi]=[x,y];render();}
+  else if(drag.kind==="move"){const s=state.shapes.find(z=>z.id===drag.id);const dx=x-drag.last[0],dy=y-drag.last[1];s.points=s.points.map(p=>[p[0]+dx,p[1]+dy]);drag.last=[x,y];render();}
+});
+svg.addEventListener("pointerup",e=>{
+  if(drag&&drag.kind==="newrect"){const[a,b]=drag.start,[c,d]=drag.cur||drag.start;
+    if(Math.abs(c-a)>4&&Math.abs(d-b)>4){const t=document.getElementById("newType").value;
+      const s={id:nid(),type:t,points:[[Math.min(a,c),Math.min(b,d)],[Math.max(a,c),Math.min(b,d)],[Math.max(a,c),Math.max(b,d)],[Math.min(a,c),Math.max(b,d)]],label:TYPES[t].name};
+      state.shapes.push(s);sel=s.id;}
+    mode="select";setTool();
+  }
+  drag=null;render();
+});
+svg.addEventListener("dblclick",e=>{if(mode==="poly")finishPoly();});
+
+function finishPoly(){
+  if(polyPts&&polyPts.length>=3){const t=document.getElementById("newType").value;
+    const s={id:nid(),type:t,points:polyPts.slice(),label:TYPES[t].name};state.shapes.push(s);sel=s.id;}
+  polyPts=null;mode="select";setTool();render();
+}
+function insertPointOnEdge(s,pt){
+  let best=1e9,bi=0;
+  for(let i=0;i<s.points.length;i++){const a=s.points[i],b=s.points[(i+1)%s.points.length];const d=distSeg(pt,a,b);if(d<best){best=d;bi=i+1;}}
+  s.points.splice(bi,0,pt);
+}
+function distSeg(p,a,b){const dx=b[0]-a[0],dy=b[1]-a[1];const l2=dx*dx+dy*dy||1;let t=((p[0]-a[0])*dx+(p[1]-a[1])*dy)/l2;t=Math.max(0,Math.min(1,t));return Math.hypot(p[0]-(a[0]+t*dx),p[1]-(a[1]+t*dy));}
+
+function askMeters(px){
+  const m=prompt("Gemessene Strecke = "+Math.round(px)+" px.\nWie viele Meter sind das in echt?","");
+  const v=parseFloat((m||"").replace(",","."));
+  if(v>0){state.scale={px:px,m:v};updateScaleInfo();render();}
+}
+function updateScaleInfo(){
+  const el=document.getElementById("scaleInfo");
+  el.textContent=state.scale? (mpp().toFixed(3)+" m/px"):"kein Maßstab";
+}
+
+/* ---------- Werkzeuge ---------- */
+function setTool(){
+  document.getElementById("tSelect").classList.toggle("on",mode==="select");
+  document.getElementById("tRect").classList.toggle("on",mode==="rect");
+  document.getElementById("tPoly").classList.toggle("on",mode==="poly");
+  document.getElementById("bCalib").classList.toggle("on",mode==="calibrate");
+}
+document.getElementById("tSelect").onclick=()=>{mode="select";polyPts=null;calib=null;setTool();render();};
+document.getElementById("tRect").onclick=()=>{mode="rect";polyPts=null;setTool();};
+document.getElementById("tPoly").onclick=()=>{mode="poly";polyPts=[];setTool();};
+document.getElementById("bCalib").onclick=()=>{mode="calibrate";calib=[];setTool();};
+document.getElementById("bDel").onclick=()=>{if(sel){state.shapes=state.shapes.filter(s=>s.id!==sel);sel=null;render();}};
+document.getElementById("bDup").onclick=()=>{const s=state.shapes.find(z=>z.id===sel);if(s){const c={id:nid(),type:s.type,label:(s.label||"")+" Kopie",points:s.points.map(p=>[p[0]+18,p[1]+18])};state.shapes.push(c);sel=c.id;render();}};
+document.getElementById("bFwd").onclick=()=>{const i=state.shapes.findIndex(s=>s.id===sel);if(i>=0&&i<state.shapes.length-1){[state.shapes[i],state.shapes[i+1]]=[state.shapes[i+1],state.shapes[i]];render();}};
+document.getElementById("bBwd").onclick=()=>{const i=state.shapes.findIndex(s=>s.id===sel);if(i>0){[state.shapes[i],state.shapes[i-1]]=[state.shapes[i-1],state.shapes[i]];render();}};
+
+document.addEventListener("keydown",e=>{
+  if(e.target.tagName==="INPUT"||e.target.tagName==="SELECT")return;
+  if(e.key==="Delete"||e.key==="Backspace"){if(sel){state.shapes=state.shapes.filter(s=>s.id!==sel);sel=null;render();}}
+  if(e.key==="Escape"){mode="select";polyPts=null;calib=null;sel=null;setTool();render();}
+});
+
+/* ---------- Typen-Dropdown ---------- */
+document.getElementById("newType").innerHTML=Object.entries(TYPES).map(([k,v])=>`<option value="${k}">${v.name}</option>`).join("");
+document.getElementById("newType").value="kies";
+
+/* ---------- Hintergrund-Steuerung ---------- */
+const bgEl=id=>document.getElementById(id);
+function bindBg(){
+  bgEl("bgShow").checked=state.bg.show; bgEl("bgOp").value=state.bg.op; bgEl("bgScale").value=state.bg.scale;
+  bgEl("bgX").value=state.bg.x; bgEl("bgY").value=state.bg.y; bgEl("bgRot").value=state.bg.rot;
+}
+bgEl("bgShow").onchange=e=>{state.bg.show=e.target.checked;render();};
+bgEl("bgOp").oninput=e=>{state.bg.op=+e.target.value;render();};
+bgEl("bgScale").oninput=e=>{state.bg.scale=+e.target.value;render();};
+bgEl("bgX").oninput=e=>{state.bg.x=+e.target.value;render();};
+bgEl("bgY").oninput=e=>{state.bg.y=+e.target.value;render();};
+bgEl("bgRot").oninput=e=>{state.bg.rot=+e.target.value;render();};
+bgEl("bBg").onclick=()=>bgEl("fileBg").click();
+bgEl("fileBg").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{state.bg.href=r.result;state.bg.show=true;bindBg();render();};r.readAsDataURL(f);};
+
+/* ---------- IO ---------- */
+function download(name,content,mime){const b=new Blob([content],{type:mime});const u=URL.createObjectURL(b);const a=document.createElement("a");a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),2000);}
+document.getElementById("bSaveJson").onclick=()=>download("garten-skizze.json",JSON.stringify(state,null,2),"application/json");
+document.getElementById("bLoadJson").onclick=()=>document.getElementById("fileJson").click();
+document.getElementById("fileJson").onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);sel=null;bindBg();updateScaleInfo();render();}catch(err){alert("JSON fehlerhaft");}};r.readAsText(f);};
+document.getElementById("bSaveSvg").onclick=()=>{
+  const keepSel=sel;sel=null;const keepPoly=polyPts;polyPts=null;render();
+  const out=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="${SVGNS}" viewBox="0 0 ${VW} ${VH}">`+svg.innerHTML+`</svg>`;
+  sel=keepSel;polyPts=keepPoly;render();
+  download("garten-skizze.svg",out,"image/svg+xml");
+};
+document.getElementById("bReset").onclick=()=>{if(confirm("Zurück zum Hainke-Startgrundriss? Aktuelle Skizze geht verloren.")){state=seed();sel=null;bindBg();updateScaleInfo();render();}};
+
+/* ---------- Palette + Drag & Drop ---------- */
+function buildPalette(){
+  const p=document.getElementById("palette");
+  p.innerHTML='<h4>Ziehen → ablegen</h4>'+Object.entries(TYPES).map(([k,v])=>{
+    const col=v.fill.startsWith("url")?"#d9d3c4":(v.fill==="none"?"#fff":v.fill);
+    return `<div class="chip" draggable="true" data-gt="${k}"><span class="dot" style="background:${col}"></span>${v.name}</div>`;
+  }).join("")+'<h4 style="margin-top:14px">Datei</h4><div class="hint" style="padding:0 2px">Luftbild/Foto oder JSON einfach aufs Blatt ziehen.</div>';
+  [...p.querySelectorAll(".chip")].forEach(c=>{
+    c.addEventListener("dragstart",e=>{e.dataTransfer.setData("text/gtype",c.dataset.gt);e.dataTransfer.effectAllowed="copy";});
+  });
+}
+function dropShape(gt,x,y){
+  let s;
+  if(gt==="text"){s={id:nid(),type:"text",points:[[x,y]],label:"Text"};}
+  else if(gt==="tor"){s={id:nid(),type:"tor",points:[[x-8,y-38],[x+8,y-38],[x+8,y+38],[x-8,y+38]],label:"Tor"};}
+  else{const w=110,h=75;s={id:nid(),type:gt,points:[[x-w/2,y-h/2],[x+w/2,y-h/2],[x+w/2,y+h/2],[x-w/2,y+h/2]],label:TYPES[gt].name};}
+  state.shapes.push(s);sel=s.id;mode="select";setTool();render();
+}
+const cv=document.querySelector(".canvas");
+cv.addEventListener("dragover",e=>{e.preventDefault();e.dataTransfer.dropEffect="copy";cv.classList.add("drop");});
+cv.addEventListener("dragleave",e=>{if(e.target===cv||e.target===svg)cv.classList.remove("drop");});
+cv.addEventListener("drop",e=>{
+  e.preventDefault();cv.classList.remove("drop");
+  const [x,y]=toSvg(e);
+  if(e.dataTransfer.files&&e.dataTransfer.files.length){
+    const f=e.dataTransfer.files[0];
+    if(f.type.startsWith("image/")){const r=new FileReader();r.onload=()=>{state.bg.href=r.result;state.bg.show=true;bindBg();render();};r.readAsDataURL(f);return;}
+    if(f.name.toLowerCase().endsWith(".json")){const r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);sel=null;bindBg();updateScaleInfo();render();}catch(_){alert("JSON fehlerhaft");}};r.readAsText(f);return;}
+    return;
+  }
+  const gt=e.dataTransfer.getData("text/gtype");
+  if(gt&&TYPES[gt])dropShape(gt,x,y);
+});
+
+/* ---------- Start ---------- */
+load();bindBg();updateScaleInfo();setTool();buildPalette();render();
+</script>
+</body></html>

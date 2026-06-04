@@ -225,6 +225,7 @@ export default function Admin() {
             <SbItem icon="⌂" label="Baustellen" to="/admin/sites" />
             <SbItem icon="◇" label="Angebote" to="/admin/angebote" />
             <SbItem icon="✉" label="Anfragen" to="/admin/anfragen" />
+            <SbItem icon="✎" label="Garten-Planer" to="/admin/garten" />
             <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
             <div className="h-px bg-white/8 my-3" />
             <SbItem icon="▮" label="Auswertung" disabled />

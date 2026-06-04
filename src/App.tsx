@@ -19,12 +19,13 @@ import Angebote from "./routes/Angebote";
 import Anfragen from "./routes/Anfragen";
 import AnfrageNeu from "./routes/AnfrageNeu";
 import AngebotNeu from "./routes/AngebotNeu";
+import GartenEditor from "./routes/GartenEditor";
 import AuthCallback from "./routes/AuthCallback";
 import OfflineIndicator from "./components/OfflineIndicator";
 import InstallPrompt from "./components/InstallPrompt";
 import UpdatePrompt from "./components/UpdatePrompt";
 import AdminPushBanner from "./components/AdminPushBanner";
-import { currentUser, isOnboarded, syncWorkerFromSession } from "./lib/auth";
+import { currentUser, isOnboarded, syncWorkerFromSession, enforceValidSession, logout } from "./lib/auth";
 import { supabase } from "./lib/supabase";
 import { syncPending } from "./lib/sync";
 
@@ -46,14 +47,27 @@ function RoleRoot() {
 export default function App() {
   useEffect(() => {
     if (!supabase) return;
-    // Bei App-Start: prüfe ob Supabase-Session existiert und synce Worker
-    syncWorkerFromSession();
-    // Plus: ggf. wartende Einträge nachträglich hochladen
-    syncPending();
-    // Auth-State-Changes (z.B. nach Magic Link Klick)
+    (async () => {
+      // Bei App-Start: lokale „eingeloggt"-Markierung gegen die echte Server-
+      // Anmeldung prüfen. Ist sie abgelaufen (Zombie-Login), sauber zum Login
+      // umleiten statt eine tote Oberfläche mit leeren Listen zu zeigen.
+      const redirect = await enforceValidSession();
+      if (redirect) { window.location.replace(redirect); return; }
+      await syncWorkerFromSession();
+      // Plus: ggf. wartende Einträge nachträglich hochladen
+      syncPending();
+    })();
+    // Auth-State-Changes (z.B. nach Magic Link Klick oder Token-Verlust)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (session) await syncWorkerFromSession();
+      async (event, session) => {
+        if (session) {
+          await syncWorkerFromSession();
+        } else if (event === "SIGNED_OUT" && currentUser() && navigator.onLine) {
+          // Server-Anmeldung endgültig weg → lokale Session ebenfalls verwerfen
+          const dest = currentUser()?.isAdmin ? "/buero" : "/login";
+          logout();
+          window.location.replace(dest);
+        }
       }
     );
     return () => subscription.unsubscribe();
@@ -86,6 +100,7 @@ export default function App() {
         <Route path="/admin/anfragen"     element={<ProtectedRoute adminOnly><Anfragen /></ProtectedRoute>} />
         <Route path="/admin/anfrage-neu"  element={<ProtectedRoute adminOnly><AnfrageNeu /></ProtectedRoute>} />
         <Route path="/admin/angebot-neu/:cardId" element={<ProtectedRoute adminOnly><AngebotNeu /></ProtectedRoute>} />
+        <Route path="/admin/garten"  element={<ProtectedRoute adminOnly><GartenEditor /></ProtectedRoute>} />
         <Route path="/entry"         element={<ProtectedRoute><Entry /></ProtectedRoute>} />
         <Route path="/day/:date"     element={<ProtectedRoute><Day /></ProtectedRoute>} />
         <Route path="*"              element={<Navigate to="/" replace />} />
