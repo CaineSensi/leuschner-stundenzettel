@@ -202,7 +202,7 @@ function rect(x1,y1,x2,y2){return [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];}
 
 /* ---------- Persistenz ---------- */
 const LS="leuschner_garten_editor_v1";
-function save(){try{localStorage.setItem(LS,JSON.stringify(state));}catch(e){}}
+function save(){try{localStorage.setItem(LS,JSON.stringify(state));}catch(e){}postChange();}
 function load(){
   try{const s=localStorage.getItem(LS); if(s)state=JSON.parse(s);}catch(e){}
   if(!state||!state.shapes) state=seed();
@@ -534,5 +534,29 @@ document.getElementById("fileJson").onchange=e=>{const f=e.target.files[0];if(!f
 document.getElementById("bSaveSvg").onclick=()=>{const ks=sel,kp=polyPts,kd=drag;sel=null;polyPts=null;drag=null;render();const out=`<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="${SVGNS}" viewBox="0 0 ${VW} ${VH}">`+svg.innerHTML+`</svg>`;sel=ks;polyPts=kp;drag=kd;render();download("garten-skizze.svg",out,"image/svg+xml");};
 document.getElementById("bReset").onclick=()=>{if(confirm("Zurück zum Hainke-Startgrundriss? Aktuelle Skizze geht verloren.")){snap();state=seed();sel=null;bindBg();updateScaleInfo();fitView();}};
 
+/* ---------- Brücke zur App (postMessage) ----------
+   Wird der Editor in der App als iframe geladen, übernimmt die App das
+   Laden/Speichern in Supabase. Der Editor bleibt DB-frei: er empfängt
+   „gp-load" (Skizzen-JSON für eine Baustelle) und meldet Änderungen via
+   „gp-change" zurück. Ohne Eltern-Fenster läuft alles wie gehabt lokal. */
+let managed=false, _postT=null;
+function postChange(){
+  if(!managed)return;
+  clearTimeout(_postT);
+  _postT=setTimeout(()=>{try{parent.postMessage({type:"gp-change",data:state},"*");}catch(e){}},900);
+}
+window.addEventListener("message",ev=>{
+  const m=ev.data||{};
+  if(m.type!=="gp-load")return;
+  managed=true;
+  if(m.data&&Array.isArray(m.data.shapes)){state=m.data;if(state.matDepth==null)state.matDepth=0.06;}
+  else{state={project:m.title||"Skizze",scale:null,matDepth:0.06,bg:{href:"",show:false,op:60,scale:100,x:0,y:0,rot:0,fit:"slice"},shapes:[]};}
+  if(m.title)document.getElementById("projname").textContent=m.title;
+  sel=null;history=[];redo=[];uid=1;
+  state.shapes.forEach(s=>{const n=parseInt((s.id||"").replace(/\D/g,""));if(n>=uid)uid=n+1;});
+  bindBg();updateScaleInfo();updateUndo();fitView();
+});
+
 /* ---------- Start ---------- */
 load();bindBg();updateScaleInfo();setTool();buildPalette();updateUndo();applyView();
+try{if(parent!==window)parent.postMessage({type:"gp-ready"},"*");}catch(e){}

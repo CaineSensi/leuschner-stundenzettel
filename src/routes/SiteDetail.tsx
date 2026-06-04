@@ -394,8 +394,8 @@ export default function SiteDetail() {
           />
         </section>
 
-        {/* QUICK-ACCESS · 7 Cards (Positionen · Aufmaß · Stunden · Rechnungen · Material · Fotos · Anhaenge) */}
-        <section className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-7">
+        {/* QUICK-ACCESS · 8 Cards (Positionen · Aufmaß · Stunden · Rechnungen · Material · Fotos · Anhaenge · Garten-Skizze) */}
+        <section className="grid gap-3 mt-4 grid-cols-2 lg:grid-cols-8">
           <QuickCard
             label="Positionen"
             value={posCount === 0 ? "—" : `${posCount} · ${eur(posSum)}`}
@@ -454,6 +454,12 @@ export default function SiteDetail() {
             icon="🎬"
             disabled={media.length === 0}
             onClick={() => setOpenModal("media")}
+          />
+          <QuickCard
+            label="Garten-Skizze"
+            value="Planer öffnen"
+            icon="🌿"
+            onClick={() => navigate(`/admin/garten?site=${id}`)}
           />
         </section>
       </main>
