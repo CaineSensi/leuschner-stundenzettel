@@ -282,8 +282,20 @@ export default function SiteDetail() {
         {error && <div className="mb-4 px-4 py-2.5 bg-rust/10 border border-rust/35 rounded-lg text-[12px] text-rust">{error}</div>}
         {uploadError && <div className="mb-4 px-4 py-2.5 bg-rust/10 border border-rust/35 rounded-lg text-[12px] text-rust">{uploadError}</div>}
 
-        {/* HERO · Karte + Side-Panel */}
-        <section className="grid gap-4 lg:grid-cols-[1fr_300px]">
+        {/* AUFTRAG & ZAHLEN (live aus sevDesk) + VOR-ORT-BEMERKUNGEN · ganz oben */}
+        <AuftragNotizBlock
+          site={site}
+          orderRef={orderRef}
+          invoices={invoices}
+          volumeNet={posSum}
+          notes={notes}
+          onSaveNotes={saveNotes}
+          onOpenInvoices={() => setOpenModal("invoices")}
+          onOpenPositions={() => { if (orderRef) setOpenModal("positions"); }}
+        />
+
+        {/* Karte · volle Breite (Side-Panel entfernt) */}
+        <section className="mt-4">
           <div className="flex flex-col gap-2">
             {/* Toggle Karte / Satellit / Google Earth · links oben, AUSSERHALB der Karte */}
             {effectiveGeo && (
@@ -353,59 +365,7 @@ export default function SiteDetail() {
             </div>
             </div>
           </div>
-
-          <aside className="bg-white border border-steel-line/45 rounded-2xl p-5 shadow-sm flex flex-col gap-3">
-            <div className="flex flex-wrap gap-1.5">
-              {orderRef?.orderNumber && orderRef.orderNumber !== "—" && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-copper/15 text-copper font-mono text-[10.5px] uppercase tracking-wider w-fit">
-                  <span className="w-1.5 h-1.5 rounded-full bg-copper" /> {orderRef.orderNumber}
-                </span>
-              )}
-              {inquiry && (
-                <button
-                  onClick={() => setOpenModal("inquiry")}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-good/15 text-good hover:bg-good/25 transition-colors font-mono text-[10.5px] uppercase tracking-wider w-fit"
-                  title={`Anfrage-Verlauf öffnen (${inquiry.source}, ${fmtShort(inquiry.createdAt.slice(0,10))})`}
-                >
-                  {SOURCE_ICON[inquiry.source] ?? "✉"} {SOURCE_LABEL[inquiry.source] ?? inquiry.source}-Anfrage · {fmtShort(inquiry.createdAt.slice(0,10))}
-                </button>
-              )}
-              {inquiry?.pipelineStage && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-steel/15 text-ink-2 font-mono text-[10.5px] uppercase tracking-wider w-fit">
-                  Stage: {inquiry.pipelineStage}
-                </span>
-              )}
-            </div>
-            <div className="font-display font-black text-[22px] leading-none uppercase">{site.name}</div>
-            {(site.street || site.city) && (
-              <div className="font-mono text-[12px] text-ink-2 leading-relaxed">
-                <span className="text-copper mr-1">⌖</span>
-                {site.street}{site.city ? <><br /><span className="ml-4">{site.city}</span></> : null}
-              </div>
-            )}
-            {mapAddr && (
-              <a
-                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapAddr)}`}
-                target="_blank" rel="noopener"
-                className="font-mono text-[11px] text-copper hover:text-copper-bright mt-1 inline-flex items-center gap-1"
-              >
-                in Google Maps öffnen ↗
-              </a>
-            )}
-          </aside>
         </section>
-
-        {/* AUFTRAG & ZAHLEN (live aus sevDesk) + VOR-ORT-BEMERKUNGEN */}
-        <AuftragNotizBlock
-          site={site}
-          orderRef={orderRef}
-          invoices={invoices}
-          volumeNet={posSum}
-          notes={notes}
-          onSaveNotes={saveNotes}
-          onOpenInvoices={() => setOpenModal("invoices")}
-          onOpenPositions={() => { if (orderRef) setOpenModal("positions"); }}
-        />
 
         {/* WETTER VOR ORT · wenn GPS bekannt */}
         {effectiveGeo && (
