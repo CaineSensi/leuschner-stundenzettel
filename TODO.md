@@ -1,7 +1,7 @@
 # Leuschner Stundenzettel · Offene Aufgaben
 
 **Stand:** 04. Juni 2026 (Abend)
-**Hauptapp (`app`):** `main` = `9764f3b` (lokal) · Live-Bundle `index-BGgkUpC9.js` ✓ (Deployment `80ab30ca`) · **`origin/main` hinkt nun 10 Commits hinterher** (kein GitHub-Token → kein Push)
+**Hauptapp (`app`):** `main` = `a0d377c` (lokal) · Live-Bundle `index-7o1WjFbK.js` ✓ (Deployment `5a18ab90`) · **`origin/main` hinkt nun 12 Commits hinterher** (kein GitHub-Token → kein Push)
 **Aufmaß-App (`aufmass`):** `main` = `8d9afeb` ✓ (lokal committed, KEIN Git-Remote — lebt auf dem Stick) · live `leuschner-aufmass.pages.dev`
 Lokal = Live ✓. Voller Stand: `../WIEDEREINSTIEG.md` (Abschnitt „04.06. · Abend").
 
