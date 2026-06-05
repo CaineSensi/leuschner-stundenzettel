@@ -43,7 +43,7 @@ export interface ParsedInquiry {
   confidence?: Partial<Record<string, Confidence>>;
 
   /** Welcher Pfad hat strukturiert. */
-  parser?: 'workers-ai-70b' | 'workers-ai-8b' | 'workers-ai' | 'anthropic' | 'heuristic';
+  parser?: 'gemini' | 'workers-ai-70b' | 'workers-ai-8b' | 'workers-ai' | 'anthropic' | 'heuristic';
 
   /** Diagnose-Meta vom Server (Konflikte LLM ↔ Heuristik, Modellname,
    *  Pre-Cleaning-Schritte, Self-Check-Hinweise). */
@@ -77,6 +77,7 @@ export const VORGANG_COLOR: Record<Vorgang, string> = {
 };
 
 export const PARSER_LABEL: Record<NonNullable<ParsedInquiry['parser']>, string> = {
+  'gemini':        'Gemini Flash · Google',
   'workers-ai-70b': 'Llama 3.3 70B · Cloudflare',
   'workers-ai-8b': 'Llama 3.1 8B · Cloudflare (Fallback)',
   'workers-ai':    'Llama · Cloudflare (Legacy)',

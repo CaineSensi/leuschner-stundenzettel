@@ -44,6 +44,10 @@ interface AiBinding {
 export interface Env {
   AI?: AiBinding;
   ANTHROPIC_API_KEY?: string;
+  /** Google Gemini Flash — primärer Motor, wenn gesetzt (gratis Tier, ~2s).
+   *  Als Cloudflare-Pages-Secret hinterlegt. Fehlt der Key, fällt die
+   *  Pipeline automatisch auf Workers AI (70B) zurück. */
+  GEMINI_API_KEY?: string;
 }
 
 /** Wie sicher ist Pipeline bei einem Feld bzw. der Gesamtaussage. */
@@ -95,7 +99,7 @@ interface Parsed {
   confidence?: Partial<Record<keyof Parsed | 'overall', Confidence>>;
 
   /** Welcher Pfad hat strukturiert — fürs Debugging im Frontend. */
-  parser: 'workers-ai-70b' | 'workers-ai-8b' | 'anthropic' | 'heuristic';
+  parser: 'gemini' | 'workers-ai-70b' | 'workers-ai-8b' | 'anthropic' | 'heuristic';
 
   /** Diagnose: Felder mit divergierenden Werten zwischen LLM und Heuristik.
    *  Wird im Frontend für Re-Parse-Anzeige / Debugging genutzt. */
@@ -107,6 +111,31 @@ interface Parsed {
     /** Self-Check-Hinweise (M5): was hat der zweite LLM-Call kritisiert? */
     review_hints?: { missing?: string[]; potentially_wrong?: string[]; note?: string };
   };
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Modell-Wahl (Workers AI)
+   ────────────────────────────────────────────────────────────────────────
+   Der Default kann pro Request über `model` im Body übersteuert werden —
+   ausschließlich aus der Whitelist (kein beliebiger Modell-String von außen).
+   Dient dem fairen Live-Benchmark verschiedener Modelle mit identischem
+   Prompt + Pipeline. MODEL_PRIMARY ist der produktive Default. */
+const MODEL_PRIMARY = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+const MODEL_FALLBACK = '@cf/meta/llama-3.1-8b-instruct';
+/** Gemini-Flash-Modell. 2.5-flash ist das aktuelle Flash (2.0-flash ist für
+ *  Billing-Projekte abgekündigt). Schnell, stark bei strukturierter Extraktion,
+ *  sehr günstig (~0,02 Cent/Anfrage). */
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const MODEL_WHITELIST = new Set<string>([
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+  '@cf/meta/llama-4-scout-17b-16e-instruct',
+  '@cf/mistralai/mistral-small-3.1-24b-instruct',
+  '@cf/google/gemma-3-12b-it',
+  '@cf/qwen/qwen2.5-coder-32b-instruct',
+  '@cf/meta/llama-3.1-8b-instruct',
+]);
+function pickModel(requested?: string): string {
+  return requested && MODEL_WHITELIST.has(requested) ? requested : MODEL_PRIMARY;
 }
 
 /** System-Prompt mit Schema + Regeln + Few-Shot-Examples (M2).
@@ -146,18 +175,7 @@ Schema:
   "mengen": [{ "wert": string, "einheit": string, "was": string }],
   "termin": string | null,
   "dringlichkeit": "niedrig" | "normal" | "hoch" | null,
-  "source_guess": "mail" | "phone" | "whatsapp" | "letter" | "in_person" | "web" | null,
-  "confidence": {
-    "overall": "high" | "medium" | "low",
-    "customerName": "high" | "medium" | "low" | null,
-    "phone": "high" | "medium" | "low" | null,
-    "phone_mobile": "high" | "medium" | "low" | null,
-    "email": "high" | "medium" | "low" | null,
-    "street": "high" | "medium" | "low" | null,
-    "city": "high" | "medium" | "low" | null,
-    "leistung": "high" | "medium" | "low" | null,
-    "vorgang": "high" | "medium" | "low"
-  }
+  "source_guess": "mail" | "phone" | "whatsapp" | "letter" | "in_person" | "web" | null
 }
 
 ${buildDomainHint()}
@@ -168,8 +186,8 @@ Regeln:
 - vorgang "reklamation" bei Beschwerde über bereits ausgeführte Arbeit
 - vorgang "material" wenn der Kunde nur Material (z.B. Mutterboden, Pflastersteine) bestellt
 - vorgang "sonstiges" sonst
-- Bei Tippfehlern oder informellem Stil: trotzdem extrahieren, confidence "medium" setzen
-- Bei unsicheren Werten lieber null + confidence "low" statt zu raten
+- Bei Tippfehlern oder informellem Stil: trotzdem extrahieren
+- Bei unsicheren Werten lieber null statt zu raten
 - Mengen mit Einheit (m, m², m³, lfm, Stk, t, Std — IMMER Standardform aus Glossar) und IMMER "was" füllen (was ist gemeint, z.B. "Zaun", "Pflasterfläche", "Mutterboden")
 - WICHTIG bei mehreren Gewerken: leistungen[] enthält JEDE einzelne Leistung mit ihrer eigenen mengen[]-Liste. leistung (Singular) ist dann leistungen[0].name. Das globale mengen[]-Array darf zusätzlich existieren als Gesamtübersicht, ist aber redundant.
 - GRANULARITÄT der leistungen[]: Ein Eintrag ist ein echtes GEWERK bzw. eine Arbeitsart (z.B. "Pflasterarbeiten", "Zaunbau", "Drainage", "Erdarbeiten", "Rasen anlegen", "Heckenschnitt"), NICHT ein einzelner Arbeitsort, ein Bauteil oder eine Teilaufgabe. Beispiel: "Ausbesserung am bestehenden Pflaster", "Führungsschienen der Poolabdeckung absenken", "Gartenhütte lasieren" sind KEINE drei Leistungen — das sind Teilaufgaben, die unter EIN passendes Gewerk gehören (hier "Pflaster-/Ausbesserungsarbeiten"). Lieber 1–2 saubere Gewerke mit mehreren source_quotes als viele Mini-Leistungen. Nur klar getrennte Gewerke (z.B. Zaun UND Pflaster) bekommen eigene Einträge.
@@ -202,21 +220,21 @@ Josef Borgmann
 Tel: 04961 / 12345"
 
 Ausgabe:
-{"vorgang":"angebot","customerName":"Josef Borgmann","firma":null,"phone":"04961 / 12345","phone_mobile":null,"email":"m.borgmann@web.de","street":"Tunxdorferstraße 46","zip":"26871","city":"Papenburg","description":"Angebot für Doppelstabmattenzaun anthrazit, ca. 80 m Höhe 1,80 m, plus zwei Tore.","leistung":"Doppelstabmattenzaun","leistungen":[{"name":"Doppelstabmattenzaun","mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"materialien":[{"name":"anthrazit","spec":"RAL 7016","menge":null,"note":"Farbwunsch"}],"source_quotes":["Doppelstabmattenzaun, anthrazit","ca. 80 m, Höhe 1,80 m","zwei Tore"]}],"mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"termin":null,"dringlichkeit":"normal","source_guess":"mail","confidence":{"overall":"high","customerName":"high","phone":"high","phone_mobile":null,"email":"high","street":"high","city":"high","leistung":"high","vorgang":"high"}}
+{"vorgang":"angebot","customerName":"Josef Borgmann","firma":null,"phone":"04961 / 12345","phone_mobile":null,"email":"m.borgmann@web.de","street":"Tunxdorferstraße 46","zip":"26871","city":"Papenburg","description":"Angebot für Doppelstabmattenzaun anthrazit, ca. 80 m Höhe 1,80 m, plus zwei Tore.","leistung":"Doppelstabmattenzaun","leistungen":[{"name":"Doppelstabmattenzaun","mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"materialien":[{"name":"anthrazit","spec":"RAL 7016","menge":null,"note":"Farbwunsch"}],"source_quotes":["Doppelstabmattenzaun, anthrazit","ca. 80 m, Höhe 1,80 m","zwei Tore"]}],"mengen":[{"wert":"80","einheit":"m","was":"Zaun"},{"wert":"1,80","einheit":"m","was":"Höhe"},{"wert":"2","einheit":"Stk","was":"Tore"}],"termin":null,"dringlichkeit":"normal","source_guess":"mail"}
 
 BEISPIEL 2 — Telefon-Notiz (mehrteilig, zeigt leistungen[])
 Eingabe:
 "Frau Hainke aus Bunde, 0171 2345678, will Hofeinfahrt gepflastert ca 45 qm und Drainage davor. Bittet um Rückruf."
 
 Ausgabe:
-{"vorgang":"angebot","customerName":"Hainke","firma":null,"phone":null,"phone_mobile":"0171 2345678","email":null,"street":null,"zip":null,"city":"Bunde","description":"Hofeinfahrt pflastern ca. 45 m² plus Drainage davor. Bittet um Rückruf.","leistung":"Pflasterarbeiten","leistungen":[{"name":"Pflasterarbeiten","mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}],"materialien":[],"source_quotes":["Hofeinfahrt gepflastert ca 45 qm"]},{"name":"Drainage","mengen":[],"materialien":[],"source_quotes":["Drainage davor"]}],"mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}],"termin":"Rückruf gewünscht","dringlichkeit":"normal","source_guess":"phone","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
+{"vorgang":"angebot","customerName":"Hainke","firma":null,"phone":null,"phone_mobile":"0171 2345678","email":null,"street":null,"zip":null,"city":"Bunde","description":"Hofeinfahrt pflastern ca. 45 m² plus Drainage davor. Bittet um Rückruf.","leistung":"Pflasterarbeiten","leistungen":[{"name":"Pflasterarbeiten","mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}],"materialien":[],"source_quotes":["Hofeinfahrt gepflastert ca 45 qm"]},{"name":"Drainage","mengen":[],"materialien":[],"source_quotes":["Drainage davor"]}],"mengen":[{"wert":"45","einheit":"m²","was":"Hofeinfahrt"}],"termin":"Rückruf gewünscht","dringlichkeit":"normal","source_guess":"phone"}
 
 BEISPIEL 3 — WhatsApp (informell, Tippfehler)
 Eingabe:
 "moin, hier de haan aus leer. brauch dringen mutterboden ca 70 kubik fürn neuen garten. wann könnt ihr liefern? 015112345678"
 
 Ausgabe:
-{"vorgang":"material","customerName":"De Haan","firma":null,"phone":null,"phone_mobile":"015112345678","email":null,"street":null,"zip":null,"city":"Leer","description":"Lieferung Mutterboden ca. 70 m³ für neuen Garten. Liefertermin gesucht.","leistung":"Mutterboden","leistungen":[{"name":"Mutterboden","mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"materialien":[{"name":"Mutterboden","spec":null,"menge":{"wert":"70","einheit":"m³"},"note":"Bestellung Material, kein Verbau"}],"source_quotes":["mutterboden ca 70 kubik","fuern neuen garten"]}],"mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"termin":"so schnell wie möglich","dringlichkeit":"hoch","source_guess":"whatsapp","confidence":{"overall":"medium","customerName":"medium","phone":null,"phone_mobile":"high","email":null,"street":null,"city":"high","leistung":"high","vorgang":"high"}}
+{"vorgang":"material","customerName":"De Haan","firma":null,"phone":null,"phone_mobile":"015112345678","email":null,"street":null,"zip":null,"city":"Leer","description":"Lieferung Mutterboden ca. 70 m³ für neuen Garten. Liefertermin gesucht.","leistung":"Mutterboden","leistungen":[{"name":"Mutterboden","mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"materialien":[{"name":"Mutterboden","spec":null,"menge":{"wert":"70","einheit":"m³"},"note":"Bestellung Material, kein Verbau"}],"source_quotes":["mutterboden ca 70 kubik","fuern neuen garten"]}],"mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"termin":"so schnell wie möglich","dringlichkeit":"hoch","source_guess":"whatsapp"}
 
 Jetzt strukturiere die folgende Anfrage nach demselben Schema. Antworte AUSSCHLIESSLICH mit dem JSON-Objekt.`;
 
@@ -286,6 +304,80 @@ async function parseWithAnthropic(text: string, apiKey: string): Promise<Parsed 
   } catch {
     return null;
   }
+}
+
+/** Google Gemini Flash · primärer Motor wenn GEMINI_API_KEY gesetzt.
+ *  Gratis-Tier, ~2s, volle fp16-Präzision. `responseMimeType: application/json`
+ *  erzwingt valides JSON (kein Codefence-Geraffel). Bei jedem Fehler (Rate-Limit,
+ *  4xx/5xx, leere Antwort) liefert die Funktion `{parsed:null, error}` — der
+ *  Aufrufer fällt dann sauber auf Workers AI zurück. */
+async function parseWithGemini(
+  text: string,
+  apiKey: string,
+  model: string = GEMINI_MODEL,
+): Promise<{ parsed: Parsed | null; error?: string }> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const reqBody = JSON.stringify({
+    system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+    contents: [{ role: 'user', parts: [{ text }] }],
+    generationConfig: {
+      temperature: 0.1,
+      maxOutputTokens: 4096,
+      responseMimeType: 'application/json',
+      // Reasoning AUS: 2.5-flash würde sonst das Token-Budget fürs interne
+      // "Denken" verbrauchen und das eigentliche JSON abschneiden
+      // (json-parse-fail bei langen Anfragen). Ohne Thinking ist es zudem
+      // schneller und günstiger — genau richtig fürs sparsame Budget.
+      thinkingConfig: { thinkingBudget: 0 },
+    },
+  });
+
+  // Gemini wirft sporadisch 503 (UNAVAILABLE, "high demand") oder 429. Diese
+  // Fehler sind transient — ein schneller Retry fängt die meisten ab, bevor
+  // wir aufs (langsame) Workers-AI-70B zurückfallen. Fehlgeschlagene Calls
+  // (503/429) werden von Google nicht berechnet → sparsam-konform.
+  const MAX_ATTEMPTS = 2;
+  let lastError = 'gemini: unbekannter Fehler';
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: reqBody,
+      });
+      if (!resp.ok) {
+        const errTxt = await resp.text();
+        lastError = `gemini ${resp.status}: ${errTxt.replace(/\s+/g, ' ').slice(0, 160)}`;
+        const transient = resp.status === 503 || resp.status === 429 || resp.status === 500;
+        if (transient && attempt < MAX_ATTEMPTS) {
+          await new Promise((r) => setTimeout(r, 600));
+          continue;
+        }
+        return { parsed: null, error: lastError };
+      }
+      const data: any = await resp.json();
+      const raw: string =
+        (data?.candidates?.[0]?.content?.parts ?? [])
+          .map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
+          .join('') || '';
+      if (!raw) {
+        const reason = data?.candidates?.[0]?.finishReason ?? 'unknown';
+        lastError = `gemini empty (finishReason=${reason})`;
+        if (attempt < MAX_ATTEMPTS) { await new Promise((r) => setTimeout(r, 600)); continue; }
+        return { parsed: null, error: lastError };
+      }
+      const json = safeJson(stripCodeFence(raw));
+      if (!json) return { parsed: null, error: 'gemini json-parse-fail: ' + raw.slice(0, 160) };
+      const out = normalize({ ...json, parser: 'gemini' });
+      out.meta = { ...(out.meta ?? {}), model };
+      return { parsed: out };
+    } catch (e: any) {
+      lastError = 'gemini threw: ' + String(e?.message ?? e).slice(0, 160);
+      if (attempt < MAX_ATTEMPTS) { await new Promise((r) => setTimeout(r, 600)); continue; }
+      return { parsed: null, error: lastError };
+    }
+  }
+  return { parsed: null, error: lastError };
 }
 
 /** Robust gegen unerwartete Response-Shapes — Workers AI liefert beim
@@ -527,13 +619,15 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
   const debug = {
     hasAI: !!env.AI,
     hasAnthropic: !!env.ANTHROPIC_API_KEY,
+    hasGemini: !!env.GEMINI_API_KEY,
     aiError: '' as string,
     aiPath: '' as string,
     preclean: '' as string,
   };
   try {
-    const body = (await request.json()) as { text?: string; selfCheck?: boolean };
+    const body = (await request.json()) as { text?: string; selfCheck?: boolean; model?: string };
     const rawText = (body?.text ?? '').trim();
+    const primaryModel = pickModel(body?.model);
     if (!rawText) {
       return new Response(JSON.stringify({ error: 'no text' }), { status: 400 });
     }
@@ -552,11 +646,28 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
 
     const heur = parseHeuristic(rawText);
 
-    // 1) Workers AI · Llama 3.3 70B fp8-fast (Primary)
+    // 0) Google Gemini Flash (Primärmotor, wenn Key gesetzt) — außer es wurde
+    //    explizit ein Workers-AI-Modell angefragt (Benchmark/Vergleich).
+    const forceWorkersModel = !!body?.model && MODEL_WHITELIST.has(body.model);
+    if (env.GEMINI_API_KEY && !forceWorkersModel) {
+      const g = await parseWithGemini(llmInput, env.GEMINI_API_KEY);
+      if (g.parsed) {
+        debug.aiPath = 'gemini:' + GEMINI_MODEL;
+        const merged = mergeCrossValidate(g.parsed, heur, rawText);
+        attachPrecleanMeta(merged, pre);
+        if (shouldSelfCheck(rawText, body?.selfCheck) && env.AI) {
+          merged.meta = { ...(merged.meta ?? {}), review_hints: await selfCheck(rawText, merged, env.AI) };
+        }
+        return jsonResponse(merged, debug);
+      }
+      debug.aiError = 'gemini: ' + (g.error ?? 'unknown') + ' | ';
+    }
+
+    // 1) Workers AI · Llama 3.3 70B fp8-fast (Fallback / oder Benchmark-Modell)
     if (env.AI) {
-      const wa70 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+      const wa70 = await runWorkersAi(llmInput, env.AI, primaryModel);
       if (wa70.parsed) {
-        debug.aiPath = 'llama-3.3-70b';
+        debug.aiPath = primaryModel;
         const merged = mergeCrossValidate(wa70.parsed, heur, rawText);
         attachPrecleanMeta(merged, pre);
         if (shouldSelfCheck(rawText, body?.selfCheck)) {
@@ -564,10 +675,10 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
         }
         return jsonResponse(merged, debug);
       }
-      debug.aiError = '70b: ' + (wa70.error ?? 'unknown');
+      debug.aiError = primaryModel + ': ' + (wa70.error ?? 'unknown');
 
-      // 2) Workers AI · Llama 3.1 8B (Fallback wenn 70B versagt)
-      const wa8 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.1-8b-instruct');
+      // 2) Workers AI · Llama 3.1 8B (Fallback wenn Primärmodell versagt)
+      const wa8 = await runWorkersAi(llmInput, env.AI, MODEL_FALLBACK);
       if (wa8.parsed) {
         debug.aiPath = 'llama-3.1-8b-fallback';
         const merged = mergeCrossValidate(wa8.parsed, heur, rawText);
@@ -705,8 +816,9 @@ ${JSON.stringify({
    ──────────────────────────────────────────────────────────────────────── */
 
 async function streamResponse(request: Request, env: Env): Promise<Response> {
-  const body = (await request.json().catch(() => ({}))) as { text?: string; selfCheck?: boolean };
+  const body = (await request.json().catch(() => ({}))) as { text?: string; selfCheck?: boolean; model?: string };
   const rawText = (body?.text ?? '').trim();
+  const primaryModel = pickModel(body?.model);
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -744,16 +856,33 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
 
         const llmInput = pre.headers ? buildLlmInputWithHeaders(pre.cleaned, pre.headers) : pre.cleaned;
 
-        // 3) LLM Primary (70B) — Fallbacks 8B + Anthropic
+        // 3) LLM Primary — Gemini Flash, dann Workers AI (70B→8B), dann Anthropic
         let merged: Parsed | null = null;
         let usedPath = '';
 
-        if (env.AI) {
-          step('llm', 'start', { model: 'Llama 3.3 70B' });
-          const wa70 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.3-70b-instruct-fp8-fast');
+        const forceWorkersModel = !!body?.model && MODEL_WHITELIST.has(body.model);
+        if (env.GEMINI_API_KEY && !forceWorkersModel) {
+          step('llm', 'start', { model: 'Gemini Flash' });
+          const g = await parseWithGemini(llmInput, env.GEMINI_API_KEY);
+          if (g.parsed) {
+            usedPath = 'gemini:' + GEMINI_MODEL;
+            step('llm', 'done', { model: 'Gemini Flash', info: 'JSON erfolgreich geparst' });
+            step('crossvalidate', 'start');
+            merged = mergeCrossValidate(g.parsed, heur, rawText);
+            attachPrecleanMeta(merged, pre);
+            const conflicts = merged.meta?.conflicts?.length ?? 0;
+            step('crossvalidate', 'done', { info: conflicts ? `${conflicts} Konflikte gelöst` : 'keine Konflikte' });
+          } else {
+            step('llm', 'done', { model: 'Gemini Flash', info: 'fehlgeschlagen, weiche auf Workers AI aus' });
+          }
+        }
+
+        if (!merged && env.AI) {
+          step('llm', 'start', { model: primaryModel });
+          const wa70 = await runWorkersAi(llmInput, env.AI, primaryModel);
           if (wa70.parsed) {
-            usedPath = 'llama-3.3-70b';
-            step('llm', 'done', { model: 'Llama 3.3 70B', info: 'JSON erfolgreich geparst' });
+            usedPath = primaryModel;
+            step('llm', 'done', { model: primaryModel, info: 'JSON erfolgreich geparst' });
             // 4) Cross-Validate
             step('crossvalidate', 'start');
             merged = mergeCrossValidate(wa70.parsed, heur, rawText);
@@ -761,9 +890,9 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
             const conflicts = merged.meta?.conflicts?.length ?? 0;
             step('crossvalidate', 'done', { info: conflicts ? `${conflicts} Konflikte gelöst` : 'keine Konflikte' });
           } else {
-            step('llm', 'done', { model: 'Llama 3.3 70B', info: 'fehlgeschlagen, versuche 8B-Fallback' });
+            step('llm', 'done', { model: primaryModel, info: 'fehlgeschlagen, versuche 8B-Fallback' });
             step('llm', 'start', { model: 'Llama 3.1 8B' });
-            const wa8 = await runWorkersAi(llmInput, env.AI, '@cf/meta/llama-3.1-8b-instruct');
+            const wa8 = await runWorkersAi(llmInput, env.AI, MODEL_FALLBACK);
             if (wa8.parsed) {
               usedPath = 'llama-3.1-8b-fallback';
               step('llm', 'done', { model: 'Llama 3.1 8B', info: 'Fallback erfolgreich' });
@@ -797,7 +926,7 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
         // 5) Self-Check — standardmäßig AUS (war zu meckerig + kostet einen
         //    kompletten zweiten 70B-Call). Nur wenn der Client ihn ausdrücklich
         //    per selfCheck:true anfordert und der 70B-Pfad griff.
-        if (env.AI && usedPath === 'llama-3.3-70b' && shouldSelfCheck(rawText, body?.selfCheck)) {
+        if (env.AI && usedPath === primaryModel && shouldSelfCheck(rawText, body?.selfCheck)) {
           step('selfcheck', 'start');
           const hints = await selfCheck(rawText, merged, env.AI);
           if (hints) {
@@ -832,13 +961,18 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
 }
 
 function jsonResponse(p: Parsed, debug: any): Response {
+  // HTTP-Header dürfen keine Zeilenumbrüche/Steuerzeichen enthalten — sonst
+  // wirft die Runtime "Invalid header value" (500). Gemini-Fehlermeldungen
+  // enthalten mehrzeiliges JSON, darum hier zwingend säubern + kürzen.
+  const hsan = (s: unknown) => String(s ?? '').replace(/[\r\n\t]+/g, ' ').replace(/[^\x20-\x7E]/g, '').slice(0, 300);
   return new Response(JSON.stringify(p), {
     headers: {
       'content-type': 'application/json',
       'x-ai-available': String(debug.hasAI),
       'x-anthropic-available': String(debug.hasAnthropic),
-      'x-ai-path': debug.aiPath || '',
-      'x-ai-error': debug.aiError || '',
+      'x-gemini-available': String(debug.hasGemini),
+      'x-ai-path': hsan(debug.aiPath),
+      'x-ai-error': hsan(debug.aiError),
     },
   });
 }
@@ -892,7 +1026,11 @@ function mergeCrossValidate(primary: Parsed, heur: Parsed, rawText: string): Par
   const conflicts: NonNullable<Parsed['meta']>['conflicts'] = [];
   const textLower = rawText.toLowerCase();
 
-  const allFields = ['email','phone','phone_mobile','zip','city','street','customerName','leistung','description','firma'] as const;
+  // leistung (Singular) NICHT cross-validaten: die Heuristik trifft hier oft
+  // ein zufälliges Keyword ("zaunelemente") wörtlich, während das saubere
+  // LLM-Gewerk ("Doppelstabmattenzaun") nur als Plural/Flexion im Text steht
+  // und damit fälschlich verliert. leistung wird unten aus leistungen[0] gesetzt.
+  const allFields = ['email','phone','phone_mobile','zip','city','street','customerName','description','firma'] as const;
   for (const k of allFields) {
     const llmVal = (primary as any)[k] as string | undefined;
     const heuVal = (heur as any)[k] as string | undefined;
@@ -929,6 +1067,10 @@ function mergeCrossValidate(primary: Parsed, heur: Parsed, rawText: string): Par
   // Mengen / Klassifikations-Felder klassisch backfillen
   if (!out.mengen && heur.mengen) out.mengen = heur.mengen;
   if ((!out.leistungen || out.leistungen.length === 0) && heur.leistungen) out.leistungen = heur.leistungen;
+  // leistung (Singular) IMMER aus der Gewerksliste ableiten — saubere Quelle
+  // statt Heuristik-Keyword. Fällt nur auf den vorhandenen Wert zurück, wenn
+  // gar keine Liste existiert.
+  if (out.leistungen?.length) out.leistung = out.leistungen[0].name;
   if (!out.dringlichkeit && heur.dringlichkeit) out.dringlichkeit = heur.dringlichkeit;
   if (!out.source_guess && heur.source_guess) out.source_guess = heur.source_guess;
   if (!out.vorgang && heur.vorgang) out.vorgang = heur.vorgang;
