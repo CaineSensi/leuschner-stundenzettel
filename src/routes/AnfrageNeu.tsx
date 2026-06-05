@@ -207,7 +207,11 @@ export default function AnfrageNeu() {
       setCity(p.city ?? "");
       setDescription(p.description ?? "");
       if (p.vorgang) setVorgang(p.vorgang);
-      if (p.source_guess) setSource(p.source_guess);
+      // KI-Quellenschätzung nur übernehmen, wenn der Nutzer keine bewusste
+      // Quelle gewählt hat (noch Default "mail"). Eine manuell gewählte oder
+      // beim Tippen erkannte Quelle (WhatsApp/Telefon/…) gewinnt — die KI soll
+      // sie nicht überschreiben (sonst wird z.B. WhatsApp fälschlich "persönlich").
+      if (p.source_guess && source === "mail") setSource(p.source_guess);
       // M9: Snapshot der LLM-Werte merken + Confirm-Set zurücksetzen
       setParsedSnapshot({
         customerName: cn, phone: ph, phone_mobile: pm, email: em,
