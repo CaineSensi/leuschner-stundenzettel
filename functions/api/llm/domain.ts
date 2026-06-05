@@ -44,6 +44,25 @@ export const LEISTUNGEN = [
   'Kies-/Splittflächen', 'Beetanlage',
 ];
 
+/** KANONISCHE Gewerke — der Modell-`name` jeder Leistung MUSS exakt einer
+ *  dieser Bezeichnungen sein. Das hält die Aufschlüsselung über alle Anfragen
+ *  hinweg konsistent (kein Mal "Terrasse anlegen", mal "Pflasterarbeiten" fürs
+ *  selbe Gewerk). Jede Zeile: kanonischer Name → was alles darunter fällt. */
+export const GEWERKE: { name: string; faellt_darunter: string }[] = [
+  { name: 'Pflasterarbeiten', faellt_darunter: 'Hofeinfahrt/Auffahrt/Wege/Flächen pflastern, Pflaster ausbessern, Randsteine' },
+  { name: 'Terrassenbau',     faellt_darunter: 'Terrasse aus Naturstein/Platten/Pflaster, Terrassenunterbau' },
+  { name: 'Zaunbau',          faellt_darunter: 'Zäune aller Art INKL. Tore, Pfosten, Sichtschutz montieren' },
+  { name: 'Erdarbeiten',      faellt_darunter: 'Aushub, Bagger-/Fräsarbeiten, Planieren, Boden abtragen/auffüllen' },
+  { name: 'Drainage',         faellt_darunter: 'Drainage, Entwässerung, Regenwasserrinne, Versickerung' },
+  { name: 'Rasen anlegen',    faellt_darunter: 'Rollrasen, Rasensaat, Rasenfläche neu' },
+  { name: 'Mauerarbeiten',    faellt_darunter: 'Gartenmauer, Palisaden, Rasenbord, Natursteinmauer' },
+  { name: 'Baumfällung',      faellt_darunter: 'Bäume fällen, Stubben/Wurzeln fräsen, Baumstumpf entfernen' },
+  { name: 'Heckenschnitt',    faellt_darunter: 'Hecke schneiden/roden, Gehölz/Sträucher zurückschneiden' },
+  { name: 'Gartenpflege',     faellt_darunter: 'Unkraut entfernen, Beete pflegen, Aufräumen, Grünabfall' },
+  { name: 'Bepflanzung',      faellt_darunter: 'Beete anlegen, Pflanzen/Hecke/Bäume setzen' },
+  { name: 'Materiallieferung',faellt_darunter: 'Mutterboden/Kies/Splitt/Sand liefern OHNE Verbau' },
+];
+
 /** Hesse-Produktnamen + Kürzel, die in Kunden-Anfragen vorkommen können. */
 export const HESSE_PRODUKTE = [
   'Doppelstabmatte', 'DSM', '8/6/8', '6/5/6',
@@ -63,14 +82,21 @@ export const EINHEITEN_ALIAS: Record<string, string> = {
 
 /** Kompakter Glossar-Block fürs LLM. Nicht zu lang — Token-Budget knapp halten. */
 export function buildDomainHint(): string {
-  return `Domain-Glossar (zur Orientierung, NICHT zwingend zu erwähnen):
+  const gewerkeListe = GEWERKE.map((g) => `  • ${g.name} — ${g.faellt_darunter}`).join('\n');
+  return `Domain-Glossar:
 - Orte im Einzugsgebiet: ${ORTE_OSTFRIESLAND.slice(0, 30).join(', ')}, ... (weitere ostfriesische Dörfer möglich)
-- Typische Leistungen: ${LEISTUNGEN.slice(0, 20).join(', ')}
 - Hesse-Bezeichnungen: ${HESSE_PRODUKTE.join(', ')}
 - Einheiten-Normalisierung: qm→m², cbm/kubik→m³, lfm/laufender Meter→lfm, Stk/Stück→Stk, Std/Stunde→Std
 
-Hinweise:
-- Bei mehrteiligen Anfragen (z.B. "Zaun + Pflaster + Drainage") führe ALLE Gewerke separat in leistungen[] auf.
+KANONISCHE GEWERKE — leistungen[].name MUSS EXAKT einer dieser Namen aus der linken Spalte sein:
+${gewerkeListe}
+  • Sonstiges: <knapper eigener Name> — NUR wenn wirklich kein Gewerk oben passt
+
+Regeln zur Aufschlüsselung (sehr wichtig, hier liegen die meisten Fehler):
+- name IMMER wörtlich aus der kanonischen Liste übernehmen — niemals frei umformulieren (also "Terrassenbau", NICHT "Terrasse anlegen" oder "Pflasterarbeiten" für eine Terrasse).
+- Jedes echte Gewerk genau EINMAL. Mehrere Teilaufgaben desselben Gewerks (z.B. "Zaun aufstellen" + "Sichtschutz einfädeln", oder "alten Zaun raus" + "neuen Zaun setzen") gehören in EINEN Zaunbau-Eintrag, nicht in mehrere.
+- Klar verschiedene Gewerke (z.B. Pflaster + Zaun + Baumfällung) bekommen je einen eigenen Eintrag.
+- Terrasse → IMMER "Terrassenbau" (auch wenn gepflastert wird). Auffahrt/Hof/Wege → "Pflasterarbeiten". Baum/Stubben/Wurzel → "Baumfällung". Unkraut → "Gartenpflege".
 - Bei Tippfehlern in Orten: korrigiere auf den nächstgelegenen aus der Liste (z.B. "Bumde" → "Bunde").
 - Einheiten in der Ausgabe IMMER in der Standardform (m², m³, lfm, Stk, Std).`;
 }

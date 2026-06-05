@@ -236,6 +236,13 @@ Eingabe:
 Ausgabe:
 {"vorgang":"material","customerName":"De Haan","firma":null,"phone":null,"phone_mobile":"015112345678","email":null,"street":null,"zip":null,"city":"Leer","description":"Lieferung Mutterboden ca. 70 m³ für neuen Garten. Liefertermin gesucht.","leistung":"Mutterboden","leistungen":[{"name":"Mutterboden","mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"materialien":[{"name":"Mutterboden","spec":null,"menge":{"wert":"70","einheit":"m³"},"note":"Bestellung Material, kein Verbau"}],"source_quotes":["mutterboden ca 70 kubik","fuern neuen garten"]}],"mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"termin":"so schnell wie möglich","dringlichkeit":"hoch","source_guess":"whatsapp"}
 
+BEISPIEL 4 — Komplexe Mehr-Gewerk-Anfrage (informell; zeigt kanonische Gewerksnamen, Telefon-Trennung, PLZ ≠ Vorwahl, Material-Alternative)
+Eingabe:
+"moin, Familie Janßen aus bunde. wir wolln die einfahrt neu pflastern ca 50 qm in grau, dahinter ne terrasse mit naturstein oder sonst betonplatten ca 25 qm. der olle zaun muss weg un ein neuer doppelstabzaun anthrazit 30 meter mit einem tor. ausserdem die alte birke fällen un überall unkraut weg. ruft an unter 04953 11223 oder handy 0170 9988776. wohnen Dorfstraße 7, 26831 bunde"
+
+Ausgabe:
+{"vorgang":"angebot","customerName":"Janßen","firma":null,"phone":"04953 11223","phone_mobile":"0170 9988776","email":null,"street":"Dorfstraße 7","zip":"26831","city":"Bunde","description":"Einfahrt neu pflastern (ca. 50 m²), Terrasse aus Naturstein oder Betonplatten (ca. 25 m²), alten Zaun ersetzen durch Doppelstabzaun anthrazit (30 m, 1 Tor), alte Birke fällen, Unkraut entfernen.","leistung":"Pflasterarbeiten","leistungen":[{"name":"Pflasterarbeiten","mengen":[{"wert":"50","einheit":"m²","was":"Einfahrt"}],"materialien":[{"name":"Pflaster","spec":"grau","menge":null,"note":"Farbwunsch"}],"source_quotes":["einfahrt neu pflastern ca 50 qm in grau"]},{"name":"Terrassenbau","mengen":[{"wert":"25","einheit":"m²","was":"Terrasse"}],"materialien":[{"name":"Naturstein","spec":null,"menge":null,"note":"Alternativ-Wahl gewünscht"},{"name":"Betonplatten","spec":null,"menge":null,"note":null}],"source_quotes":["terrasse mit naturstein oder sonst betonplatten ca 25 qm"]},{"name":"Zaunbau","mengen":[{"wert":"30","einheit":"m","was":"Zaun"},{"wert":"1","einheit":"Stk","was":"Tor"}],"materialien":[{"name":"Doppelstabzaun","spec":"anthrazit","menge":null,"note":"Farbwunsch"}],"source_quotes":["neuer doppelstabzaun anthrazit 30 meter mit einem tor"]},{"name":"Baumfällung","mengen":[],"materialien":[],"source_quotes":["alte birke fällen"]},{"name":"Gartenpflege","mengen":[],"materialien":[],"source_quotes":["überall unkraut weg"]}],"mengen":[{"wert":"50","einheit":"m²","was":"Einfahrt"},{"wert":"25","einheit":"m²","was":"Terrasse"},{"wert":"30","einheit":"m","was":"Zaun"}],"termin":null,"dringlichkeit":"normal","source_guess":"whatsapp"}
+
 Jetzt strukturiere die folgende Anfrage nach demselben Schema. Antworte AUSSCHLIESSLICH mit dem JSON-Objekt.`;
 
 /**
@@ -250,7 +257,7 @@ async function runWorkersAi(text: string, ai: AiBinding, model: string): Promise
         { role: 'user', content: text },
       ],
       max_tokens: 1500, // 70B liefert ausführlichere confidence-Blöcke
-      temperature: 0.1,
+      temperature: 0,
       // response_format weggelassen: Cloudflare-Workers-AI verlangt für
       // strict-JSON ein eigenes `json_schema`-Format. Stattdessen erzwingt
       // der System-Prompt das JSON, safeJson räumt Codefences/Vorwort weg.
@@ -321,7 +328,7 @@ async function parseWithGemini(
     system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: 'user', parts: [{ text }] }],
     generationConfig: {
-      temperature: 0.1,
+      temperature: 0,
       maxOutputTokens: 4096,
       responseMimeType: 'application/json',
       // Reasoning AUS: 2.5-flash würde sonst das Token-Budget fürs interne
