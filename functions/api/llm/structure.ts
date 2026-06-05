@@ -533,13 +533,18 @@ function parseHeuristic(text: string): Parsed {
     else if (isMobile && !out.phone) out.phone = p.value; // Fallback
   }
 
-  // PLZ + Stadt — Stadt 1-3 Wörter, stoppt am Punkt/Komma
-  const plzCity = text.match(/\b(\d{5})\s+([A-ZÄÖÜ][a-zäöüß][\wäöüß-]*(?:[\s/-][A-ZÄÖÜ][a-zäöüß][\wäöüß-]+){0,2})/);
+  // PLZ + Stadt. WICHTIG: erkannte Telefonnummern vorher maskieren, sonst wird
+  // eine Ortsvorwahl (z.B. "04958") fälschlich als PLZ gegriffen. Stadt darf
+  // auch klein geschrieben sein (informelle WhatsApp-Anfragen: "26844 jemgum").
+  let textNoPhone = text;
+  for (const p of phones) textNoPhone = textNoPhone.split(p.value).join(' ');
+  const plzCity = textNoPhone.match(/\b(\d{5})\s+([A-Za-zÄÖÜäöü][a-zäöüß][\wäöüß-]*(?:[\s/-][A-Za-zÄÖÜäöü][a-zäöüß][\wäöüß-]+){0,2})/);
   if (plzCity) {
     out.zip = plzCity[1];
-    out.city = plzCity[2].trim();
+    // Ort mit großem Anfangsbuchstaben normalisieren (jemgum -> Jemgum)
+    out.city = plzCity[2].trim().replace(/^[a-zäöü]/, (c) => c.toUpperCase());
   } else {
-    const plz = text.match(/\b\d{5}\b/);
+    const plz = textNoPhone.match(/\b\d{5}\b/);
     if (plz) out.zip = plz[0];
   }
 
