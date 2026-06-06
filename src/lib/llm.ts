@@ -56,6 +56,8 @@ export interface ParsedInquiry {
       headers?: { from?: string; to?: string; subject?: string; date?: string };
     };
     review_hints?: { missing?: string[]; potentially_wrong?: string[]; note?: string };
+    /** Flächen-Plausibilität: Teilflächen ergeben nicht die genannte Gesamtfläche. */
+    flaechen_check?: { gesamt: number; zugeordnet: number; differenz: number; hinweis: string };
   };
 }
 

@@ -110,6 +110,9 @@ interface Parsed {
     preclean?: { applied: string[]; shrunkBy: number; headers?: PrecleanResult['headers'] };
     /** Self-Check-Hinweise (M5): was hat der zweite LLM-Call kritisiert? */
     review_hints?: { missing?: string[]; potentially_wrong?: string[]; note?: string };
+    /** Flächen-Plausibilität: nennt der Text eine Gesamtfläche, aber die
+     *  aufgeschlüsselten Teilflächen ergeben eine andere Summe → Hinweis. */
+    flaechen_check?: { gesamt: number; zugeordnet: number; differenz: number; hinweis: string };
   };
 }
 
@@ -329,7 +332,9 @@ async function parseWithGemini(
     contents: [{ role: 'user', parts: [{ text }] }],
     generationConfig: {
       temperature: 0,
-      maxOutputTokens: 4096,
+      // großzügig: umfangreiche Anfragen (10+ Gewerke je mit Mengen/Materialien)
+      // erzeugen langes JSON — zu knappes Limit schnitt die Antwort ab (parse-fail).
+      maxOutputTokens: 8192,
       responseMimeType: 'application/json',
       // Reasoning AUS: 2.5-flash würde sonst das Token-Budget fürs interne
       // "Denken" verbrauchen und das eigentliche JSON abschneiden
@@ -443,21 +448,25 @@ function normalize(p: any): Parsed {
   if (Array.isArray(p.mengen)) {
     out.mengen = p.mengen
       .filter((m: any) => m && typeof m.wert === 'string')
-      .slice(0, 8)
+      .slice(0, 16)
       .map((m: any) => ({ wert: String(m.wert), einheit: normEinheit(m.einheit), was: m.was ?? '' }));
   }
 
-  // M8/M12: leistungen[] mit pro-Leistung-Mengen + Materialien
+  // M8/M12: leistungen[] mit pro-Leistung-Mengen + Materialien.
+  // Limit als reines Sicherheitsnetz großzügig (20) — NICHT als echte Schranke:
+  // selbst sehr umfangreiche GaLaBau-Komplettanfragen bleiben real unter ~12–14
+  // Gewerken; 20 lässt also jede echte Anfrage komplett durch und kappt nur
+  // pathologischen Ausreißer-Output. (Vorher 6 → schnitt große Anfragen ab.)
   if (Array.isArray(p.leistungen)) {
     out.leistungen = p.leistungen
       .filter((l: any) => l && typeof l.name === 'string' && l.name.trim().length)
-      .slice(0, 6)
+      .slice(0, 20)
       .map((l: any) => ({
         name: String(l.name).trim(),
         mengen: Array.isArray(l.mengen)
           ? l.mengen
               .filter((m: any) => m && typeof m.wert === 'string')
-              .slice(0, 5)
+              .slice(0, 8)
               .map((m: any) => ({ wert: String(m.wert), einheit: normEinheit(m.einheit), was: m.was ?? '' }))
           : undefined,
         materialien: Array.isArray(l.materialien)
@@ -1033,6 +1042,35 @@ function valuesEqual(field: string, a?: string, b?: string): boolean {
   return normStr(a) === normStr(b);
 }
 
+/** Flächen-Gegenprüfung: Nennt der Text eine Gesamtfläche und zusätzlich
+ *  Teilflächen ("davon Rasen … m²"), prüfen wir, ob die Teilflächen die
+ *  Gesamtfläche ergeben. Fehlt etwas (klassische Restfläche: Wege/Ränder/
+ *  Zuwegung), wäre das in der Kalkulation sonst unsichtbar.
+ *  Bewusst NUR über das globale mengen[]-Array (die "Gesamtübersicht" laut
+ *  Prompt) — so wird keine Fläche doppelt gezählt. Toleranz 5 %, damit
+ *  Rundungen ("ca.") keinen Fehlalarm auslösen. */
+function checkFlaechen(p: Parsed): NonNullable<Parsed['meta']>['flaechen_check'] | undefined {
+  const m2 = (p.mengen ?? [])
+    .filter((m) => m.einheit === 'm²')
+    .map((m) => ({ wert: parseFloat(String(m.wert).replace(',', '.')), was: (m.was ?? '').toLowerCase() }))
+    .filter((m) => isFinite(m.wert) && m.wert > 0);
+  const gesamtIdx = m2.findIndex((m) => /gesamt/.test(m.was));
+  if (gesamtIdx === -1) return undefined;
+  const teil = m2.filter((_, i) => i !== gesamtIdx);
+  if (teil.length < 2) return undefined; // mind. 2 Teilflächen, sonst keine echte Aufschlüsselung
+  const gesamt = m2[gesamtIdx].wert;
+  const zugeordnet = Math.round(teil.reduce((s, m) => s + m.wert, 0) * 10) / 10;
+  const differenz = Math.round((gesamt - zugeordnet) * 10) / 10;
+  const tol = gesamt * 0.05;
+  if (differenz > tol) {
+    return { gesamt, zugeordnet, differenz, hinweis: `Genannte Gesamtfläche ${gesamt} m², aufgeschlüsselte Teilflächen aber nur ${zugeordnet} m² → ${differenz} m² Restfläche (z.B. Wege, Ränder, Zuwegung) noch keinem Gewerk zugeordnet.` };
+  }
+  if (-differenz > tol) {
+    return { gesamt, zugeordnet, differenz, hinweis: `Aufgeschlüsselte Teilflächen ${zugeordnet} m² überschreiten die genannte Gesamtfläche (${gesamt} m²) um ${Math.abs(differenz)} m² → Flächenangaben bitte prüfen.` };
+  }
+  return undefined;
+}
+
 function mergeCrossValidate(primary: Parsed, heur: Parsed, rawText: string): Parsed {
   const out: any = { ...primary };
   const conflicts: NonNullable<Parsed['meta']>['conflicts'] = [];
@@ -1042,7 +1080,13 @@ function mergeCrossValidate(primary: Parsed, heur: Parsed, rawText: string): Par
   // ein zufälliges Keyword ("zaunelemente") wörtlich, während das saubere
   // LLM-Gewerk ("Doppelstabmattenzaun") nur als Plural/Flexion im Text steht
   // und damit fälschlich verliert. leistung wird unten aus leistungen[0] gesetzt.
-  const allFields = ['email','phone','phone_mobile','zip','city','street','customerName','description','firma'] as const;
+  //
+  // description EBENFALLS NICHT cross-validaten: die Heuristik-description ist
+  // bloß der komprimierte Rohtext. Bei KURZEN Anfragen (< 200 Zeichen) steht der
+  // ungekürzt „wörtlich im Text" und verdrängt damit die saubere LLM-Kurzfassung
+  // (die ja umformuliert ist und gerade NICHT wörtlich vorkommt). Darum wird
+  // description unten separat behandelt: LLM bevorzugen, Heuristik nur als Backfill.
+  const allFields = ['email','phone','phone_mobile','zip','city','street','customerName','firma'] as const;
   for (const k of allFields) {
     const llmVal = (primary as any)[k] as string | undefined;
     const heuVal = (heur as any)[k] as string | undefined;
@@ -1076,6 +1120,10 @@ function mergeCrossValidate(primary: Parsed, heur: Parsed, rawText: string): Par
     }
   }
 
+  // description: LLM-Kurzfassung gewinnt immer (out = {...primary} hält sie schon).
+  // Heuristik (= komprimierter Rohtext) nur als Notnagel, wenn das LLM keine lieferte.
+  if (!out.description && heur.description) out.description = heur.description;
+
   // Mengen / Klassifikations-Felder klassisch backfillen
   if (!out.mengen && heur.mengen) out.mengen = heur.mengen;
   if ((!out.leistungen || out.leistungen.length === 0) && heur.leistungen) out.leistungen = heur.leistungen;
@@ -1094,6 +1142,10 @@ function mergeCrossValidate(primary: Parsed, heur: Parsed, rawText: string): Par
   if (conflicts.length) {
     out.meta = { ...(out.meta ?? {}), conflicts };
   }
+
+  // Flächen-Gegenprüfung (über das gemergte globale mengen[])
+  const fc = checkFlaechen(out as Parsed);
+  if (fc) out.meta = { ...(out.meta ?? {}), flaechen_check: fc };
 
   return out as Parsed;
 }
