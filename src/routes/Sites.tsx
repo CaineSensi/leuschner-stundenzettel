@@ -1,24 +1,74 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  archiveSite, createSite, listAllSites, unarchiveSite, updateSite
+  archiveSite, createSite, listAllSites, unarchiveSite, updateSite,
+  listAllEntries, listAssignmentsForCompany, listWorkers
 } from "../lib/api";
 import { supabase } from "../lib/supabase";
 import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
-import { withTimeout } from "../lib/utils";
+import {
+  withTimeout, todayIso, isoWeek, weekDays, dayName, shortDate
+} from "../lib/utils";
 import SiteEditor from "../components/SiteEditor";
 import BackButton from "../components/BackButton";
-import type { Site } from "../lib/types";
+import { DISCIPLINE_LABEL, isWorkEntry } from "../lib/types";
+import type { Site, Worker, Assignment, Entry } from "../lib/types";
 
 type SiteRow = Site & { archived?: boolean };
+
+/** Kanban-Spalten = Aktivitäts-Status, abgeleitet aus echten Daten
+ *  (heutige Ist-Stunden + veröffentlichter Wochenplan). Baustellen tragen
+ *  selbst KEINEN Status-Wert — deshalb wird hier nicht gezogen/verschoben,
+ *  sondern der Status folgt automatisch dem Wochenplan. */
+type ColKey = "heute" | "woche" | "aktiv";
+
+const COLUMNS: { key: ColKey; label: string; color: string; hint: string }[] = [
+  { key: "heute", label: "Heute vor Ort",        color: "#DC6E2D", hint: "Mitarbeiter heute auf der Baustelle" },
+  { key: "woche", label: "Diese Woche geplant",  color: "#1F7A3D", hint: "im Wochenplan eingetragen" },
+  { key: "aktiv", label: "Aktiv",                color: "#8B9197", hint: "angelegt · derzeit kein Einsatz" },
+];
+
+/** Sortier-Optionen (Favoriten bleiben immer oben gepinnt). */
+type SortKey = "az" | "za" | "ort" | "auftrag";
+
+const SORT_OPTIONS: { key: SortKey; label: string }[] = [
+  { key: "az",      label: "Name A–Z" },
+  { key: "za",      label: "Name Z–A" },
+  { key: "ort",     label: "Ort A–Z" },
+  { key: "auftrag", label: "Auftragsnr." },
+];
+
+const SORT_FNS: Record<SortKey, (a: SiteRow, b: SiteRow) => number> = {
+  az:  (a, b) => a.name.localeCompare(b.name, "de"),
+  za:  (a, b) => b.name.localeCompare(a.name, "de"),
+  ort: (a, b) =>
+    (a.city || "").localeCompare(b.city || "", "de") ||
+    a.name.localeCompare(b.name, "de"),
+  auftrag: (a, b) =>
+    (a.projectNumber || "~").localeCompare(b.projectNumber || "~", "de", { numeric: true }) ||
+    a.name.localeCompare(b.name, "de"),
+};
+
+/** Abgeleiteter Zustand einer Baustelle für das Board. */
+type Activity = {
+  status: ColKey;
+  todayCrew: Worker[];     // wer heute hier ist/war (Ist + geplant)
+  nextDay?: string;        // nächster geplanter Tag (ISO) ab heute, diese Woche
+  weekDaysCount: number;   // Anzahl geplanter Tage in dieser Woche
+};
 
 export default function Sites() {
   const navigate = useNavigate();
   const [sites, setSites] = useState<SiteRow[]>([]);
+  const [entries, setEntries] = useState<Entry[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [workers, setWorkers] = useState<Worker[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [layout, setLayout] = useState<"board" | "list">("board");
+  const [sortBy, setSortBy] = useState<SortKey>("az");
   const [editing, setEditing] = useState<SiteRow | null>(null);
   const [creating, setCreating] = useState(false);
 
@@ -36,9 +86,23 @@ export default function Sites() {
       // man die Seite manuell neu lädt. getSession() erneuert ein abgelaufenes
       // Token automatisch, solange der Refresh-Token gültig ist.
       if (supabase) await supabase.auth.getSession();
-      const data = await withTimeout(listAllSites(true), 8000, "Baustellen");
+      const today = todayIso();
+      const { year, week } = isoWeek(new Date());
+      const days = weekDays(year, week);
+      // Baustellen sind Pflicht; Aktivitäts-Daten sind „nice to have" — fällt
+      // eine Quelle aus, landet die Baustelle einfach in „Aktiv" statt das
+      // ganze Board zu blockieren.
+      const [data, ents, asgs, wks] = await Promise.all([
+        withTimeout(listAllSites(true), 8000, "Baustellen"),
+        listAllEntries(today, today).catch(() => [] as Entry[]),
+        listAssignmentsForCompany(days[0], days[days.length - 1]).catch(() => [] as Assignment[]),
+        listWorkers().catch(() => [] as Worker[]),
+      ]);
       if (seq !== reqSeq.current) return; // ein neuerer Refresh ist unterwegs
       setSites(data);
+      setEntries(ents);
+      setAssignments(asgs);
+      setWorkers(wks);
     } catch (err: any) {
       if (seq !== reqSeq.current) return;
       setError(err?.message ?? "Fehler beim Laden");
@@ -51,32 +115,121 @@ export default function Sites() {
     refresh();
   }, []);
 
-  // Echtzeit-Updates bei Änderungen an Baustellen
-  useRealtime("sites-admin", ["sites"], refresh);
+  // Echtzeit-Updates: Baustellen-Stammdaten + Planung + Ist-Stunden — so wandert
+  // eine Baustelle automatisch nach „Heute vor Ort", sobald die Crew eincheckt.
+  useRealtime("sites-admin", ["sites", "assignments", "entries"], refresh);
   useRefreshOnVisible(refresh);
   // Auth-Session war beim ersten Fetch evtl. noch nicht da → nachladen, sobald sie kommt
   useRefreshOnAuth(refresh);
 
-  const filtered = useMemo(() => {
+  const today = todayIso();
+
+  const workersById = useMemo(() => {
+    const m = new Map<string, Worker>();
+    for (const w of workers) m.set(w.id, w);
+    return m;
+  }, [workers]);
+
+  // Aktivitäts-Status je Baustelle aus Ist-Stunden + Wochenplan ableiten.
+  const activityBySite = useMemo(() => {
+    const todayCrewIds = new Map<string, Set<string>>();
+    const weekDaysBySite = new Map<string, Set<string>>();
+    const nextDayBySite = new Map<string, string>();
+
+    const addCrew = (siteId: string, workerId: string) => {
+      if (!todayCrewIds.has(siteId)) todayCrewIds.set(siteId, new Set());
+      todayCrewIds.get(siteId)!.add(workerId);
+    };
+
+    // Ist-Stunden von heute → wer war/ist real vor Ort
+    for (const e of entries) {
+      if (!isWorkEntry(e) || e.date !== today || !e.siteId) continue;
+      addCrew(e.siteId, e.workerId);
+    }
+    // Veröffentlichte Planung dieser Woche
+    for (const a of assignments) {
+      if (!a.siteId || !a.publishedAt) continue;
+      if (!weekDaysBySite.has(a.siteId)) weekDaysBySite.set(a.siteId, new Set());
+      weekDaysBySite.get(a.siteId)!.add(a.date);
+      if (a.date === today) addCrew(a.siteId, a.workerId);
+      if (a.date >= today) {
+        const cur = nextDayBySite.get(a.siteId);
+        if (!cur || a.date < cur) nextDayBySite.set(a.siteId, a.date);
+      }
+    }
+
+    const m = new Map<string, Activity>();
+    for (const s of sites) {
+      const crewIds = todayCrewIds.get(s.id);
+      const wdays = weekDaysBySite.get(s.id);
+      const todayCrew = crewIds
+        ? ([...crewIds].map((id) => workersById.get(id)).filter(Boolean) as Worker[])
+        : [];
+      let status: ColKey = "aktiv";
+      if (crewIds && crewIds.size > 0) status = "heute";
+      else if (wdays && wdays.size > 0) status = "woche";
+      m.set(s.id, {
+        status,
+        todayCrew,
+        nextDay: nextDayBySite.get(s.id),
+        weekDaysCount: wdays ? wdays.size : 0,
+      });
+    }
+    return m;
+  }, [sites, entries, assignments, workersById, today]);
+
+  // Favoriten bleiben immer oben, darunter greift die gewählte Sortierung.
+  const cmp = (a: SiteRow, b: SiteRow) =>
+    (b.starred ? 1 : 0) - (a.starred ? 1 : 0) || SORT_FNS[sortBy](a, b);
+
+  const visible = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return sites.filter((s) => {
-      if (!showArchived && s.archived) return false;
-      if (showArchived && !s.archived) return false;
-      if (!q) return true;
-      return (
-        s.name.toLowerCase().includes(q) ||
-        s.street.toLowerCase().includes(q) ||
-        s.city.toLowerCase().includes(q) ||
-        (s.projectNumber ?? "").toLowerCase().includes(q)
-      );
-    });
-  }, [sites, search, showArchived]);
+    return sites
+      .filter((s) => {
+        if (showArchived ? !s.archived : s.archived) return false;
+        if (!q) return true;
+        return (
+          s.name.toLowerCase().includes(q) ||
+          s.street.toLowerCase().includes(q) ||
+          s.city.toLowerCase().includes(q) ||
+          (s.projectNumber ?? "").toLowerCase().includes(q)
+        );
+      })
+      .sort(cmp);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sites, search, showArchived, sortBy]);
+
+  const byCol = (key: ColKey) =>
+    visible.filter((s) => (activityBySite.get(s.id)?.status ?? "aktiv") === key);
 
   const activeCount = sites.filter((s) => !s.archived).length;
   const archivedCount = sites.filter((s) => s.archived).length;
+  const heuteCount = sites.filter(
+    (s) => !s.archived && activityBySite.get(s.id)?.status === "heute"
+  ).length;
+  const wocheCount = sites.filter(
+    (s) => !s.archived && activityBySite.get(s.id)?.status === "woche"
+  ).length;
+
+  // gemeinsame Karten-Handler (Board + Liste)
+  const onArchiveSite = async (site: SiteRow) => {
+    if (!confirm(`„${site.name}" archivieren? Sie taucht dann nicht mehr im Wochenplan auf.`)) return;
+    await archiveSite(site.id).catch((e) => setError(e?.message));
+    refresh();
+  };
+  const onUnarchiveSite = async (site: SiteRow) => {
+    await unarchiveSite(site.id).catch((e) => setError(e?.message));
+    refresh();
+  };
+  const onToggleStarSite = async (site: SiteRow) => {
+    await updateSite(site.id, { starred: !site.starred }).catch((e) => setError(e?.message));
+    refresh();
+  };
+
+  const showBoard = !showArchived && layout === "board";
 
   return (
-    <div className="min-h-screen safe-bottom bg-bg-DEFAULT">
+    <div className="min-h-screen flex flex-col safe-bottom bg-bg-DEFAULT">
       <header className="sticky top-0 z-30 surface-steel safe-top">
         <div className="w-full max-w-[2400px] mx-auto px-5 lg:px-10 xl:px-14 pt-4 pb-4">
         <BackButton title="Zurück zur Betriebs-Übersicht (Dashboard)" />
@@ -86,7 +239,10 @@ export default function Sites() {
             <span className="dd-eyebrow text-copper-bright">Stammdaten</span>
             <h1 className="font-display font-black uppercase text-2xl lg:text-3xl text-white leading-none mt-1">Baustellen</h1>
             <span className="font-sans text-[12px] text-steel mt-1 block">
-              {activeCount} aktiv{archivedCount > 0 ? ` · ${archivedCount} archiviert` : ""}
+              {activeCount} aktiv
+              {heuteCount > 0 ? ` · ${heuteCount} heute vor Ort` : ""}
+              {wocheCount > 0 ? ` · ${wocheCount} diese Woche` : ""}
+              {archivedCount > 0 ? ` · ${archivedCount} archiviert` : ""}
             </span>
           </div>
           <button
@@ -105,6 +261,37 @@ export default function Sites() {
             placeholder="Suchen: Name, Auftragsnr., Adresse …"
             className="flex-1 min-w-[200px] px-3.5 py-2.5 bg-white/[0.08] border-[1.5px] border-white/20 rounded-lg text-sm text-white placeholder:text-steel focus:outline-none focus:border-copper-bright"
           />
+          {!showArchived && (
+            <div className="flex gap-1 text-[11px] bg-white/[0.06] border border-white/15 rounded-full p-0.5">
+              <button
+                onClick={() => setLayout("board")}
+                className={`px-3 py-1.5 rounded-full font-mono uppercase ${layout === "board" ? "bg-copper-bright text-bg-deep font-bold" : "text-steel hover:text-white"}`}
+                title="Kanban-Board nach Status"
+              >
+                Board
+              </button>
+              <button
+                onClick={() => setLayout("list")}
+                className={`px-3 py-1.5 rounded-full font-mono uppercase ${layout === "list" ? "bg-copper-bright text-bg-deep font-bold" : "text-steel hover:text-white"}`}
+                title="Klassische Kachel-Liste"
+              >
+                Liste
+              </button>
+            </div>
+          )}
+          <label className="flex items-center gap-1.5 text-[11px]">
+            <span className="font-mono uppercase text-steel hidden sm:inline">Sortieren</span>
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as SortKey)}
+              className="px-2.5 py-1.5 rounded-lg bg-white/[0.08] border-[1.5px] border-white/20 text-[12px] text-white font-mono focus:outline-none focus:border-copper-bright cursor-pointer [&>option]:text-ink [&>option]:bg-white"
+              title="Sortier-Reihenfolge (Favoriten bleiben oben)"
+            >
+              {SORT_OPTIONS.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
+              ))}
+            </select>
+          </label>
           <div className="flex gap-1.5 text-[11px]">
             <button
               onClick={() => setShowArchived(false)}
@@ -130,46 +317,84 @@ export default function Sites() {
         </div>
       )}
 
-      <main className="px-5 lg:px-10 xl:px-14 py-6 w-full max-w-[2400px] mx-auto">
-        {loading ? (
-          <div className="text-center py-16 h-mono text-ink-2 text-[12px]">Wird geladen …</div>
-        ) : filtered.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="h-mono text-ink-2 text-[12px]">
-              {showArchived ? "Keine archivierten Baustellen" : "Keine Baustelle gefunden"}
-            </div>
-            {!showArchived && search === "" && (
-              <button onClick={() => setCreating(true)} className="btn-primary text-[12px] mt-4">
-                Erste Baustelle anlegen
-              </button>
-            )}
+      {loading ? (
+        <div className="flex-1 grid place-items-center h-mono text-ink-2 text-[12px]">Wird geladen …</div>
+      ) : visible.length === 0 ? (
+        <div className="text-center py-16">
+          <div className="h-mono text-ink-2 text-[12px]">
+            {showArchived ? "Keine archivierten Baustellen" : "Keine Baustelle gefunden"}
           </div>
-        ) : (
+          {!showArchived && search === "" && (
+            <button onClick={() => setCreating(true)} className="btn-primary text-[12px] mt-4">
+              Erste Baustelle anlegen
+            </button>
+          )}
+        </div>
+      ) : showBoard ? (
+        /* ===== KANBAN-BOARD (Status aus Ist-Stunden + Wochenplan) ===== */
+        <div className="flex-1 flex gap-3.5 px-5 lg:px-10 xl:px-14 py-6 overflow-x-auto board-scroll w-full max-w-[2400px] mx-auto">
+          {COLUMNS.map((col) => {
+            const list = byCol(col.key);
+            return (
+              <section
+                key={col.key}
+                className="flex-1 basis-0 min-w-[280px] flex flex-col bg-white/30 rounded-xl border border-steel-line/45"
+              >
+                <header className="surface-steel rounded-t-[11px] px-3.5 py-3 flex items-center justify-between gap-2">
+                  <div className="font-display font-extrabold uppercase text-[14.5px] tracking-wide text-white flex items-center gap-2.5 whitespace-nowrap">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                      style={{ background: col.color, boxShadow: "0 0 0 3px rgba(255,255,255,.10)" }}
+                    />
+                    {col.label}
+                  </div>
+                  <span className="font-mono font-bold text-[12px] bg-white/15 text-white px-2.5 py-0.5 rounded-full min-w-[26px] text-center">
+                    {list.length}
+                  </span>
+                </header>
+                <div className="px-3.5 py-2 bg-bg-deep/95 border-b border-steel-line/40">
+                  <span className="font-sans text-[11.5px] text-steel">{col.hint}</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 min-h-[140px] board-scroll">
+                  {list.length === 0 ? (
+                    <div className="font-sans text-ink-2 text-[12.5px] text-center py-8">keine Baustellen</div>
+                  ) : (
+                    list.map((site) => (
+                      <BoardCard
+                        key={site.id}
+                        site={site}
+                        activity={activityBySite.get(site.id)}
+                        color={col.color}
+                        onOpen={() => navigate(`/admin/sites/${site.id}`)}
+                        onEdit={() => setEditing(site)}
+                        onArchive={() => onArchiveSite(site)}
+                        onToggleStar={() => onToggleStarSite(site)}
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      ) : (
+        /* ===== KLASSISCHE LISTE (aktiv: Kacheln · Archiv: immer Liste) ===== */
+        <main className="px-5 lg:px-10 xl:px-14 py-6 w-full max-w-[2400px] mx-auto">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 4xl:grid-cols-7 gap-3">
-            {filtered.map((site) => (
+            {visible.map((site) => (
               <SiteCard
                 key={site.id}
                 site={site}
                 onOpen={() => navigate(`/admin/sites/${site.id}`)}
                 onEdit={() => setEditing(site)}
-                onArchive={async () => {
-                  if (!confirm(`„${site.name}" archivieren? Sie taucht dann nicht mehr im Wochenplan auf.`)) return;
-                  await archiveSite(site.id).catch((e) => setError(e?.message));
-                  refresh();
-                }}
-                onUnarchive={async () => {
-                  await unarchiveSite(site.id).catch((e) => setError(e?.message));
-                  refresh();
-                }}
-                onToggleStar={async () => {
-                  await updateSite(site.id, { starred: !site.starred }).catch((e) => setError(e?.message));
-                  refresh();
-                }}
+                onArchive={() => onArchiveSite(site)}
+                onUnarchive={() => onUnarchiveSite(site)}
+                onToggleStar={() => onToggleStarSite(site)}
               />
             ))}
           </div>
-        )}
-      </main>
+        </main>
+      )}
 
       {creating && (
         <SiteEditor
@@ -195,6 +420,102 @@ export default function Sites() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Board-Karte: kompakt, mit heutiger Crew bzw. nächstem geplanten Einsatz. */
+function BoardCard({
+  site, activity, color, onOpen, onEdit, onArchive, onToggleStar
+}: {
+  site: SiteRow;
+  activity?: Activity;
+  color: string;
+  onOpen: () => void;
+  onEdit: () => void;
+  onArchive: () => void;
+  onToggleStar: () => void;
+}) {
+  return (
+    <div
+      onClick={onOpen}
+      className="dd-card is-click p-3.5"
+      style={{ ["--c" as any]: site.starred ? "#DC6E2D" : color }}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          {site.projectNumber && (
+            <div className="h-mono text-copper text-[11px]">Auftrag {site.projectNumber}</div>
+          )}
+          <div className="font-display text-[17px] uppercase tracking-tight leading-tight flex items-center gap-1.5">
+            {site.starred && <span className="text-copper text-[13px]">★</span>}
+            <span className="break-words">{site.name}</span>
+          </div>
+          {(site.street || site.city) && (
+            <div className="h-mono text-ink-2 text-[11px] mt-1">
+              {site.street}{site.city ? ` · ${site.city}` : ""}
+            </div>
+          )}
+        </div>
+        <button
+          onClick={(e) => { e.stopPropagation(); onToggleStar(); }}
+          className={`flex-shrink-0 w-7 h-7 rounded-md grid place-items-center text-[15px] ${site.starred ? "text-copper" : "text-ink-mute hover:text-ink-2"}`}
+          title={site.starred ? "Stern entfernen" : "Als Favorit markieren"}
+        >
+          {site.starred ? "★" : "☆"}
+        </button>
+      </div>
+
+      {site.disciplines?.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {site.disciplines.map((d) => (
+            <span key={d} className="font-mono text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-bg-deep/10 text-ink-2">
+              {DISCIPLINE_LABEL[d]}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {activity?.status === "heute" && activity.todayCrew.length > 0 && (
+        <div className="flex items-center gap-2 mt-2.5 pt-2.5 border-t border-ink/10">
+          <span className="dd-eyebrow text-copper whitespace-nowrap">Heute vor Ort</span>
+          <div className="flex -space-x-1.5">
+            {activity.todayCrew.slice(0, 5).map((w) => (
+              <span
+                key={w.id}
+                title={`${w.firstName} ${w.lastName}`.trim()}
+                className="w-6 h-6 rounded-full grid place-items-center text-[9px] font-bold text-white border-2 border-white"
+                style={{ background: "#2B2E31" }}
+              >
+                {w.initials}
+              </span>
+            ))}
+            {activity.todayCrew.length > 5 && (
+              <span className="w-6 h-6 rounded-full grid place-items-center text-[9px] font-bold text-ink-2 border-2 border-white bg-bg-2">
+                +{activity.todayCrew.length - 5}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {activity?.status === "woche" && activity.nextDay && (
+        <div className="mt-2.5 pt-2.5 border-t border-ink/10 h-mono text-[11px] text-good">
+          Nächster Einsatz · {dayName(activity.nextDay)} {shortDate(activity.nextDay)}
+          {activity.weekDaysCount > 1 ? ` · ${activity.weekDaysCount} Tage` : ""}
+        </div>
+      )}
+
+      {site.geo && (
+        <div className="h-mono text-ink-mute text-[10px] mt-2">
+          GPS · {site.geo.lat.toFixed(4)}, {site.geo.lng.toFixed(4)}
+        </div>
+      )}
+
+      <div className="flex gap-2 mt-3 pt-3 border-t border-ink/10" onClick={(e) => e.stopPropagation()}>
+        <button onClick={onEdit} className="btn-ghost text-[11px] flex-1">Bearbeiten</button>
+        <button onClick={onArchive} className="btn-ghost text-[11px] text-rust">Archivieren</button>
+      </div>
     </div>
   );
 }
@@ -257,4 +578,3 @@ function SiteCard({
     </div>
   );
 }
-
