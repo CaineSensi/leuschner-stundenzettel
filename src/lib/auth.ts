@@ -166,8 +166,20 @@ export async function signInWithCode(code: string): Promise<{ worker?: Worker; e
  */
 export async function enforceValidSession(): Promise<string | null> {
   if (!supabase) return null;
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.user) return null;        // gültige (ggf. frisch erneuerte) Anmeldung
+  // getSession() kann in seltenen Fällen hängen (Web-Locks-/Token-Refresh-Hänger,
+  // u.a. in Firefox) — dann dreht der "Anmeldung prüfen"-Schritt beim Speichern
+  // endlos. Hart timeboxen wie alle anderen Auth-Calls: bei Timeout/Fehler die
+  // lokale Anmeldung behalten und das Speichern fortsetzen (ein Hänger ist fast
+  // nie eine echte Abmeldung — und schlägt die Session wirklich fehl, wirft der
+  // eigentliche Speicher-Schritt einen klaren, sichtbaren Fehler statt ewig zu drehen).
+  try {
+    const { data: { session } } = await withTimeout(
+      supabase.auth.getSession(), 8000, "Anmeldung prüfen"
+    );
+    if (session?.user) return null;       // gültige (ggf. frisch erneuerte) Anmeldung
+  } catch {
+    return null;                           // Timeout/Hänger → lokale Session behalten
+  }
   if (!navigator.onLine) return null;     // offline → kein Urteil, lokale Session behalten
   const u = currentUser();
   if (!u) return null;                    // gar nicht „eingeloggt" → nichts zu tun
