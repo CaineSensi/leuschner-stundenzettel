@@ -13,7 +13,7 @@ import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContac
 import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
-import { getInquiryByCardId, SOURCE_ICON, SOURCE_LABEL, type Inquiry } from "../lib/inquiries";
+import { getInquiryByCardId, listInquiries, SOURCE_ICON, SOURCE_LABEL, type Inquiry } from "../lib/inquiries";
 
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
@@ -74,6 +74,9 @@ function descIsJustDocNumber(desc?: string): boolean {
 export default function Angebote() {
   const navigate = useNavigate();
   const [cards, setCards] = useState<PipelineCard[]>([]);
+  // Inquiry je Pipeline-Karte (für Quelle-Symbol + Roh-Text-Vorschau auf den
+  // Anfrage-Karten — die Inbox ist seit 06.06. ins Board aufgegangen).
+  const [inquiryByCard, setInquiryByCard] = useState<Record<string, Inquiry>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ msg: string; siteId?: string } | null>(null);
@@ -93,7 +96,14 @@ export default function Angebote() {
   async function refresh() {
     setError(null);
     try {
-      setCards(await listCards({ archived: view === "archiv" }));
+      const [cs, inqs] = await Promise.all([
+        listCards({ archived: view === "archiv" }),
+        listInquiries({ onlyOpen: false }).catch(() => [] as Inquiry[]),
+      ]);
+      setCards(cs);
+      const map: Record<string, Inquiry> = {};
+      for (const i of inqs) if (i.pipelineCardId) map[i.pipelineCardId] = i;
+      setInquiryByCard(map);
     } catch (err: any) {
       setError(err?.message ?? "Fehler beim Laden");
     } finally {
@@ -418,6 +428,7 @@ export default function Angebote() {
                         key={c.id}
                         card={c}
                         color={meta.color}
+                        inquiry={inquiryByCard[c.id] ?? null}
                         onOpen={() => setDetail(c)}
                         onDragStart={() => { dragId.current = c.id; }}
                         onArchive={() => archive(c)}
@@ -491,10 +502,11 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone?: "rus
 }
 
 function CardView({
-  card, color, onOpen, onDragStart, onArchive
+  card, color, inquiry, onOpen, onDragStart, onArchive
 }: {
   card: PipelineCard;
   color: string;
+  inquiry?: Inquiry | null;
   onOpen: () => void;
   onDragStart: () => void;
   onArchive: () => void;
@@ -537,6 +549,31 @@ function CardView({
       {card.place && <div className="font-sans text-[13px] text-ink-2 mt-0.5 leading-snug">{card.place}</div>}
       {card.description && !descIsJustDocNumber(card.description) && (
         <div className="font-sans text-[14px] text-ink-body mt-2 leading-snug">{card.description}</div>
+      )}
+
+      {/* Anfrage-Karten: Quelle-Symbol + Priorität + Roh-Text-Vorschau
+          (die frühere Inbox ist seit 06.06. in diese Spalte aufgegangen). */}
+      {inquiry && card.stage === "Anfrage" && (
+        <div className="mt-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="font-mono text-[10.5px] text-ink-2 inline-flex items-center gap-1 bg-bg-deep/10 px-1.5 py-0.5 rounded">
+              {SOURCE_ICON[inquiry.source] ?? "✉"} {SOURCE_LABEL[inquiry.source] ?? inquiry.source}
+            </span>
+            {inquiry.priority && inquiry.priority !== "normal" && (
+              <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded" style={prioStyle(inquiry.priority)}>
+                {inquiry.priority}
+              </span>
+            )}
+          </div>
+          {inquiry.rawText && (() => {
+            const t = inquiry.rawText.replace(/\s+/g, " ").trim();
+            return (
+              <div className="font-sans text-[12px] text-ink-2 mt-1.5 leading-snug italic">
+                „{t.slice(0, 95)}{t.length > 95 ? "…" : ""}"
+              </div>
+            );
+          })()}
+        </div>
       )}
 
       {pct != null ? (

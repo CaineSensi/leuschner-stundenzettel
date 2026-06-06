@@ -224,7 +224,6 @@ export default function Admin() {
             <SbItem icon="◷" label="Zeiterfassung" to="/admin/zeiterfassung" />
             <SbItem icon="⌂" label="Baustellen" to="/admin/sites" />
             <SbItem icon="◇" label="Angebote" to="/admin/angebote" />
-            <SbItem icon="✉" label="Anfragen" to="/admin/anfragen" />
             <SbItem icon="✎" label="Garten-Planer" to="/admin/garten" />
             <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
             <div className="h-px bg-white/8 my-3" />
@@ -441,7 +440,7 @@ export default function Admin() {
                 ? "Inbox leer"
                 : `${inquiries.length} offene Anfrage${inquiries.length === 1 ? "" : "n"}`}
               moreLabel="Alle Anfragen →"
-              moreTo="/admin/anfragen"
+              moreTo="/admin/angebote"
               hint="Neue Kundenanfragen, die du noch nicht beantwortet hast. KI macht aus rohem Mail-/WhatsApp-Text strukturierte Felder. Roter Strich = hohe Priorität."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
@@ -465,7 +464,7 @@ export default function Admin() {
                       return (
                         <Link
                           key={i.id}
-                          to="/admin/anfragen"
+                          to="/admin/angebote"
                           className="flex items-start gap-2.5 px-2.5 py-2 rounded-md hover:bg-bg-2 transition-colors"
                         >
                           <span className="w-1 h-10 rounded-sm flex-shrink-0 mt-0.5" style={{ background: prioColor }} />

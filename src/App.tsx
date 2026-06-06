@@ -16,7 +16,6 @@ import Tagesplanung from "./routes/Tagesplanung";
 import StundenPrint from "./routes/StundenPrint";
 import StundenPrintAll from "./routes/StundenPrintAll";
 import Angebote from "./routes/Angebote";
-import Anfragen from "./routes/Anfragen";
 import AnfrageNeu from "./routes/AnfrageNeu";
 import AngebotNeu from "./routes/AngebotNeu";
 import GartenEditor from "./routes/GartenEditor";
@@ -97,7 +96,9 @@ export default function App() {
         <Route path="/admin/stunden-print" element={<ProtectedRoute adminOnly><StundenPrint /></ProtectedRoute>} />
         <Route path="/admin/stunden-print-all" element={<ProtectedRoute adminOnly><StundenPrintAll /></ProtectedRoute>} />
         <Route path="/admin/angebote"     element={<ProtectedRoute adminOnly><Angebote /></ProtectedRoute>} />
-        <Route path="/admin/anfragen"     element={<ProtectedRoute adminOnly><Anfragen /></ProtectedRoute>} />
+        {/* Anfragen-Inbox ist seit 06.06.2026 ins Pipeline-Board aufgegangen
+            (Anfragen = erste Kanban-Spalte). Alter Link leitet dorthin weiter. */}
+        <Route path="/admin/anfragen"     element={<Navigate to="/admin/angebote" replace />} />
         <Route path="/admin/anfrage-neu"  element={<ProtectedRoute adminOnly><AnfrageNeu /></ProtectedRoute>} />
         <Route path="/admin/angebot-neu/:cardId" element={<ProtectedRoute adminOnly><AngebotNeu /></ProtectedRoute>} />
         <Route path="/admin/garten"  element={<ProtectedRoute adminOnly><GartenEditor /></ProtectedRoute>} />
