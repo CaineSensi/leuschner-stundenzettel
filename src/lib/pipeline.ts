@@ -506,6 +506,20 @@ export async function attachSevdeskToCustomer(
   await sb.from("sites").update({ sevdesk_contact_id: sevdeskContactId }).eq("id", siteId);
 }
 
+/** Zählt vorhandene Pipeline-Vorgänge eines Kunden — Grundlage für die
+ *  Folgeanfrage-Erkennung beim Anlegen ("Bestandskunde mit X früheren Vorgängen").
+ *  head:true + count:exact zieht nur die Zahl, nicht die Zeilen. */
+export async function countCardsForCustomer(customerId: string): Promise<number> {
+  if (!isBackendConnected() || !supabase) return 0;
+  const sb: any = supabase;
+  const { count, error } = await sb
+    .from("pipeline_cards")
+    .select("id", { count: "exact", head: true })
+    .eq("customer_id", customerId);
+  if (error) return 0;
+  return count ?? 0;
+}
+
 export async function createCard(input: PipelineCardInput): Promise<PipelineCard> {
   if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
   const sb: any = supabase;

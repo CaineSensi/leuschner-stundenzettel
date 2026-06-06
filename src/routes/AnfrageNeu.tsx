@@ -12,7 +12,7 @@ import {
 import { sevdeskCreateContact, sevdeskListContacts } from "../lib/sevdesk";
 import { findSimilar, type InquirySource, type Inquiry } from "../lib/inquiries";
 import { diffCorrections, logCorrections } from "../lib/corrections";
-import { createInquiryBundle, attachSevdeskToCustomer } from "../lib/pipeline";
+import { createInquiryBundle, attachSevdeskToCustomer, countCardsForCustomer } from "../lib/pipeline";
 import { enforceValidSession } from "../lib/auth";
 import { isBackendConnected } from "../lib/supabase";
 import SaveProgress, { type SaveStep } from "../components/SaveProgress";
@@ -69,6 +69,9 @@ function detectSource(text: string): InquirySource | null {
 
 type Step = "paste" | "edit";
 
+/** Eine erkannte Position (Gewerk) — Element von ParsedInquiry.leistungen. */
+type LeistungEntry = NonNullable<ParsedInquiry["leistungen"]>[number];
+
 export default function AnfrageNeu() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("paste");
@@ -96,6 +99,10 @@ export default function AnfrageNeu() {
   const [description, setDescription] = useState("");
   const [notes, setNotes] = useState("");
   const [vorgang, setVorgang] = useState<Vorgang>("angebot");
+  // Eingabefeld zum Hinzufügen einer manuellen Position (Gewerk)
+  const [newPos, setNewPos] = useState("");
+  // Positions-Detail-Editor (Modal): welche Position + Arbeitskopie
+  const [editPos, setEditPos] = useState<{ idx: number; draft: LeistungEntry } | null>(null);
 
   // Kunden-Match
   const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
@@ -176,6 +183,38 @@ export default function AnfrageNeu() {
     [candidates, chosenCustomerId],
   );
 
+  // Folgeanfrage-Erkennung: Anzahl bereits vorhandener Pipeline-Vorgänge des
+  // erkannten Bestandskunden laden. Nur App-Stammkunden haben Karten; sevDesk-
+  // only-Treffer sind noch nicht im Stamm → kein Zähler. null = keine Anzeige.
+  const [priorCount, setPriorCount] = useState<number | null>(null);
+  useEffect(() => {
+    setPriorCount(null);
+    if (!chosenCustomer || isSevdeskOnly(chosenCustomer)) return;
+    let alive = true;
+    countCardsForCustomer(chosenCustomer.id)
+      .then((n) => { if (alive) setPriorCount(n); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [chosenCustomer]);
+
+  // Bestandskunde gewählt → fehlende Kontaktfelder aus dem Stammdatensatz
+  // nachfüllen. Folgeanfragen kommen oft mit dünnem Text (nur Name + Stichworte),
+  // obwohl der Kunde längst vollständig im System (und in sevDesk) steht. Nur
+  // LEERE Felder füllen — vom Parser oder Nutzer gesetzte Werte bleiben unberührt.
+  useEffect(() => {
+    if (!chosenCustomer) return;
+    if (chosenCustomer.email && !email) setEmail(chosenCustomer.email.toLowerCase().trim());
+    if (chosenCustomer.street && !street) setStreet(chosenCustomer.street);
+    if (chosenCustomer.zip && !zip) setZip(chosenCustomer.zip);
+    if (chosenCustomer.city && !city) setCity(chosenCustomer.city);
+    if (chosenCustomer.phone && !phone && !phoneMobile) {
+      const d = chosenCustomer.phone.replace(/[^\d]/g, "").replace(/^49/, "0");
+      if (/^01[5-7]/.test(d)) setPhoneMobile(normalizePhone(chosenCustomer.phone));
+      else setPhone(normalizePhone(chosenCustomer.phone));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chosenCustomer]);
+
   async function doParse() {
     if (!rawText.trim()) {
       setError("Bitte erst Text einfügen.");
@@ -227,6 +266,72 @@ export default function AnfrageNeu() {
       setParsing(false);
     }
   }
+
+  /** Positions-Editor: eine erkannte Position (Gewerk) entfernen. Schreibt
+   *  direkt in `parsed.leistungen` zurück — dadurch fließt die Änderung beim
+   *  Speichern (openPoints/parsedJson aus parsed) automatisch mit ein. leistung
+   *  (Singular) wird konsistent nachgezogen. */
+  function removeLeistung(idx: number) {
+    setParsed((prev) => {
+      if (!prev?.leistungen) return prev;
+      const next = prev.leistungen.filter((_, i) => i !== idx);
+      return { ...prev, leistungen: next, leistung: next[0]?.name };
+    });
+  }
+
+  /** Positions-Editor: eine manuelle Position hinzufügen (nur Name nötig). */
+  function addLeistung() {
+    const name = newPos.trim();
+    if (!name) return;
+    setParsed((prev) => {
+      const base = prev ?? { parser: "heuristic" as const };
+      const list = base.leistungen ? [...base.leistungen] : [];
+      list.push({ name });
+      return { ...base, leistungen: list, leistung: base.leistung ?? name };
+    });
+    setNewPos("");
+  }
+
+  /* ── Positions-Detail-Editor (Modal) ───────────────────────────────────
+     Klick auf eine Position öffnet eine Arbeitskopie (Draft). Erst „Übernehmen"
+     schreibt zurück in parsed.leistungen — „Abbrechen" verwirft. So kann der
+     User Name, jede Menge und jedes Material frei bearbeiten/ergänzen/löschen. */
+  function openPosEdit(idx: number) {
+    const l = parsed?.leistungen?.[idx];
+    if (!l) return;
+    setEditPos({ idx, draft: JSON.parse(JSON.stringify(l)) as LeistungEntry });
+  }
+  function patchDraft(fn: (d: LeistungEntry) => LeistungEntry) {
+    setEditPos((p) => (p ? { ...p, draft: fn(p.draft) } : p));
+  }
+  function savePosEdit() {
+    if (!editPos) return;
+    const d = editPos.draft;
+    setParsed((prev) => {
+      if (!prev?.leistungen) return prev;
+      const next = [...prev.leistungen];
+      next[editPos.idx] = {
+        ...d,
+        name: d.name.trim() || next[editPos.idx].name,
+        mengen: (d.mengen ?? []).filter((m) => String(m.wert ?? "").trim()),
+        materialien: (d.materialien ?? []).filter((m) => (m.name ?? "").trim()),
+      };
+      return { ...prev, leistungen: next, leistung: next[0]?.name };
+    });
+    setEditPos(null);
+  }
+  // Draft-Mengen
+  function draftAddMenge() { patchDraft((d) => ({ ...d, mengen: [...(d.mengen ?? []), { wert: "", einheit: "", was: "" }] })); }
+  function draftSetMenge(i: number, field: "wert" | "einheit" | "was", val: string) {
+    patchDraft((d) => ({ ...d, mengen: (d.mengen ?? []).map((m, j) => (j === i ? { ...m, [field]: val } : m)) }));
+  }
+  function draftRemoveMenge(i: number) { patchDraft((d) => ({ ...d, mengen: (d.mengen ?? []).filter((_, j) => j !== i) })); }
+  // Draft-Materialien
+  function draftAddMaterial() { patchDraft((d) => ({ ...d, materialien: [...(d.materialien ?? []), { name: "" }] })); }
+  function draftSetMaterial(i: number, field: "name" | "spec" | "note", val: string) {
+    patchDraft((d) => ({ ...d, materialien: (d.materialien ?? []).map((m, j) => (j === i ? { ...m, [field]: val } : m)) }));
+  }
+  function draftRemoveMaterial(i: number) { patchDraft((d) => ({ ...d, materialien: (d.materialien ?? []).filter((_, j) => j !== i) })); }
 
   /** M9 Helper: muss dieses Feld noch bestätigt werden?
    *  Bedingung: confidence=low UND nicht explizit bestätigt UND der User
@@ -594,7 +699,7 @@ export default function AnfrageNeu() {
               done={steps.length > 0 && steps.every((s) => s.status === "done" || s.status === "skipped")
                 ? {
                     label: createdCardId ? "→ Zur Pipeline" : "→ Zur Inbox",
-                    onClick: () => navigate(createdCardId ? "/admin/angebote" : "/admin/anfragen"),
+                    onClick: () => navigate("/admin/angebote"),
                   }
                 : undefined}
             />
@@ -692,81 +797,122 @@ export default function AnfrageNeu() {
                 Stammdaten-Sektion oben — hier sieht User trotzdem auf einen
                 Blick was zu tun ist. */}
             {parsed && (parsed.leistung || parsed.leistungen?.length || parsed.mengen?.length || parsed.termin || (parsed.dringlichkeit && parsed.dringlichkeit !== "normal")) && (
-              <div className="bg-bg-2 border border-steel-line/45 rounded-lg p-3.5 space-y-2">
-                <span className="dd-eyebrow text-ink-2 block mb-1">Aus dem Text zusätzlich erkannt</span>
-                {/* M8: Mehrere Leistungen mit jeweiligen Mengen — strukturiert */}
-                {parsed.leistungen && parsed.leistungen.length > 1 ? (
-                  <div className="text-[12.5px] font-sans">
-                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Leistungen
-                      <span className="ml-1 font-mono text-copper text-[10px]">×{parsed.leistungen.length}</span>
-                    </span>
-                    <span className="inline-flex flex-col gap-2 align-top">
-                      {parsed.leistungen.map((l, idx) => {
-                        const col = LEISTUNG_COLORS[idx % LEISTUNG_COLORS.length];
-                        return (
-                        <span key={idx} className="text-ink flex flex-col gap-0.5">
-                          <span>
-                            <span className="inline-block w-2 h-2 rounded-sm mr-1.5 align-middle" style={{ background: col.bg, border: `1px solid ${col.border}` }} />
-                            <b>{l.name}</b>
-                            {l.mengen && l.mengen.length > 0 && (
-                              <span className="text-ink-2 ml-2 font-mono text-[11px]">
-                                {l.mengen.map((m) => `${m.wert}${m.einheit ? " " + m.einheit : ""}${m.was ? " " + m.was : ""}`).join(" · ")}
-                              </span>
-                            )}
-                          </span>
-                          {l.materialien && l.materialien.length > 0 && (
-                            <span className="ml-3 inline-flex flex-wrap gap-1 mt-0.5">
-                              {l.materialien.map((mat, midx) => (
-                                <span key={midx} className="inline-flex items-baseline gap-1 px-2 py-0.5 bg-copper/10 border border-copper/35 rounded text-[10.5px] text-copper font-mono">
-                                  <span className="font-bold">{mat.name}</span>
-                                  {mat.spec && <span className="text-copper/80">· {mat.spec}</span>}
-                                  {mat.menge && <span className="text-copper/80">· {mat.menge.wert}{mat.menge.einheit ? " " + mat.menge.einheit : ""}</span>}
-                                  {mat.note && <span className="text-copper/65 italic" title={mat.note}>· {mat.note.length > 22 ? mat.note.slice(0, 20) + "…" : mat.note}</span>}
+              <div className="bg-bg-2 border border-steel-line/45 rounded-lg p-4 space-y-3">
+                {/* Kopf: erkannte Positionen, bearbeitbar */}
+                <div className="flex items-center justify-between">
+                  <span className="dd-eyebrow text-ink-2">
+                    Erkannte Positionen
+                    {parsed.leistungen?.length ? (
+                      <span className="ml-1.5 font-mono text-copper text-[10px]">×{parsed.leistungen.length}</span>
+                    ) : null}
+                  </span>
+                  <span className="font-mono text-[10px] text-ink-mute uppercase tracking-wide">bearbeitbar</span>
+                </div>
+
+                {/* Positions-Liste — je Gewerk eine Karte, einzeln entfernbar */}
+                {parsed.leistungen && parsed.leistungen.length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {parsed.leistungen.map((l, idx) => {
+                      const col = LEISTUNG_COLORS[idx % LEISTUNG_COLORS.length];
+                      return (
+                        <li key={idx} onClick={() => openPosEdit(idx)} title="Zum Bearbeiten anklicken" className="group flex items-start gap-2.5 bg-white border border-steel-line/40 rounded-md pl-3 pr-2 py-2 hover:border-copper/50 cursor-pointer transition-colors">
+                          <span className="mt-1 inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: col.bg, border: `1px solid ${col.border}` }} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <b className="font-sans text-[13px] text-ink">{l.name}</b>
+                              {l.mengen && l.mengen.length > 0 && (
+                                <span className="font-mono text-[11px] text-ink-2">
+                                  {l.mengen.map((m) => `${m.wert}${m.einheit ? " " + m.einheit : ""}${m.was ? " " + m.was : ""}`).join(" · ")}
                                 </span>
-                              ))}
-                            </span>
-                          )}
-                        </span>
-                        );
-                      })}
-                    </span>
-                  </div>
+                              )}
+                            </div>
+                            {l.materialien && l.materialien.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {l.materialien.map((mat, midx) => (
+                                  <span key={midx} className="inline-flex items-baseline gap-1 px-1.5 py-0.5 bg-copper/10 border border-copper/30 rounded text-[10px] text-copper font-mono">
+                                    <span className="font-bold">{mat.name}</span>
+                                    {mat.spec && <span className="text-copper/80">· {mat.spec}</span>}
+                                    {mat.menge && <span className="text-copper/80">· {mat.menge.wert}{mat.menge.einheit ? " " + mat.menge.einheit : ""}</span>}
+                                    {mat.note && <span className="text-copper/60 italic" title={mat.note}>· {mat.note.length > 22 ? mat.note.slice(0, 20) + "…" : mat.note}</span>}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); removeLeistung(idx); }}
+                            title="Position entfernen"
+                            aria-label={`Position ${l.name} entfernen`}
+                            className="shrink-0 w-6 h-6 rounded flex items-center justify-center text-ink-mute hover:text-white hover:bg-rust transition-colors opacity-50 group-hover:opacity-100"
+                          >
+                            ✕
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
                 ) : parsed.leistung ? (
-                  <div className="text-[12.5px] font-sans">
-                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Leistung</span>
-                    <span className="text-ink">{parsed.leistung}</span>
-                  </div>
-                ) : null}
-                {/* Globale Mengen nur zeigen, wenn keine pro-Leistung-Mengen vorhanden */}
-                {parsed.mengen && parsed.mengen.length > 0 && (!parsed.leistungen || parsed.leistungen.length <= 1) && (
-                  <div className="text-[12.5px] font-sans">
-                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px] align-top">Mengen</span>
-                    <span className="inline-flex flex-col gap-0.5 align-top">
-                      {parsed.mengen.map((m, idx) => (
-                        <span key={idx} className="text-ink">
-                          <b className="font-mono">{m.wert}{m.einheit ? ` ${m.einheit}` : ""}</b>
-                          {m.was && <span className="text-ink-2"> · {m.was}</span>}
+                  <div className="text-[13px] font-sans text-ink px-1">{parsed.leistung}</div>
+                ) : (
+                  <p className="font-sans text-[12px] text-ink-mute italic px-1">Keine Positionen erkannt — unten ergänzen.</p>
+                )}
+
+                {/* Position manuell hinzufügen */}
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newPos}
+                    onChange={(e) => setNewPos(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addLeistung(); } }}
+                    placeholder="Position ergänzen, z. B. Heckenschnitt …"
+                    className="flex-1 min-w-0 bg-white border border-steel-line/45 rounded-md px-3 py-1.5 text-[12.5px] font-sans text-ink placeholder:text-ink-mute focus:border-copper focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={addLeistung}
+                    disabled={!newPos.trim()}
+                    className="shrink-0 px-3 py-1.5 rounded-md bg-copper text-white font-sans font-bold text-[12.5px] disabled:opacity-40 hover:bg-copper/90 transition-colors"
+                  >
+                    + Hinzufügen
+                  </button>
+                </div>
+
+                {/* Globale Mengen / Termin / Dringlichkeit — kompakt, abgesetzt */}
+                {((parsed.mengen && parsed.mengen.length > 0 && (!parsed.leistungen || parsed.leistungen.length <= 1)) || parsed.termin || (parsed.dringlichkeit && parsed.dringlichkeit !== "normal")) && (
+                  <div className="pt-2 border-t border-steel-line/30 space-y-1.5">
+                    {parsed.mengen && parsed.mengen.length > 0 && (!parsed.leistungen || parsed.leistungen.length <= 1) && (
+                      <div className="text-[12.5px] font-sans flex gap-2">
+                        <span className="dd-eyebrow text-ink-2 w-[90px] shrink-0">Mengen</span>
+                        <span className="flex flex-col gap-0.5">
+                          {parsed.mengen.map((m, idx) => (
+                            <span key={idx} className="text-ink">
+                              <b className="font-mono">{m.wert}{m.einheit ? ` ${m.einheit}` : ""}</b>
+                              {m.was && <span className="text-ink-2"> · {m.was}</span>}
+                            </span>
+                          ))}
                         </span>
-                      ))}
-                    </span>
+                      </div>
+                    )}
+                    {parsed.termin && (
+                      <div className="text-[12.5px] font-sans flex gap-2">
+                        <span className="dd-eyebrow text-ink-2 w-[90px] shrink-0">Termin</span>
+                        <span className="text-ink">{parsed.termin}</span>
+                      </div>
+                    )}
+                    {parsed.dringlichkeit && parsed.dringlichkeit !== "normal" && (
+                      <div className="text-[12.5px] font-sans flex gap-2">
+                        <span className="dd-eyebrow text-ink-2 w-[90px] shrink-0">Dringlichkeit</span>
+                        <span className={`font-mono text-[11px] font-bold uppercase ${parsed.dringlichkeit === "hoch" ? "text-rust" : "text-ink-mute"}`}>
+                          {parsed.dringlichkeit}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
-                {parsed.termin && (
-                  <div className="text-[12.5px] font-sans">
-                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px]">Termin-Wunsch</span>
-                    <span className="text-ink">{parsed.termin}</span>
-                  </div>
-                )}
-                {parsed.dringlichkeit && parsed.dringlichkeit !== "normal" && (
-                  <div className="text-[12.5px] font-sans">
-                    <span className="dd-eyebrow text-ink-2 inline-block w-[110px]">Dringlichkeit</span>
-                    <span className={`font-mono text-[11px] font-bold uppercase ${parsed.dringlichkeit === "hoch" ? "text-rust" : "text-ink-mute"}`}>
-                      {parsed.dringlichkeit}
-                    </span>
-                  </div>
-                )}
-                <p className="font-mono text-[10.5px] text-ink-mute mt-1">
-                  Diese Werte werden mit der Anfrage gespeichert, bleiben aber im Drawer und in der Pipeline-Notiz sichtbar.
+
+                <p className="font-mono text-[10px] text-ink-mute">
+                  Diese Positionen werden mit der Anfrage gespeichert und erscheinen im Drawer + in der Pipeline-Notiz.
                 </p>
               </div>
             )}
@@ -789,11 +935,16 @@ export default function AnfrageNeu() {
               {chosenCustomer && (
                 <div className="flex items-center justify-between gap-3 mb-3 px-3.5 py-2.5 rounded-md bg-copper/10 border-[1.5px] border-copper">
                   <div>
-                    <div className="font-sans font-bold text-[13.5px] text-ink flex items-center gap-1.5">
+                    <div className="font-sans font-bold text-[13.5px] text-ink flex items-center gap-1.5 flex-wrap">
                       <span className="text-copper">✓</span>
                       {isSevdeskOnly(chosenCustomer)
                         ? <>Bereits in <b>sevDesk</b> angelegt: {chosenCustomer.name}</>
-                        : <>Bestandskunde {confident && !matchTouched ? "erkannt" : "verknüpft"}: {chosenCustomer.name}</>}
+                        : <>{priorCount && priorCount > 0 ? "Folgeanfrage" : "Bestandskunde"} {confident && !matchTouched ? "erkannt" : "verknüpft"}: {chosenCustomer.name}</>}
+                      {!isSevdeskOnly(chosenCustomer) && !!priorCount && priorCount > 0 && (
+                        <span className="font-mono text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-copper/15 text-copper border border-copper/30">
+                          ↻ {priorCount} {priorCount === 1 ? "Vorgang" : "Vorgänge"}
+                        </span>
+                      )}
                     </div>
                     <div className="font-mono text-[10.5px] text-ink-2 mt-0.5">
                       {[chosenCustomer.customerNumber && `Kd-Nr ${chosenCustomer.customerNumber}`, chosenCustomer.city, chosenCustomer.email, chosenCustomer.phone].filter(Boolean).join(" · ") || "kein Kontakt hinterlegt"}
@@ -870,6 +1021,20 @@ export default function AnfrageNeu() {
                 </label>
               )}
             </div>
+
+            {/* Flächen-Gegenprüfung: Teilflächen ergeben nicht die Gesamtfläche */}
+            {parsed?.meta?.flaechen_check && (
+              <div className="bg-amber/10 border border-amber/40 border-l-4 border-l-amber rounded-lg p-4">
+                <div className="font-display font-extrabold uppercase text-[12px] text-amber-deep tracking-wide mb-1.5 flex items-center gap-2">
+                  <span className="inline-block w-4 h-4 rounded-full bg-amber text-white text-[10px] leading-4 text-center font-bold">△</span>
+                  Flächen-Check
+                </div>
+                <p className="font-sans text-[13px] text-ink leading-relaxed">{parsed.meta.flaechen_check.hinweis}</p>
+                <div className="font-mono text-[11px] text-ink-2 mt-2">
+                  Gesamt {parsed.meta.flaechen_check.gesamt} m² · aufgeschlüsselt {parsed.meta.flaechen_check.zugeordnet} m² · offen <b className="text-amber-deep">{parsed.meta.flaechen_check.differenz} m²</b>
+                </div>
+              </div>
+            )}
 
             {/* M5: Self-Check-Hinweise (zweiter LLM-Call hat etwas zu meckern) */}
             {parsed?.meta?.review_hints && (parsed.meta.review_hints.missing?.length || parsed.meta.review_hints.potentially_wrong?.length || parsed.meta.review_hints.note) && (
@@ -948,6 +1113,91 @@ export default function AnfrageNeu() {
           </div>
         )}
       </main>
+
+      {/* ── Positions-Detail-Editor · Modal ─────────────────────────────── */}
+      {editPos && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+          onClick={() => setEditPos(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-lg max-h-[88vh] overflow-y-auto bg-bg-2 border border-steel-line/60 rounded-xl shadow-2xl"
+          >
+            {/* Stahl-Header mit Kupfer-Schweißnaht */}
+            <div
+              className="px-5 py-3 flex items-center justify-between sticky top-0 z-10"
+              style={{ background: "linear-gradient(#2B2E31,#1A1C1E)", boxShadow: "inset 0 -2px 0 #DC6E2D" }}
+            >
+              <div className="min-w-0">
+                <div className="dd-eyebrow text-copper">Position bearbeiten</div>
+                <div className="font-display text-white text-[16px] leading-tight truncate">{editPos.draft.name || "Neue Position"}</div>
+              </div>
+              <button type="button" onClick={() => setEditPos(null)} aria-label="Schließen" className="shrink-0 w-8 h-8 rounded flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10">✕</button>
+            </div>
+
+            <div className="p-5 space-y-5">
+              {/* Gewerk-Name */}
+              <div>
+                <label className="dd-eyebrow text-ink-2 block mb-1.5">Gewerk / Bezeichnung</label>
+                <input
+                  type="text"
+                  value={editPos.draft.name}
+                  onChange={(e) => patchDraft((d) => ({ ...d, name: e.target.value }))}
+                  className="w-full bg-white border border-steel-line/45 rounded-md px-3 py-2 text-[14px] font-sans text-ink focus:border-copper focus:outline-none"
+                />
+              </div>
+
+              {/* Mengen */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="dd-eyebrow text-ink-2">Mengen</label>
+                  <button type="button" onClick={draftAddMenge} className="font-sans text-[12px] font-bold text-copper hover:underline">+ Menge</button>
+                </div>
+                <div className="space-y-2">
+                  {(editPos.draft.mengen ?? []).length === 0 && (
+                    <p className="font-sans text-[12px] text-ink-mute italic">Keine Menge — bei Bedarf hinzufügen.</p>
+                  )}
+                  {(editPos.draft.mengen ?? []).map((m, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input value={m.wert} onChange={(e) => draftSetMenge(i, "wert", e.target.value)} placeholder="Wert" className="w-16 bg-white border border-steel-line/45 rounded px-2 py-1.5 text-[13px] font-mono text-ink focus:border-copper focus:outline-none" />
+                      <input value={m.einheit ?? ""} onChange={(e) => draftSetMenge(i, "einheit", e.target.value)} placeholder="Einh." className="w-16 bg-white border border-steel-line/45 rounded px-2 py-1.5 text-[13px] font-mono text-ink focus:border-copper focus:outline-none" />
+                      <input value={m.was ?? ""} onChange={(e) => draftSetMenge(i, "was", e.target.value)} placeholder="wofür (z. B. Terrasse)" className="flex-1 min-w-0 bg-white border border-steel-line/45 rounded px-2 py-1.5 text-[13px] font-sans text-ink focus:border-copper focus:outline-none" />
+                      <button type="button" onClick={() => draftRemoveMenge(i)} aria-label="Menge entfernen" className="shrink-0 w-7 h-7 rounded flex items-center justify-center text-ink-mute hover:text-white hover:bg-rust">✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Materialien */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="dd-eyebrow text-ink-2">Materialien</label>
+                  <button type="button" onClick={draftAddMaterial} className="font-sans text-[12px] font-bold text-copper hover:underline">+ Material</button>
+                </div>
+                <div className="space-y-2">
+                  {(editPos.draft.materialien ?? []).length === 0 && (
+                    <p className="font-sans text-[12px] text-ink-mute italic">Kein Material — bei Bedarf hinzufügen.</p>
+                  )}
+                  {(editPos.draft.materialien ?? []).map((mat, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input value={mat.name} onChange={(e) => draftSetMaterial(i, "name", e.target.value)} placeholder="Material" className="flex-1 min-w-0 bg-white border border-steel-line/45 rounded px-2 py-1.5 text-[13px] font-sans text-ink focus:border-copper focus:outline-none" />
+                      <input value={mat.spec ?? ""} onChange={(e) => draftSetMaterial(i, "spec", e.target.value)} placeholder="Spec (z. B. anthrazit)" className="w-32 bg-white border border-steel-line/45 rounded px-2 py-1.5 text-[13px] font-mono text-ink focus:border-copper focus:outline-none" />
+                      <button type="button" onClick={() => draftRemoveMaterial(i)} aria-label="Material entfernen" className="shrink-0 w-7 h-7 rounded flex items-center justify-center text-ink-mute hover:text-white hover:bg-rust">✕</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 py-3 border-t border-steel-line/40 flex items-center justify-end gap-2 sticky bottom-0 bg-bg-2">
+              <button type="button" onClick={() => setEditPos(null)} className="px-4 py-2 rounded-md font-sans text-[13px] text-ink-2 hover:text-ink">Abbrechen</button>
+              <button type="button" onClick={savePosEdit} className="px-5 py-2 rounded-md bg-copper text-white font-sans font-bold text-[13px] hover:bg-copper/90 transition-colors">✓ Übernehmen</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
