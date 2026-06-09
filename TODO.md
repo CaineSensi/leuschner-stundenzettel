@@ -1,17 +1,34 @@
 # Leuschner Stundenzettel · Offene Aufgaben
 
-**Stand:** 06. Juni 2026 (Feierabend)
-**Hauptapp (`app`):** `main` lokal aktuell · Live ✓ (Deployment `9bb9d5c3`, Baustellen-Kanban + Sortierung) · **`origin/main` hinkt 24 Commits hinterher** (kein GitHub-Token → kein Push)
+**Stand:** 09. Juni 2026 (Feierabend)
+**Hauptapp (`app`):** `main` = `8cd13c5` lokal committed · Live ✓ (Wrangler 4.99.0, Deploy `2a193a8f`) · **`origin/main` hinkt ~27 Commits hinterher** (kein GitHub-Token → kein Push)
 **Aufmaß-App (`aufmass`):** `main` = `8d9afeb` ✓ (lokal committed, KEIN Git-Remote — lebt auf dem Stick) · live `leuschner-aufmass.pages.dev`
-Lokal = Live ✓. Voller Stand: `../WIEDEREINSTIEG.md` (Abschnitt „06.06.").
+Lokal = Live ✓.
 
 ## 🔥 Jetzt fällig / im Blick
 - **E-Mail-Punkt-Fehler (`functions/api/llm/structure.ts`):** Heuristik-Regex zieht teils einen Satz-Punkt mit (`…@example.com.`). Trailing-Satzzeichen strippen (Heuristik-Pfad + LLM-`normalize`). Beim sevDesk-Test am 06.06. entdeckt + manuell korrigiert, dauerhafter Fix noch offen.
 - **Minor (Baustellen-Detail):** Hero zeigt bei abgerechneten Karten die RE-Nummer statt der AN-Nummer (`orderRef.orderNumber` bevorzugt Rechnungsnr.) — bei Gelegenheit auf AN-Nummer umstellen.
-- **GitHub-Sync:** 24 Commits lokal vor `origin/main` — Fine-grained PAT erzeugen (Repo Contents R/W) → in KeePass „GitHub Leuschner" → pushen. Nicht nötig fürs Live-Schalten, aber Git driftet.
+- **GitHub-Sync:** ~27 Commits lokal vor `origin/main` — Fine-grained PAT erzeugen (Repo Contents R/W) → in KeePass „GitHub Leuschner" → pushen. Nicht nötig fürs Live-Schalten, aber Git driftet.
 - **2 Test-Karteileichen** im Kundenstamm löschen: „RLS-Probe-…", „SinglePr-…" (nur auf Freigabe).
 - **AN-Nummern-Dubletten** in sevDesk noch offen: 1075/1081/1090/1135/1141/1158/1212/1252 (1255/1258 bereinigt).
 - Entscheidung steht: **alter sevDesk-Bestand (~200 historische Kontakte/Belege) wird vorerst NICHT in die App übernommen** — nur aktive Vorgänge.
+
+---
+
+## ✅ Heute drin (09.06.2026)
+
+### Leistungsverzeichnis (LV)
+- Neue Route `/admin/lv` — 3-spaltiges Master-Detail-Layout (Kategorien · Liste · Detail)
+- Lib `src/lib/lv.ts` + `src/routes/LV.tsx` + Migration `20260609000000_lv_positions.sql`
+- 33 Seed-Positionen in 6 Kategorien (ERD / PFL / GTN / ZAU / VWG / ERR)
+- RLS-Policies: select company-basiert, write nur Admins
+- DB-Migration per Supabase Management API eingespielt → Live ✓
+- Chat-Avatar Rick: Matrix-Bild statt Flamingo-Emoji; Supabase Storage Bucket `avatars` angelegt, `avatars/rick.png` hochgeladen; Avatar-Komponente in ChatBubble.tsx unterstützt jetzt `imageUrl`-Feld
+
+### Infra / Wartung
+- Wrangler auf **4.99.0** aktualisiert
+- Admin-Passwort (`rick@dollartdrops.com`) auf `sensi3170` geändert — Wolfgang muss jetzt seinen eigenen Account nutzen
+- LV-Ladefehler behoben (fehlende Tabelle → Migration eingespielt)
 
 ---
 
