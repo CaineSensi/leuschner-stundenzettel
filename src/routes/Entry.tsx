@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { deleteEntry, getTodayAssignment, listEntries, listSites } from "../lib/api";
 import { saveEntryWithSync } from "../lib/sync";
+import { queueEntry } from "../lib/offline";
 import { currentUser } from "../lib/auth";
 import {
   deleteEntryPhoto, getCurrentCompanyId, listEntryPhotos, uploadEntryPhoto
@@ -214,7 +215,7 @@ export default function Entry() {
       const entryId = await Promise.race<string>([
         saveEntryWithSync(draft, existingId ?? undefined),
         new Promise<string>((_, reject) =>
-          setTimeout(() => reject(new Error("Zeitüberschreitung beim Speichern")), 6000)
+          setTimeout(() => reject(new Error("Zeitüberschreitung beim Speichern")), 30000)
         )
       ]);
       console.log("[entry] save ok", entryId);
@@ -266,6 +267,25 @@ export default function Entry() {
       navigate("/", { replace: true });
     } catch (err: any) {
       console.warn("[entry] save FAIL", err);
+      // Bei echtem Offline ODER Timeout/Netzfehler trotz „onLine": Eintrag
+      // lokal in die Outbox legen, damit nichts verloren geht. Der
+      // OfflineIndicator zeigt „⏱ 1 Eintrag wartet", sync läuft automatisch
+      // beim nächsten Online-Werden bzw. App-Start.
+      // Einschränkung: Offline-Update bestehender Einträge wird nicht
+      // unterstützt — dort zeigen wir den Fehler und der User probiert neu.
+      const looksLikeNetIssue =
+        !navigator.onLine
+        || /Zeitüberschreitung/i.test(err?.message ?? "")
+        || /Failed to fetch|NetworkError|TypeError/i.test(err?.message ?? "");
+      if (!existingId && looksLikeNetIssue) {
+        try {
+          await queueEntry(draft);
+          navigate("/", { replace: true });
+          return;
+        } catch (qErr) {
+          console.warn("[entry] queue FAIL", qErr);
+        }
+      }
       if (!navigator.onLine) {
         navigate("/", { replace: true });
         return;

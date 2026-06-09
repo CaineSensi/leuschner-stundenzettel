@@ -2,10 +2,26 @@ import type { Worker } from "./types";
 import { supabase } from "./supabase";
 
 const KEY = "leuschner.session";
+const CODE_KEY = "leuschner.code";
 
 interface Session {
   worker: Worker;
   loggedInAt: number;
+}
+
+function storeCode(code: string) {
+  // Code im localStorage ablegen, damit die App bei abgelaufenem Refresh-Token
+  // automatisch neu authentifizieren kann (Rick-Vorgabe 09.06.: „Code nur einmal
+  // eingeben"). Klartext ist akzeptabel — gleiche Vertraulichkeitsstufe wie der
+  // Supabase-Auth-Token, der eh hier liegt; bei Handyverlust sperrt das Büro den
+  // Code, dann schlägt der Auto-Reauth fehl und führt zu /login.
+  try { localStorage.setItem(CODE_KEY, code.toUpperCase()); } catch { /* ignore */ }
+}
+function getStoredCode(): string | null {
+  try { return localStorage.getItem(CODE_KEY); } catch { return null; }
+}
+function clearStoredCode() {
+  try { localStorage.removeItem(CODE_KEY); } catch { /* ignore */ }
 }
 
 // === Synchroner localStorage-Zugriff (für Routes) ===
@@ -28,6 +44,7 @@ export function login(worker: Worker) {
 
 export function logout() {
   localStorage.removeItem(KEY);
+  clearStoredCode();
 }
 
 export function isOnboarded(): boolean {
@@ -141,6 +158,7 @@ export async function signInWithCode(code: string): Promise<{ worker?: Worker; e
       isAdmin: data.is_admin
     };
     login(worker);
+    storeCode(code);
     console.log("[auth] code login ok", worker.firstName, worker.lastName);
     return { worker };
   } catch (err: any) {
@@ -183,7 +201,23 @@ export async function enforceValidSession(): Promise<string | null> {
   if (!navigator.onLine) return null;     // offline → kein Urteil, lokale Session behalten
   const u = currentUser();
   if (!u) return null;                    // gar nicht „eingeloggt" → nichts zu tun
-  // online + lokal eingeloggt, aber keine Server-Anmeldung → Zombie: verwerfen
+  // online + lokal eingeloggt, aber keine Server-Anmeldung → Auto-Reauth probieren,
+  // wenn wir noch den ursprünglichen Code haben (Rick-Vorgabe: einmal eingeben reicht).
+  const stored = getStoredCode();
+  if (stored) {
+    try {
+      console.log("[auth] zombie session — auto-redeeming stored code");
+      const res = await signInWithCode(stored);
+      if (res.worker) {
+        console.log("[auth] auto-reauth ok");
+        return null;
+      }
+      console.warn("[auth] auto-reauth failed:", res.error);
+    } catch (err) {
+      console.warn("[auth] auto-reauth threw", err);
+    }
+  }
+  // Auto-Reauth nicht möglich oder fehlgeschlagen → echte Abmeldung
   const dest = u.isAdmin ? "/buero" : "/login";
   logout();
   return dest;
