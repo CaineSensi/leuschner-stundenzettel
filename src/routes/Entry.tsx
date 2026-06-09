@@ -621,7 +621,7 @@ function ActivityTime({
         <TimeSlider value={endMin}   onChange={onEnd}   label="Ende" />
 
         <div className="h-mono text-ink-mute text-[11px] mt-3 px-1 leading-snug">
-          30 min Pause werden vom Büro automatisch dokumentiert — du musst hier nichts eingeben.
+          30 min Pause werden vom Büro automatisch dokumentiert. Du musst hier nichts eingeben.
         </div>
       </section>
 

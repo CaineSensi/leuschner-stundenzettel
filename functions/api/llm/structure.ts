@@ -418,7 +418,12 @@ function normalize(p: any): Parsed {
   const out: Parsed = { parser: p.parser ?? 'workers-ai-70b' };
   if (p.vorgang && ['angebot','termin','reklamation','material','sonstiges'].includes(p.vorgang)) out.vorgang = p.vorgang;
   for (const k of ['customerName','firma','phone','phone_mobile','email','street','zip','city','description','leistung','termin'] as const) {
-    if (typeof p[k] === 'string' && p[k].trim().length) (out as any)[k] = p[k].trim();
+    if (typeof p[k] === 'string' && p[k].trim().length) {
+      let v = p[k].trim();
+      // E-Mail: LLM nimmt manchmal Satzpunkt am Satzende mit (z.B. "…@test.com.")
+      if (k === 'email') v = v.replace(/[.,;:!?]+$/, '');
+      (out as any)[k] = v;
+    }
   }
   // Telefon-Sanity (mehrere Korrekturen, weil LLMs hier auffällig oft danebenliegen):
   //   a) Nur `phone` gesetzt, Wert hat Mobil-Vorwahl → in `phone_mobile` schieben
@@ -522,9 +527,9 @@ function normEinheit(raw: any): string {
 function parseHeuristic(text: string): Parsed {
   const out: Parsed = { parser: 'heuristic', confidence: { overall: 'low' } };
 
-  // E-Mail
+  // E-Mail — trailing Satzzeichen (Punkt am Satzende) abschneiden
   const mail = text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
-  if (mail) out.email = mail[0];
+  if (mail) out.email = mail[0].replace(/[.,;:!?]+$/, '');
 
   // Telefon — alle Nummern finden, dann nach Mobil vs. Festnetz sortieren.
   // Das Lookbehind (?<![\w-]) verhindert Treffer MITTEN in Datei-/Datums-Tokens

@@ -35,9 +35,9 @@ const PRIORITY_META: Record<InquiryPriority, { label: string; color: string; ran
 
 const VORGANG_HINT: Record<Vorgang, string> = {
   angebot:     'Kunde will einen Preis. Klassischer Vertriebs-Vorgang. Von hier geht es weiter zur Pipeline-Karte "Angebot".',
-  termin:      "Kunde will nur einen Termin (Rückruf, Aufmaß, Besichtigung). Kein Angebot direkt verlangt — erst hingehen, dann Angebot machen.",
+  termin:      "Kunde will nur einen Termin (Rückruf, Aufmaß, Besichtigung). Kein Angebot direkt verlangt. Erst hingehen, dann Angebot machen.",
   reklamation: "Beschwerde über eine bereits ausgeführte Arbeit. Hoch priorisieren, separater Workflow als bei einer Vertriebs-Anfrage.",
-  material:    "Kunde will nur Material bestellen (Mutterboden, Pflastersteine, etc.). Keine Bauleistung — Logistik-Pfad statt Angebots-Pfad.",
+  material:    "Kunde will nur Material bestellen (Mutterboden, Pflastersteine, etc.). Keine Bauleistung. Logistik-Pfad statt Angebots-Pfad.",
   sonstiges:   "Klassifikation unklar oder passt in keine andere Kategorie. Im Drawer-Detail prüfen.",
 };
 
@@ -255,7 +255,7 @@ export default function Anfragen() {
             ]}
           />
           <FilterSelect
-            title="Filter nach Priorität — sieh dir nur die hochprioren Sachen an wenn es eilt."
+            title="Filter nach Priorität. Nur hochpriore Sachen anzeigen wenn es eilt."
             value={fPriority} onChange={(v) => setParam("priority", v)}
             options={[
               { value: "",        label: "alle Prio" },
@@ -350,7 +350,7 @@ function EmptyState({ hasItems }: { hasItems: boolean }) {
       </p>
       <p className="font-sans text-[13px] text-ink-2 mb-5 max-w-[420px] mx-auto">
         Wenn eine Kunden-Anfrage reinkommt (Mail, WhatsApp, Telefon, Brief, persönlich),
-        hier reinpasten — App strukturiert, ordnet den Kunden zu und legt eine Pipeline-Karte an.
+        hier reinpasten. App strukturiert, ordnet den Kunden zu und legt eine Pipeline-Karte an.
       </p>
       <Link to="/admin/anfrage-neu" className="btn-primary !min-h-[44px] text-[12px] inline-flex items-center">
         ＋ Anfrage anlegen
@@ -412,7 +412,7 @@ function InquiryRow({
             <span
               className="w-1 self-stretch min-h-[44px] rounded-sm flex-shrink-0 block"
               style={{ background: pMeta.color }}
-              title={`Priorität ${pMeta.label} — ${pMeta.hint} (klicken zum Ändern)`}
+              title={`Priorität ${pMeta.label}: ${pMeta.hint} (klicken zum Ändern)`}
             />
           }
         />
@@ -435,7 +435,7 @@ function InquiryRow({
                 <span
                   className="font-mono text-[9.5px] uppercase font-bold px-2 py-0.5 rounded-full inline-block"
                   style={{ background: sMeta.color, color: "#fff" }}
-                  title={`Status: ${sMeta.label} — ${sMeta.hint} (klicken zum Ändern)`}
+                  title={`Status: ${sMeta.label}, ${sMeta.hint} (klicken zum Ändern)`}
                 >
                   {sMeta.label}
                 </span>
@@ -463,7 +463,7 @@ function InquiryRow({
                       color: VORGANG_COLOR[vorgang],
                       border: `1px solid ${VORGANG_COLOR[vorgang]}55`,
                     }}
-                    title={`Vorgang: ${VORGANG_LABEL[vorgang]} — ${VORGANG_HINT[vorgang]} (klicken zum Korrigieren)`}
+                    title={`Vorgang: ${VORGANG_LABEL[vorgang]}, ${VORGANG_HINT[vorgang]} (klicken zum Korrigieren)`}
                   >
                     {VORGANG_LABEL[vorgang]}
                   </span>

@@ -72,7 +72,7 @@ export function remindWorkerIfNeeded(workerId: string, entries: Entry[]) {
   if (!has) {
     notify(
       "Heute noch nichts erfasst",
-      "Plus-Knopf öffnen und Stunden eintragen — dauert keine zwei Minuten.",
+      "Plus-Knopf öffnen und Stunden eintragen. Dauert keine zwei Minuten.",
       { tag: "daily-worker-reminder" }
     );
   }

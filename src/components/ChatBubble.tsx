@@ -70,7 +70,7 @@ function ChatBubbleInner({ me }: { me: Worker }) {
   useRefreshOnVisible(() => setPeersRefreshKey((k) => k + 1));
   useEffect(() => {
     let cancelled = false;
-    listWorkers()
+    listWorkers(true) // includeArchived: archivierte Admins (Wolfgang) sollen chatbar bleiben
       .then((ws) => {
         if (cancelled) return;
         // Aktuell nur Admin-zu-Admin-Chat (Rick-Vorgabe 09.06.: „Mathias und
@@ -673,21 +673,19 @@ function ChatModalView(props: {
    Hilfs-Komponenten + Formatierung
    ──────────────────────────────────────────────────────────────────────── */
 
-// Personalisierte Avatare nach Rick-Vorgabe 09.06.2026 (Mockup-Variante 05 ·
-// Tier-Silhouette): Rick = Adler 🦅, Wolfgang = Wolf 🐺. Spezial-Hintergrund
-// in dunklem Stahl-Gradient, das Tier-Symbol ersetzt die Initialen.
 const RICK_ID     = "00000000-0000-0000-0000-000000000010";
 const WOLFGANG_ID = "00000000-0000-0000-0000-000000000012";
+const RICK_AVATAR = "https://vejhsyrxpveunygyhqlo.supabase.co/storage/v1/object/public/avatars/rick.png";
 
 interface AvatarFlavor {
   emoji?: string;
+  imageUrl?: string;
   bg: [string, string];
-  emojiOffset?: number; // Schrift-Größe-Faktor (1 = wie initials, >1 = größer)
+  emojiOffset?: number;
 }
 
 function flavorFor(peer: Worker | null): AvatarFlavor {
-  // Rick = Flamingo 🦩 auf rosa Gradient (Rick-Vorgabe 09.06.2026)
-  if (peer?.id === RICK_ID)     return { emoji: "🦩", bg: ["#FFC9DE", "#D14A8F"], emojiOffset: 1.55 };
+  if (peer?.id === RICK_ID)     return { imageUrl: RICK_AVATAR, bg: ["#0D1A0D", "#0A2A0A"] };
   if (peer?.id === WOLFGANG_ID) return { emoji: "🐺", bg: ["#5A5D60", "#2B2E31"], emojiOffset: 1.55 };
   if (peer?.isAdmin)            return { bg: ["#E8853F", "#C95F22"] };
   return { bg: pickPalette(peer?.initials ?? "?") };
@@ -707,7 +705,7 @@ function Avatar({ peer, size, online, hideDot }: {
   const fontSize = flavor.emoji ? Math.round(baseFontSize * (flavor.emojiOffset ?? 1.55)) : baseFontSize;
   return (
     <div
-      className="relative rounded-full inline-flex items-center justify-center text-white font-display font-extrabold flex-shrink-0"
+      className="relative rounded-full inline-flex items-center justify-center text-white font-display font-extrabold flex-shrink-0 overflow-hidden"
       style={{
         width: dims, height: dims, fontSize,
         background: `linear-gradient(180deg, ${flavor.bg[0]}, ${flavor.bg[1]})`,
@@ -716,7 +714,16 @@ function Avatar({ peer, size, online, hideDot }: {
       }}
       title={peer ? `${peer.firstName} ${peer.lastName}` : ""}
     >
-      {flavor.emoji ?? initials}
+      {flavor.imageUrl ? (
+        <img
+          src={flavor.imageUrl}
+          alt={peer?.firstName ?? ""}
+          style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }}
+          draggable={false}
+        />
+      ) : (
+        flavor.emoji ?? initials
+      )}
       {online && !hideDot && (
         <span
           className="absolute"

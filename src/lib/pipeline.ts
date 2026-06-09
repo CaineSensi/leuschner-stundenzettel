@@ -398,7 +398,7 @@ async function autoFillSiteFromCard(sb: any, siteId: string, card: PipelineCard)
       company_id: inq.company_id,
       site_id: siteId,
       kind: "material",
-      title: `${l.name}: ${optionTexts.join(" oder ")}? — Kunde wählen lassen`,
+      title: `${l.name}: ${optionTexts.join(" oder ")}? Kunde wählen lassen`,
       detail: alternatives[0].note ?? null,
       status: "offen",
       source_inquiry_id: inq.id,
@@ -777,7 +777,7 @@ export async function cancelCard(
   const freigabe = mergeFreigabe(card.freigabe, {
     at: now,
     by,
-    action: reason ? `Storniert — ${reason}` : "Storniert",
+    action: reason ? `Storniert: ${reason}` : "Storniert",
   });
   const patch: Record<string, unknown> = {
     cancelled_at: now,

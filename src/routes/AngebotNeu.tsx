@@ -251,7 +251,7 @@ export default function AngebotNeu() {
         .single();
       if (cErr) throw cErr;
       const sevContactId = (cust as any)?.customers?.sevdesk_contact_id;
-      if (!sevContactId) throw new Error("Kunde ist nicht mit sevDesk verknüpft — bitte erst Kunden anlegen lassen.");
+      if (!sevContactId) throw new Error("Kunde ist nicht mit sevDesk verknüpft. Bitte erst Kunden anlegen lassen.");
 
       const orderNumber = await sevdeskNextOrderNumber();
       const result = await sevdeskCreateOrder({
@@ -342,7 +342,7 @@ export default function AngebotNeu() {
                 {inquirySummary.materialienCount > 0 && (
                   <p className="font-sans text-[12px] text-ink-2 mt-1.5">
                     <b className="text-copper">{inquirySummary.materialienCount}</b> Material-Wunsch{inquirySummary.materialienCount === 1 ? "" : "/-wünsche"} in den Positionsnamen vermerkt
-                    {inquirySummary.hasAlternatives && <span className="text-amber"> · enthält Alternativ-Auswahl (z.B. „Naturstein oder Betonrandsteine") — beim Kunden klären</span>}.
+                    {inquirySummary.hasAlternatives && <span className="text-amber"> · enthält Alternativ-Auswahl (z.B. „Naturstein oder Betonrandsteine"), beim Kunden klären</span>}.
                   </p>
                 )}
               </div>
@@ -382,7 +382,7 @@ export default function AngebotNeu() {
                   {rows.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="text-center py-6 font-mono text-[11.5px] text-ink-2">
-                        Noch keine Positionen — Vorlage wählen oder „+ Position" klicken.
+                        Noch keine Positionen. Vorlage wählen oder „+ Position" klicken.
                       </td>
                     </tr>
                   ) : rows.map((r, i) => (

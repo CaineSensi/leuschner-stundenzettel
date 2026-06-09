@@ -51,6 +51,7 @@ interface BaseEntry {
   workerId: string;
   date: string;        // ISO date YYYY-MM-DD
   note?: string;
+  submittedAt?: string | null;
 }
 
 export interface WorkEntry extends BaseEntry {
@@ -115,4 +116,38 @@ export interface EntryPhoto {
 export interface PhotoWithContext extends EntryPhoto {
   date: string;
   siteId: string;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Leistungsverzeichnis
+// ────────────────────────────────────────────────────────────────────────────
+
+export interface LvPosition {
+  id: string;
+  companyId: string;
+  cat: string;
+  name: string;
+  price: number | null;
+  unit: string | null;
+  surcharge: string | null;
+  shortText: string | null;
+  longText: string | null;
+  zulagen: string[];
+  usedCount: number;
+  lastUsed: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LvPositionInput {
+  id: string;
+  cat: string;
+  name: string;
+  price?: number | null;
+  unit?: string | null;
+  surcharge?: string | null;
+  shortText?: string | null;
+  longText?: string | null;
+  zulagen?: string[];
 }

@@ -249,7 +249,7 @@ export default function SiteDetail() {
     { label: "Material", value: materials.length ? `${materials.length}` : null, onClick: () => setOpenModal("materials") },
     { label: "Fotos", value: photos.length ? `${photos.length}` : null, onClick: () => setOpenModal("photos"), disabled: photos.length === 0 },
     { label: "Anhänge", value: media.length ? `${media.length}` : null, onClick: () => setOpenModal("media"), disabled: media.length === 0 },
-    { label: "Garten-Skizze", value: null, onClick: () => navigate(`/admin/garten?site=${id}`) },
+    { label: "Garten-Skizze", value: null, onClick: () => {}, disabled: true },
   ];
 
   // Effektive Koordinaten: explizit gesetzt oder via Geocoding ermittelt
@@ -341,7 +341,7 @@ export default function SiteDetail() {
               <iframe src={mapSrc} loading="lazy" className="w-full h-full min-h-[240px] block border-0" title={`Karte ${site.name}`} />
             ) : (
               <div className="absolute inset-0 grid place-items-center font-mono text-[11px] text-ink-2 text-center px-4">
-                Adresse oder GPS-Koordinaten in der Baustelle fehlen<br />— Karte kann nicht angezeigt werden
+                Adresse oder GPS-Koordinaten in der Baustelle fehlen.<br />Karte kann nicht angezeigt werden.
               </div>
             )}
 
@@ -354,7 +354,7 @@ export default function SiteDetail() {
             {!effectiveGeo && !geocoding && (site.street || site.city) && (
               <div className="absolute inset-0 z-[1100] grid place-items-center bg-bg-3/95 font-mono text-[11px] text-ink-2 text-center px-4">
                 Adresse <b className="text-ink">{[site.street, site.city].filter(Boolean).join(", ")}</b><br />
-                konnte nicht auf der Karte gefunden werden — bitte GPS-Koordinaten manuell eintragen.
+                konnte nicht auf der Karte gefunden werden. Bitte GPS-Koordinaten manuell eintragen.
               </div>
             )}
 
@@ -1233,17 +1233,22 @@ async function loadInquiryForSite(siteId: string): Promise<InquiryRef | null> {
 async function loadPipelineCardForSite(siteId: string): Promise<OrderRef | null> {
   if (!isBackendConnected() || !supabase) return null;
   const sb: any = supabase;
-  const { data, error } = await sb
-    .from("pipeline_cards")
-    .select("doc_number, positions, value_eur, plan_eur")
-    .eq("site_id", siteId)
-    .order("created_at", { ascending: false })
-    .limit(1);
-  if (error || !data || data.length === 0) return null;
-  const r = data[0];
+  // Parallel: Karten-Daten + sites.sevdesk_order_number (= originale AN-Nummer).
+  // pipeline_cards.doc_number wird nach Abrechnung zur RE-Nummer überschrieben;
+  // sites.sevdesk_order_number bleibt beim AN-Wert, den sie beim Anlegen bekam.
+  const [cardRes, siteRes] = await Promise.all([
+    sb.from("pipeline_cards").select("doc_number, positions, value_eur, plan_eur")
+      .eq("site_id", siteId).order("created_at", { ascending: false }).limit(1),
+    sb.from("sites").select("sevdesk_order_number").eq("id", siteId).maybeSingle(),
+  ]);
+  if (cardRes.error || !cardRes.data || cardRes.data.length === 0) return null;
+  const r = cardRes.data[0];
+  const siteAn: string | null = siteRes.data?.sevdesk_order_number ?? null;
+  // AN bevorzugen — zeige RE-Nummer nur wenn keine AN bekannt ist
+  const orderNumber = (siteAn && /^AN-/i.test(siteAn)) ? siteAn : (r.doc_number ?? "—");
   return {
     id: siteId,
-    orderNumber: r.doc_number ?? "—",
+    orderNumber,
     positions: Array.isArray(r.positions) ? r.positions : [],
     sumNet: r.value_eur ?? r.plan_eur ?? null,
   };

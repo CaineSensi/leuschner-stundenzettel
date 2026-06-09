@@ -139,7 +139,7 @@ export default function SiteMaterialEditor({
             <input value={priceEur} onChange={(e) => setPriceEur(e.target.value)} placeholder="z. B. 15,10" className="mat-input font-mono" inputMode="decimal" />
           </Field>
           <Field label="Notiz">
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Optional — Hinweise, Bestellnr, Charge …" className="mat-input resize-y" />
+            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Optional: Hinweise, Bestellnr, Charge …" className="mat-input resize-y" />
           </Field>
         </div>
 
@@ -182,7 +182,7 @@ function Field({ label, required, children }: { label: string; required?: boolea
   return (
     <div>
       <label className="h-mono text-copper text-[11px] block mb-1">
-        — {label}{required && <span className="text-rust ml-1">*</span>}
+        {label}{required && <span className="text-rust ml-1">*</span>}
       </label>
       {children}
     </div>

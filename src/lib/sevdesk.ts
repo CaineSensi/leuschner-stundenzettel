@@ -273,7 +273,7 @@ export async function sevdeskCancelOrder(orderRef: { id?: string; orderNumber?: 
     const found = await sd<any>(`Order?orderNumber=${encodeURIComponent(orderRef.orderNumber)}&depth=0`);
     orderId = String(found?.objects?.[0]?.id ?? '');
   }
-  if (!orderId) throw new Error('sevDesk-Order ohne ID/Nummer — nichts zu stornieren');
+  if (!orderId) throw new Error('sevDesk-Order ohne ID/Nummer. Nichts zu stornieren.');
 
   // Aktuellen Belegtext lesen, um Storno-Vermerk nicht-destruktiv anzuhängen
   let prevHeadText = '';
@@ -283,7 +283,7 @@ export async function sevdeskCancelOrder(orderRef: { id?: string; orderNumber?: 
   } catch { /* irrelevant — wir können trotzdem stornieren */ }
 
   const stamp = new Date().toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const stornoHinweis = `[STORNIERT am ${stamp}${reason ? ` — Grund: ${reason}` : ''}]`;
+  const stornoHinweis = `[STORNIERT am ${stamp}${reason ? `, Grund: ${reason}` : ''}]`;
   const headText = prevHeadText ? `${stornoHinweis}\n\n${prevHeadText}` : stornoHinweis;
 
   await sd(`Order/${orderId}`, {

@@ -285,7 +285,7 @@ export function StundenzettelSheet({
 
         {/* Hinweis statt Unterschriften */}
         <div className="mt-6 print:mt-4 text-center text-[9px] text-gray-500">
-          Maschinell erstellt am {new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })} — ohne Unterschrift gültig.
+          Maschinell erstellt am {new Date().toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}. Ohne Unterschrift gültig.
         </div>
 
         <div className="mt-2 text-center text-[8px] text-gray-400">leuschner-stundenzettel</div>

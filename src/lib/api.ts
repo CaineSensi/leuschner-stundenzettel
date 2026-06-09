@@ -450,7 +450,8 @@ function rowToEntry(r: any): Entry {
       pauseMin: r.pause_min,
       weather: r.weather ?? undefined,
       geoVerified: r.geo_verified,
-      note: r.note ?? undefined
+      note: r.note ?? undefined,
+      submittedAt: r.submitted_at ?? null
     };
   }
   return {
@@ -459,7 +460,8 @@ function rowToEntry(r: any): Entry {
     workerId: r.worker_id,
     date: r.date,
     endDate: r.end_date ?? undefined,
-    note: r.note ?? undefined
+    note: r.note ?? undefined,
+    submittedAt: r.submitted_at ?? null
   };
 }
 

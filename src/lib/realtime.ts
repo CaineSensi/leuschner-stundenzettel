@@ -60,8 +60,12 @@ export function useRefreshOnAuth(refresh: () => void) {
     // Fall ab: Tab-Wechsel nach laengerer Nutzung mit abgelaufenem Token, der sonst
     // einen leeren View hinterlaesst, bis man die Seite manuell neu laedt.
     let cancelled = false;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!cancelled && data.session) refreshRef.current();
+    // getSession() wartet intern auf Token-Refresh ab. Danach IMMER laden —
+    // auch ohne explizite Session-Prüfung, weil RLS den leeren Fall selbst handled.
+    // Das eliminiert die Race Condition beim schnellen Tab-Wechsel: ohne dieses
+    // "await", startet der erste Tab-Fetch bevor der Token refreshed ist → leer.
+    supabase.auth.getSession().then(() => {
+      if (!cancelled) refreshRef.current();
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
       // Token-Refresh feuert regelmäßig — auch das wollen wir, damit ein

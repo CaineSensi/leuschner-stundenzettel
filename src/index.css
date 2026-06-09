@@ -81,8 +81,8 @@
     @apply font-mono uppercase tracking-wide text-xs px-4 rounded-md;
     min-height: 56px;
     color: #1A1C1E;
-    border: 1.5px solid #A9AEB3;
-    background: linear-gradient(180deg, #FFFFFF, #ECEEF0);
+    border: 1.5px solid #8B9197;
+    background: linear-gradient(180deg, #EDF0F2, #DDE1E5);
   }
 
   /* Dunkle Stahl-Oberfläche mit Orange-Schweißnaht unten — Header/Leisten */
@@ -117,6 +117,7 @@
     border-left: 4px solid var(--c, #A9AEB3);
     box-shadow: 0 6px 16px -8px rgba(0,0,0,.35);
     transition: transform .14s ease, box-shadow .14s ease;
+    color: #15171A;
   }
   .dd-card.is-click { @apply cursor-pointer; }
   .dd-card.is-click:hover {

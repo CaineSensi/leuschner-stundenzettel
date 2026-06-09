@@ -27,7 +27,7 @@ const STAGE_HINT: Record<string, string> = {
   "Versendet":   "Angebot ist beim Kunden raus. Nach 7 Tagen ohne Antwort wird zum Nachfassen erinnert.",
   "Auftrag":     "Kunde hat zugesagt, Baustelle ist angelegt, Auftragsnummer vergeben.",
   "In Arbeit":   "Mitarbeiter sind dran, Stunden werden gebucht. Sichtbar in der Zeiterfassung.",
-  "Abgerechnet": "Rechnung in sevDesk ist gestellt und bezahlt — der Vorgang ist abgeschlossen.",
+  "Abgerechnet": "Rechnung in sevDesk ist gestellt und bezahlt. Der Vorgang ist abgeschlossen.",
 };
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -224,8 +224,9 @@ export default function Admin() {
             <SbItem icon="◷" label="Zeiterfassung" to="/admin/zeiterfassung" />
             <SbItem icon="⌂" label="Baustellen" to="/admin/sites" />
             <SbItem icon="◇" label="Angebote" to="/admin/angebote" />
-            <SbItem icon="✎" label="Garten-Planer" to="/admin/garten" />
+            <SbItem icon="◈" label="Leistungsverz." to="/admin/lv" />
             <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
+            <SbItem icon="✎" label="Garten-Planer" disabled />
             <div className="h-px bg-white/8 my-3" />
             <SbItem icon="▮" label="Auswertung" disabled />
           </nav>
@@ -274,13 +275,13 @@ export default function Admin() {
                 <Link
                   to="/admin/anfrage-neu"
                   className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md bg-white/10 border border-white/25 text-white text-[12px] font-display font-extrabold uppercase tracking-wide hover:bg-white/20 hover:border-copper-bright transition-colors !min-h-[44px]"
-                  title="Neue Kundenanfrage in die Eingangsbox einfügen — Mail/Telefon/WhatsApp-Text reinpasten, KI strukturiert die Felder"
+                  title="Neue Kundenanfrage in die Eingangsbox einfügen. Mail/Telefon/WhatsApp-Text reinpasten, KI strukturiert die Felder"
                 >
                   ＋ Anfrage
                 </Link>
                 <button
                   className="inline-flex items-center justify-center px-4 py-2.5 rounded-md bg-white/10 border border-white/25 text-white text-[12px] font-display font-extrabold uppercase tracking-wide hover:bg-white/20 hover:border-copper-bright transition-colors !min-h-[44px]"
-                  title="PDF-Export der aktuellen Wochen-Übersicht — kommt noch"
+                  title="PDF-Export der aktuellen Wochen-Übersicht (kommt noch)"
                 >PDF</button>
                 <Link
                   to="/admin/zeiterfassung?tab=datev"
@@ -395,7 +396,7 @@ export default function Admin() {
               title="Heute auf der Baustelle"
               moreLabel="Zeiterfassung →"
               moreTo="/admin/zeiterfassung"
-              hint="Wer ist heute wo. Live aktualisiert aus den Tageseinträgen — kein Eintrag bedeutet 'kein Plan heute'."
+              hint="Wer ist heute wo. Live aktualisiert aus den Tageseinträgen. Kein Eintrag bedeutet 'kein Plan heute'."
             >
               <div className="px-4 lg:px-5 pb-4 pt-2 space-y-2">
                 {loading ? (

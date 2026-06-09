@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { listAssignments, listEntries, listSites } from "../lib/api";
+import { listAssignments, listEntries, listSites, submitWeek } from "../lib/api";
 import { getHoliday, isHoliday } from "../lib/holidays";
 import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import {
@@ -101,14 +101,29 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   function handleRefresh() {
     setRefreshing(true);
-    // Daten + Service-Worker neu laden
     window.location.reload();
+  }
+
+  const [submitting, setSubmitting] = useState(false);
+  async function handleSubmitWeek() {
+    if (!me || submitting) return;
+    setSubmitting(true);
+    try {
+      await submitWeek(me.id, days[0], days[days.length - 1]);
+      setRefreshKey((k) => k + 1);
+    } catch (err) {
+      console.error("[home] submitWeek failed", err);
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   // Feiertage zählen NICHT als offen — Mitarbeiter muss da nichts eintragen
   const offen = days.filter((iso) =>
     iso <= today && !myEntries.some((e) => isEntryActiveOn(e, iso)) && !isHoliday(iso)
   );
+
+  const isWeekSubmitted = myEntries.length > 0 && myEntries.some((e) => e.submittedAt != null);
 
   return (
     <main className="on-dark min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
@@ -249,13 +264,43 @@ export default function Home() {
         </ul>
       </section>
 
-      <Link
-        to="/entry"
-        className="fixed bottom-7 right-6 lg:right-[calc(50%-208px)] w-14 h-14 rounded-full bg-copper text-bg-deep font-display font-extrabold text-3xl flex items-center justify-center shadow-xl active:scale-95 transition-transform"
-        aria-label="Eintrag hinzufügen"
-      >
-        +
-      </Link>
+      {/* An Rick senden — erscheint wenn alle Tage erfasst und noch nicht eingereicht */}
+      {offen.length === 0 && myEntries.length > 0 && !isWeekSubmitted && (
+        <div className="px-6 pb-4 pt-2">
+          <button
+            onClick={handleSubmitWeek}
+            disabled={submitting}
+            className="w-full py-4 rounded-xl font-display font-black uppercase tracking-wide text-base text-white flex items-center justify-center gap-3 active:scale-[0.98] transition-transform disabled:opacity-60"
+            style={{ background: "linear-gradient(180deg, #1F7A3D, #155F2E)", boxShadow: "0 8px 20px -8px rgba(31,122,61,.65), inset 0 1px 0 rgba(255,255,255,.2)" }}
+          >
+            <span className="text-xl leading-none">{submitting ? "⏳" : "✓"}</span>
+            <span>{submitting ? "Wird gesendet …" : "Woche an Rick senden"}</span>
+          </button>
+          <p className="text-center h-mono text-ink-mute text-[11px] mt-2">
+            Alle Tage erfasst · Woche KW {week} einreichen
+          </p>
+        </div>
+      )}
+
+      {isWeekSubmitted && (
+        <div className="mx-6 mb-4 px-4 py-3 rounded-xl bg-good/15 border border-good/40 flex items-center gap-3">
+          <span className="text-xl">✓</span>
+          <div>
+            <div className="font-semibold text-[13px]" style={{ color: "#1F7A3D" }}>Woche eingereicht</div>
+            <div className="h-mono text-[11px] mt-0.5" style={{ color: "#1F7A3D" }}>KW {week} wurde an Rick übermittelt</div>
+          </div>
+        </div>
+      )}
+
+      {!isWeekSubmitted && (
+        <Link
+          to="/entry"
+          className="fixed bottom-7 right-6 lg:right-[calc(50%-208px)] w-14 h-14 rounded-full bg-copper text-bg-deep font-display font-extrabold text-3xl flex items-center justify-center shadow-xl active:scale-95 transition-transform"
+          aria-label="Eintrag hinzufügen"
+        >
+          +
+        </Link>
+      )}
     </main>
   );
 }

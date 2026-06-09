@@ -533,7 +533,7 @@ function DatevTab({
             <button
               onClick={() => setShowPreview(true)}
               disabled={rows.length === 0}
-              title="Öffnet eine Vorschau-Tabelle mit allen Export-Zeilen — siehst genau was in der CSV-Datei landen wird, bevor du sie herunterlädst."
+              title="Öffnet eine Vorschau-Tabelle mit allen Export-Zeilen. Du siehst genau, was in der CSV-Datei landen wird, bevor du sie herunterlädst."
               className="btn-ghost !min-h-[44px] !px-4 text-[12px] disabled:opacity-40 disabled:cursor-not-allowed"
             >
               Vorschau ansehen

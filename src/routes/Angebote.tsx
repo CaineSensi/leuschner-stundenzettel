@@ -271,7 +271,7 @@ export default function Angebote() {
   }
 
   async function uncancel(card: PipelineCard) {
-    if (!confirm(`Storno von „${card.customerName}" wirklich zurücknehmen?\n\nACHTUNG: sevDesk wird NICHT zurückgesetzt — Status dort muss manuell auf „Offen" geändert werden.`)) return;
+    if (!confirm(`Storno von „${card.customerName}" wirklich zurücknehmen?\n\nACHTUNG: sevDesk wird NICHT zurückgesetzt. Status dort muss manuell auf „Offen" geändert werden.`)) return;
     setCards((prev) => prev.filter((c) => c.id !== card.id));
     setDetail((d) => d && d.id === card.id ? null : d);
     try {
@@ -405,7 +405,7 @@ export default function Angebote() {
         >
           <span className="text-[13.5px] text-amber-bright font-sans">
             <b>⚠ {customerGaps.length} {customerGaps.length === 1 ? "Kunde hat" : "Kunden haben"} unvollständige Stammdaten</b>
-            {" "}— in aktiven Vorgängen, bitte ergänzen
+            {" "}- in aktiven Vorgängen, bitte ergänzen
           </span>
           <span className="h-mono text-[11px] text-amber-bright whitespace-nowrap">anzeigen →</span>
         </button>
@@ -1243,7 +1243,7 @@ function DetailDrawer({
                 {syncBusy ? "↻ sevDesk wird gelesen …" : "↻ Daten mit sevDesk abgleichen"}
               </button>
               <span className="font-sans text-[11.5px] text-ink-2">
-                Holt den Live-Stand des Belegs — du bestätigst, was übernommen wird.
+                Holt den Live-Stand des Belegs. Du bestätigst, was übernommen wird.
               </span>
             </div>
             {syncErr && (
@@ -1264,7 +1264,7 @@ function DetailDrawer({
                 {linkBusy ? "🔗 sevDesk wird durchsucht …" : "🔗 sevDesk-Beleg suchen & verknüpfen"}
               </button>
               <span className="font-sans text-[11.5px] text-ink-2">
-                Diese Karte hat noch keinen sevDesk-Beleg — hier den passenden suchen.
+                Diese Karte hat noch keinen sevDesk-Beleg. Hier den passenden suchen.
               </span>
             </div>
             {linkErr && (
@@ -1322,7 +1322,7 @@ function DetailDrawer({
             <button
               onClick={onCancel}
               className="btn-ghost !min-h-[52px] !px-4 text-[12px] !text-rust !border-rust/40"
-              title={card.docNumber ? `Storniert Vorgang ${card.docNumber} (lokal + sevDesk)` : "Storniert nur lokal — kein sevDesk-Beleg verknüpft"}
+              title={card.docNumber ? `Storniert Vorgang ${card.docNumber} (lokal + sevDesk)` : "Storniert nur lokal, kein sevDesk-Beleg verknüpft"}
             >Stornieren</button>
           )}
           {!reviewerOnly && (
@@ -1378,7 +1378,7 @@ function LinkPickerModal({
           {candidates.length === 0 ? (
             <div className="px-4 py-6 text-center font-sans text-[13.5px] text-ink-2">
               In sevDesk wurde kein Beleg gefunden, der zu „{customerName}" passt.
-              <div className="mt-1.5 text-[12px]">Tipp: Schreibweise des Namens prüfen — oder der Beleg existiert noch nicht.</div>
+              <div className="mt-1.5 text-[12px]">Tipp: Schreibweise des Namens prüfen. Möglicherweise existiert der Beleg noch nicht.</div>
             </div>
           ) : (
             candidates.map((o) => (
@@ -1490,7 +1490,7 @@ function SyncPreviewModal({
       <input type="checkbox" checked={on} disabled={!changed} onChange={(e) => set(e.target.checked)} className="mt-1 accent-copper w-4 h-4 flex-shrink-0" />
       <div className="min-w-0 flex-1">
         <div className="font-display font-extrabold uppercase text-[11.5px] tracking-wider text-ink mb-1">{label}</div>
-        {changed ? children : <div className="font-sans text-[12.5px] text-ink-2">Unverändert — schon aktuell.</div>}
+        {changed ? children : <div className="font-sans text-[12.5px] text-ink-2">Unverändert, schon aktuell.</div>}
       </div>
     </label>
   );
@@ -1508,7 +1508,7 @@ function SyncPreviewModal({
         <div className="px-5 py-4 space-y-3">
           {nothingToDo ? (
             <div className="px-4 py-6 text-center font-sans text-[13.5px] text-ink-2">
-              ✓ Die Karte ist bereits auf dem Stand des sevDesk-Belegs — nichts abzugleichen.
+              ✓ Die Karte ist bereits auf dem Stand des sevDesk-Belegs. Nichts abzugleichen.
             </div>
           ) : (
             <>
@@ -1572,7 +1572,7 @@ function SyncPreviewModal({
               </Row>
 
               <div className="px-1 pt-1 font-sans text-[11.5px] text-ink-2">
-                Die Pipeline-Stufe bleibt unberührt — dafür ist das Kanban-Board maßgebend.
+                Die Pipeline-Stufe bleibt unberührt. Dafür ist das Kanban-Board maßgebend.
               </div>
             </>
           )}
@@ -1781,7 +1781,7 @@ function CancelModal({
           {hasOrderRef ? (
             <>Setzt den sevDesk-Auftrag <b>{card.docNumber}</b> auf Status <b>„Abgelehnt"</b> und schreibt einen Storno-Vermerk in den Belegtext. Lokal wird die Karte ins Archiv verschoben.</>
           ) : (
-            <>Kein sevDesk-Beleg verknüpft — die Karte wird nur lokal storniert und ins Archiv verschoben.</>
+            <>Kein sevDesk-Beleg verknüpft. Die Karte wird nur lokal storniert und ins Archiv verschoben.</>
           )}
         </div>
 

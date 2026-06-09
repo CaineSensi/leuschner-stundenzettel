@@ -361,20 +361,20 @@ export default function AnfrageNeu() {
     if (!customerName.trim()) {
       issues.push({ field: "customerName", label: "Kundenname", reason: "leer" });
     } else if (needsConfirm("customerName", customerName, conf("customerName"))) {
-      issues.push({ field: "customerName", label: "Kundenname", reason: "unsicher — bitte prüfen oder bestätigen" });
+      issues.push({ field: "customerName", label: "Kundenname", reason: "unsicher, bitte prüfen oder bestätigen" });
     }
 
     if (!email.trim() && !phone.trim() && !phoneMobile.trim()) {
       issues.push({ field: "kontakt", label: "Kontakt", reason: "mindestens eines von Mail/Festnetz/Mobil ausfüllen" });
     } else {
       if (email.trim() && needsConfirm("email", email, conf("email"))) {
-        issues.push({ field: "email", label: "E-Mail", reason: "unsicher — bitte prüfen oder bestätigen" });
+        issues.push({ field: "email", label: "E-Mail", reason: "unsicher, bitte prüfen oder bestätigen" });
       }
       if (phone.trim() && needsConfirm("phone", phone, conf("phone"))) {
-        issues.push({ field: "phone", label: "Festnetz", reason: "unsicher — bitte prüfen oder bestätigen" });
+        issues.push({ field: "phone", label: "Festnetz", reason: "unsicher, bitte prüfen oder bestätigen" });
       }
       if (phoneMobile.trim() && needsConfirm("phone_mobile", phoneMobile, conf("phone_mobile"))) {
-        issues.push({ field: "phone_mobile", label: "Mobil", reason: "unsicher — bitte prüfen oder bestätigen" });
+        issues.push({ field: "phone_mobile", label: "Mobil", reason: "unsicher, bitte prüfen oder bestätigen" });
       }
     }
     return issues;
@@ -396,7 +396,7 @@ export default function AnfrageNeu() {
     if (/Could not find the table 'public\.customers'/i.test(msg)) {
       return {
         detail: msg,
-        hint: "Die Tabelle `customers` fehlt — Migration `20260521120000_customers.sql` im SQL-Editor ausführen.",
+        hint: "Die Tabelle `customers` fehlt. Migration `20260521120000_customers.sql` im SQL-Editor ausführen.",
       };
     }
     if (/sevDesk .* 4\d\d/i.test(msg)) {
@@ -453,7 +453,7 @@ export default function AnfrageNeu() {
       if (redirect) {
         updateStep("anmeldung", {
           status: "error",
-          detail: "Deine Sitzung ist abgelaufen — es wurde noch NICHTS gespeichert.",
+          detail: "Deine Sitzung ist abgelaufen. Es wurde noch NICHTS gespeichert.",
           errorHint: "Bitte neu anmelden, dann die Anfrage erneut speichern.",
         });
         setTimeout(() => window.location.replace(redirect), 1800);
@@ -548,7 +548,7 @@ export default function AnfrageNeu() {
           const d = diagnoseError(sevErr);
           updateStep("sevdesk", {
             status: "error", detail: d.detail,
-            errorHint: "Die Anfrage ist vollständig gespeichert — nur der sevDesk-Kontakt fehlt und kann später nachgetragen werden.",
+            errorHint: "Die Anfrage ist vollständig gespeichert. Nur der sevDesk-Kontakt fehlt und kann später nachgetragen werden.",
           });
         }
       } else {
@@ -659,7 +659,7 @@ export default function AnfrageNeu() {
                   ))}
                 </ul>
                 <p className="font-sans text-[11.5px] text-ink-2 mt-2">
-                  Möglicher Duplikat — vorher in der Inbox prüfen.
+                  Möglicher Duplikat. Vorher in der Inbox prüfen.
                 </p>
               </div>
             )}
@@ -855,7 +855,7 @@ export default function AnfrageNeu() {
                 ) : parsed.leistung ? (
                   <div className="text-[13px] font-sans text-ink px-1">{parsed.leistung}</div>
                 ) : (
-                  <p className="font-sans text-[12px] text-ink-mute italic px-1">Keine Positionen erkannt — unten ergänzen.</p>
+                  <p className="font-sans text-[12px] text-ink-mute italic px-1">Keine Positionen erkannt. Unten ergänzen.</p>
                 )}
 
                 {/* Position manuell hinzufügen */}
@@ -951,7 +951,7 @@ export default function AnfrageNeu() {
                     </div>
                     {isSevdeskOnly(chosenCustomer) && (
                       <div className="font-mono text-[10px] text-ink-mute mt-0.5">
-                        wird beim Speichern in den App-Stamm übernommen — kein neuer sevDesk-Contact
+                        wird beim Speichern in den App-Stamm übernommen, kein neuer sevDesk-Contact
                       </div>
                     )}
                   </div>
@@ -1006,7 +1006,7 @@ export default function AnfrageNeu() {
                 </div>
               ) : (
                 <p className="font-sans text-[12.5px] text-ink-2 mb-3">
-                  Keine Bestands-Treffer — wird als neuer Kunde angelegt.
+                  Keine Bestands-Treffer. Wird als neuer Kunde angelegt.
                 </p>
               )}
               {!chosenCustomerId && (
@@ -1078,7 +1078,7 @@ export default function AnfrageNeu() {
                 <ul className="space-y-1">
                   {requiredCheck.map((i, idx) => (
                     <li key={idx} className="font-sans text-[12.5px] text-ink">
-                      <b>{i.label}</b> <span className="text-ink-2">— {i.reason}</span>
+                      <b>{i.label}</b> <span className="text-ink-2">: {i.reason}</span>
                     </li>
                   ))}
                 </ul>
@@ -1156,7 +1156,7 @@ export default function AnfrageNeu() {
                 </div>
                 <div className="space-y-2">
                   {(editPos.draft.mengen ?? []).length === 0 && (
-                    <p className="font-sans text-[12px] text-ink-mute italic">Keine Menge — bei Bedarf hinzufügen.</p>
+                    <p className="font-sans text-[12px] text-ink-mute italic">Keine Menge. Bei Bedarf hinzufügen.</p>
                   )}
                   {(editPos.draft.mengen ?? []).map((m, i) => (
                     <div key={i} className="flex items-center gap-2">
@@ -1177,7 +1177,7 @@ export default function AnfrageNeu() {
                 </div>
                 <div className="space-y-2">
                   {(editPos.draft.materialien ?? []).length === 0 && (
-                    <p className="font-sans text-[12px] text-ink-mute italic">Kein Material — bei Bedarf hinzufügen.</p>
+                    <p className="font-sans text-[12px] text-ink-mute italic">Kein Material. Bei Bedarf hinzufügen.</p>
                   )}
                   {(editPos.draft.materialien ?? []).map((mat, i) => (
                     <div key={i} className="flex items-center gap-2">
@@ -1241,7 +1241,7 @@ function Field({
       </div>
       {needsConfirm && (
         <p className="font-mono text-[10.5px] text-rust mt-1">
-          KI ist sich nicht sicher — bitte prüfen, anpassen oder bestätigen.
+          KI ist sich nicht sicher. Bitte prüfen, anpassen oder bestätigen.
         </p>
       )}
     </div>
