@@ -46,9 +46,9 @@ export default function Onboarding() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
+    <main className="on-dark min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
       <header className="flex items-center justify-between pt-2">
-        <Logo />
+        <Logo tone="light" />
         <span className="h-mono text-copper">
           Schritt {step + 1} / {STEPS.length}
         </span>
@@ -244,8 +244,8 @@ function InstallFirstScreen({ code }: { code: string }) {
   }
 
   return (
-    <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
-      <header className="pt-2"><Logo /></header>
+    <main className="on-dark min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
+      <header className="pt-2"><Logo tone="light" /></header>
 
       <BrowserWarning />
 

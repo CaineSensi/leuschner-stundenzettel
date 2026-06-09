@@ -26,9 +26,9 @@ export default function Login() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col px-6 py-8 safe-top safe-bottom max-w-md mx-auto">
+    <main className="on-dark min-h-screen flex flex-col px-6 py-8 safe-top safe-bottom max-w-md mx-auto">
       <header>
-        <Logo />
+        <Logo tone="light" />
         <p className="h-mono text-ink-2 mt-1 text-[12px]">
           Rund um's Haus · Stundenzettel
         </p>

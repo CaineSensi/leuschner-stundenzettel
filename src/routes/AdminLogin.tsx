@@ -36,9 +36,9 @@ export default function AdminLogin() {
   }
 
   return (
-    <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
+    <main className="on-dark min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
       <header className="pt-3">
-        <Logo />
+        <Logo tone="light" />
         <p className="h-mono text-copper mt-1 text-[11px]">Büro · Admin-Zugang</p>
         {isBackendConnected() ? (
           <p className="h-mono text-good mt-1 text-[11px]">● Live · Frankfurt</p>

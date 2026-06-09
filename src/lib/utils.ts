@@ -22,16 +22,27 @@ export function fmtHours(min: number, fractionDigits = 1): string {
   });
 }
 
+/** Bezahlte Arbeitszeit eines Eintrags.
+ *  Rick-Vorgabe 09.06.2026: Der Mitarbeiter trägt die produktive Zeit ein
+ *  (z.B. 07:00–15:00 = 8 h). Die 30-min-Pause wird vom System automatisch
+ *  außerhalb dieser Spanne ergänzt (Anwesenheit endet dann 15:30) und ist
+ *  unbezahlt — sie kürzt also NICHT die Lohnzeit. */
 export function workMinutes(entry: Entry): number {
   if (entry.type !== "work") return 0;
-  return Math.max(0, entry.endMin - entry.startMin - entry.pauseMin);
+  return Math.max(0, entry.endMin - entry.startMin);
+}
+
+/** Anwesenheits-Ende für Stundenzettel: Netto-Feierabend + Pause-Aufschlag.
+ *  Zeigt, wann der Mitarbeiter den Hof verlassen hat (für Dokumentation). */
+export function attendanceEndMin(entry: Entry & { type: "work" }): number {
+  return entry.endMin + (entry.pauseMin ?? 0);
 }
 
 /** Bezahlungs-relevante Minuten: gearbeitete Zeit für work-Entries,
  *  Tagessoll für Feiertag/Urlaub/Krank (Lohnfortzahlung / Feiertagslohn). */
 export function paidMinutes(entry: Entry, dailyTargetMinutes: number = 480): number {
   if (entry.type === "work") {
-    return Math.max(0, entry.endMin - entry.startMin - entry.pauseMin);
+    return Math.max(0, entry.endMin - entry.startMin);
   }
   return dailyTargetMinutes;
 }

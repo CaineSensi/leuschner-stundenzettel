@@ -29,8 +29,8 @@ export default function AuthCallback() {
   }, [navigate]);
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center px-6 py-8 text-center max-w-md mx-auto">
-      <Logo />
+    <main className="on-dark min-h-screen flex flex-col items-center justify-center px-6 py-8 text-center max-w-md mx-auto">
+      <Logo tone="light" />
       {error ? (
         <>
           <p className="h-mono text-rust mt-6 text-[12px]">Anmeldung fehlgeschlagen</p>

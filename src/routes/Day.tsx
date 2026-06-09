@@ -64,7 +64,7 @@ export default function Day() {
 
   if (loading) {
     return (
-      <main className="min-h-screen flex items-center justify-center">
+      <main className="on-dark min-h-screen flex items-center justify-center">
         <div className="h-mono text-ink-2 text-[12px]">Wird geladen …</div>
       </main>
     );
@@ -72,7 +72,7 @@ export default function Day() {
 
   if (error) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center px-6 text-center max-w-md mx-auto">
+      <main className="on-dark min-h-screen flex flex-col items-center justify-center px-6 text-center max-w-md mx-auto">
         <p className="text-rust text-sm">{error}</p>
         <Link to="/" className="btn-ghost mt-4">Zurück zur Woche</Link>
       </main>
@@ -81,7 +81,7 @@ export default function Day() {
 
   if (!entry || !date) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center px-6 text-center max-w-md mx-auto">
+      <main className="on-dark min-h-screen flex flex-col items-center justify-center px-6 text-center max-w-md mx-auto">
         <p className="h-mono text-ink-2">Kein Eintrag für diesen Tag.</p>
         <Link to="/" className="btn-ghost mt-4">Zurück zur Woche</Link>
       </main>
@@ -96,7 +96,7 @@ export default function Day() {
   if (!isWorkEntry(entry)) {
     const meta = ABSENCE_META[entry.type];
     return (
-      <main className="min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
+      <main className="on-dark min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
         <header className="px-6 safe-top pt-3 flex items-center justify-between">
           <Link to="/" className="h-mono text-ink-2 text-[12px]">← Zurück</Link>
           <Link to={`/entry?date=${date}`} className="h-mono text-copper text-[12px]">Bearbeiten →</Link>
@@ -132,7 +132,7 @@ export default function Day() {
   const min = workMinutes(entry);
 
   return (
-    <main className="min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
+    <main className="on-dark min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
       <header className="px-6 safe-top pt-3 flex items-center justify-between">
         <Link to="/" className="h-mono text-ink-2 text-[12px]">← Zurück</Link>
         <Link to={`/entry?date=${date}`} className="h-mono text-copper text-[12px]">Bearbeiten →</Link>
@@ -154,7 +154,7 @@ export default function Day() {
 
       <ul className="px-6 py-4 divide-y divide-ink/10">
         <Row label="Tätigkeit" value={entry.discipline} sub={DISCIPLINE_NAME[entry.discipline]} />
-        <Row label="Zeit" value={`${fmtTime(entry.startMin)} bis ${fmtTime(entry.endMin)}`} sub={`${entry.pauseMin} min Pause · ${fmtHours(min)} h netto`} />
+        <Row label="Zeit" value={`${fmtTime(entry.startMin)} bis ${fmtTime(entry.endMin + entry.pauseMin)}`} sub={`${fmtHours(min)} h bezahlt · inkl. ${entry.pauseMin} min Pause (unbezahlt)`} />
         {entry.weather && <Row label="Wetter" value={WEATHER_LABEL[entry.weather]} sub={entry.note ?? "keine Notiz"} />}
         <Row label="Standort" value={entry.geoVerified ? "GPS bestätigt" : "Manuell eingetragen"} sub={entry.geoVerified ? "± wenige Meter" : "Kein Geo-Match"} />
       </ul>

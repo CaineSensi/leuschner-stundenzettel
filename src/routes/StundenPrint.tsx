@@ -205,7 +205,8 @@ export function StundenzettelSheet({
                 hoursCell = fmtHours(workMinutes(workEntry), 2);
                 artCell = DISCIPLINE_LABEL[workEntry.discipline] ?? workEntry.discipline;
                 beginCell = fmtTime(workEntry.startMin);
-                endCell = fmtTime(workEntry.endMin);
+                // Anwesenheits-Feierabend = Netto-Ende + Pause (Pause hängt am Tagesende dran)
+                endCell = fmtTime(workEntry.endMin + workEntry.pauseMin);
                 pauseCell = workEntry.pauseMin > 0 ? fmtTime(workEntry.pauseMin) : "—";
                 bemerkung = workEntry.note ?? "";
               } else if (absence) {

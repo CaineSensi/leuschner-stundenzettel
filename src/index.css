@@ -41,12 +41,27 @@
       linear-gradient(180deg, #2A2D31 0%, #16181A 55%, #0A0B0D 100%);
     background-size: 32px 32px, 32px 32px, auto, auto;
     background-attachment: fixed, fixed, fixed, fixed;
-    @apply text-paper font-sans antialiased;
+    /* Default-Textfarbe: hell für dunkle Stahl-Bühne. Karten/Inputs mit
+       hellem Hintergrund setzen ihren Text explizit dunkel (text-ink, text-paper). */
+    color: #E6E8EA;
+    @apply font-sans antialiased;
   }
   ::selection { background: theme('colors.copper.DEFAULT'); color: #FFFFFF; }
 }
 
 @layer components {
+  /* "Auf dunklem Hintergrund" — Wrapper-Klasse für Routen direkt auf dem
+     Body-Verlauf (Login, Onboarding, Home, Entry, Day …). Remappt die
+     ink-* Tokens (sind als Tinte für helle Karten konzipiert) auf helle
+     Versionen, damit Texte lesbar sind. Inputs/Karten mit eigenem hellem
+     Hintergrund setzen text-ink explizit und bleiben unberührt. */
+  .on-dark { color: #E6E8EA; }
+  .on-dark .text-paper       { color: #F0F1F2; }
+  .on-dark .text-ink-soft    { color: #F0F1F2; }
+  .on-dark .text-ink-body    { color: #C9CCCF; }
+  .on-dark .text-ink-2       { color: #A9AEB3; }
+  .on-dark .text-ink-mute    { color: #8B9197; }
+
   /* Archivo Black, Blockschrift wie auf einem Baustellenschild */
   .h-display { @apply font-display font-black uppercase tracking-tight; }
   /* Mono-Label: Sperrung deutlich reduziert (0.18em war Lesbarkeits-Killer

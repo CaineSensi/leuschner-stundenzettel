@@ -111,7 +111,7 @@ export default function Home() {
   );
 
   return (
-    <main className="min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
+    <main className="on-dark min-h-screen flex flex-col safe-bottom max-w-md mx-auto">
       <header className="surface-steel px-6 safe-top pt-3 pb-5">
         <div className="flex items-center justify-between">
           <span className="h-mono text-copper">Moin, {me.firstName} ·</span>

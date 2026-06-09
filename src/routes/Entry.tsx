@@ -171,7 +171,9 @@ export default function Entry() {
     setExistingPhotos((prev) => prev.filter((p) => p.id !== photo.id));
   }
 
-  const totalMin = Math.max(0, endMin - startMin - pause);
+  // Netto-Arbeitszeit (= bezahlt). Die 30 min Pause werden vom System
+  // automatisch außerhalb dieser Spanne ergänzt (siehe lib/utils:workMinutes).
+  const totalMin = Math.max(0, endMin - startMin);
 
   function handleTypeSelect(t: EntryType) {
     setType(t);
@@ -344,11 +346,9 @@ export default function Entry() {
       onDiscipline={setDiscipline}
       startMin={startMin}
       endMin={endMin}
-      pause={pause}
       totalMin={totalMin}
       onStart={setStartMin}
       onEnd={setEndMin}
-      onPause={setPause}
       onBack={() => navAssignment ? navigate("/") : setStep("type")}
       onSave={handleSave}
       onDelete={existingId ? handleDelete : undefined}
@@ -372,7 +372,7 @@ function TypePicker({ date, onPick }: { date: string; onPick: (t: EntryType) => 
     weekday: "long", day: "2-digit", month: "long"
   });
   return (
-    <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
+    <main className="on-dark min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
       <header className="pt-3 flex items-center justify-between">
         <Link to="/" className="h-mono text-ink-2 text-[12px]">← Zurück</Link>
         <span className="h-mono text-copper text-[11px]">{isToday ? "Heute" : "Nachtrag"}</span>
@@ -413,7 +413,7 @@ function NoWorkScreen({ date, onBack }: { date: string; onBack: () => void }) {
     weekday: "long", day: "2-digit", month: "long"
   });
   return (
-    <main className="min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
+    <main className="on-dark min-h-screen flex flex-col px-6 safe-top safe-bottom max-w-md mx-auto">
       <header className="pt-3 flex items-center justify-between">
         <button onClick={onBack} className="h-mono text-ink-2 text-[12px]">← Zurück</button>
       </header>
@@ -473,7 +473,7 @@ function AbsencePicker({
     : 1;
 
   return (
-    <main className="min-h-screen flex flex-col px-6 safe-top max-w-md mx-auto pb-32">
+    <main className="on-dark min-h-screen flex flex-col px-6 safe-top max-w-md mx-auto pb-32">
       <header className="pt-3 flex items-center justify-between">
         <button onClick={onBack} className="h-mono text-ink-2 text-[12px]">← Zurück</button>
       </header>
@@ -565,8 +565,8 @@ function DateField({
 
 function ActivityTime({
   date, isPast, site, assignment, discipline, onDiscipline,
-  startMin, endMin, pause, totalMin,
-  onStart, onEnd, onPause,
+  startMin, endMin, totalMin,
+  onStart, onEnd,
   onBack, onSave, onDelete, saving, error,
   existingPhotos, pendingPhotos, onAddPhotos, onRemovePending, onDeleteExisting, photoBusy
 }: {
@@ -578,11 +578,9 @@ function ActivityTime({
   onDiscipline: (d: Discipline) => void;
   startMin: number;
   endMin: number;
-  pause: number;
   totalMin: number;
   onStart: (m: number) => void;
   onEnd: (m: number) => void;
-  onPause: (p: number) => void;
   onBack: () => void;
   onSave: () => void;
   onDelete?: () => void;
@@ -599,7 +597,7 @@ function ActivityTime({
     weekday: "long", day: "2-digit", month: "long"
   });
   return (
-    <main className="min-h-screen flex flex-col px-6 safe-top max-w-md mx-auto pb-32">
+    <main className="on-dark min-h-screen flex flex-col px-6 safe-top max-w-md mx-auto pb-32">
       <header className="pt-3 flex items-center justify-between">
         <button onClick={onBack} className="h-mono text-ink-2 text-[12px]">← Zurück</button>
         <span className="h-mono text-copper">{isPast ? "Nachtrag" : "Heute · vom Büro geplant"}</span>
@@ -659,16 +657,8 @@ function ActivityTime({
         <TimeSlider value={startMin} onChange={onStart} label="Anfang" />
         <TimeSlider value={endMin}   onChange={onEnd}   label="Ende" />
 
-        <div className="dd-card px-4 py-3 mt-3 flex items-center justify-between" style={{ ["--c" as any]: "#A9AEB3" }}>
-          <div>
-            <div className="h-mono text-ink-2 text-[12px]">Pause</div>
-            <div className="font-semibold text-ink">{pause} Minuten</div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <button onClick={() => onPause(Math.max(0, pause - 15))} className="w-8 h-8 rounded-full bg-white border border-steel font-bold text-ink">−</button>
-            <span className="h-display text-xl w-9 text-center text-ink">{pause}</span>
-            <button onClick={() => onPause(pause + 15)} className="w-8 h-8 rounded-full bg-white border border-steel font-bold text-ink">+</button>
-          </div>
+        <div className="h-mono text-ink-mute text-[11px] mt-3 px-1 leading-snug">
+          30 min Pause werden vom Büro automatisch dokumentiert — du musst hier nichts eingeben.
         </div>
       </section>
 

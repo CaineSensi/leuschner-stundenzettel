@@ -89,7 +89,7 @@ export interface Assignment {
 
 export const DEFAULT_PLAN = {
   startMin: 7 * 60,        // 07:00
-  endMin: 16 * 60 + 30,    // 16:30
+  endMin: 15 * 60,         // 15:00 (Netto-Feierabend — System rechnet 30 min Pause drauf → Hof-Ende 15:30)
   pauseMin: 30
 } as const;
 
