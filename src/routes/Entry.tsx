@@ -17,38 +17,9 @@ interface EntryNavState {
   assignment?: Assignment;
 }
 
-const DISCIPLINES: { id: Discipline; label: string; icon: JSX.Element }[] = [
-  {
-    id: "PFL",
-    label: "Pflaster",
-    icon: (
-      <svg viewBox="0 0 32 32" fill="currentColor" className="w-7 h-7">
-        <rect x="2" y="2" width="12" height="12" /><rect x="18" y="2" width="12" height="12" />
-        <rect x="2" y="18" width="12" height="12" /><rect x="18" y="18" width="12" height="12" />
-      </svg>
-    )
-  },
-  {
-    id: "GTN",
-    label: "Garten",
-    icon: (
-      <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="w-7 h-7">
-        <path d="M16 4 C 10 10, 10 22, 16 28 C 22 22, 22 10, 16 4 Z" />
-        <line x1="16" y1="8" x2="16" y2="26" />
-      </svg>
-    )
-  },
-  {
-    id: "ZAU",
-    label: "Zaun",
-    icon: (
-      <svg viewBox="0 0 32 32" fill="currentColor" className="w-7 h-7">
-        <rect x="4" y="6" width="3" height="22" /><rect x="14" y="6" width="3" height="22" /><rect x="24" y="6" width="3" height="22" />
-        <rect x="2" y="12" width="28" height="2" /><rect x="2" y="22" width="28" height="2" />
-      </svg>
-    )
-  }
-];
+// Disziplin-Picker wurde 09.06.2026 aus der Mitarbeiter-App entfernt
+// (Rick-Vorgabe: Disziplin gibt das Büro per Baustellen-/Tagesplanung vor).
+// Discipline-Type + DISCIPLINE_LABEL bleiben in lib/types für Admin/Print.
 
 const TYPE_OPTIONS: {
   id: EntryType; label: string; sub: string; emoji: string; tone: "primary" | "rust" | "moss" | "neutral";
@@ -620,28 +591,20 @@ function ActivityTime({
         )}
       </div>
 
-      <section className="mt-6">
-        <div className="h-mono text-copper text-[12px] mb-2">Was wird gemacht?</div>
-        <div className="grid grid-cols-3 gap-2">
-          {DISCIPLINES.map((d) => {
-            const active = discipline === d.id;
-            return (
-              <button
-                key={d.id}
-                onClick={() => onDiscipline(d.id)}
-                className={`flex flex-col items-center gap-2 rounded-xl py-4 px-2 border transition-colors ${
-                  active
-                    ? "bg-copper text-bg-deep border-copper-bright"
-                    : "bg-bg-3 border-transparent text-paper"
-                }`}
-              >
-                {d.icon}
-                <span className="h-mono text-[12px]">{d.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </section>
+      {(() => {
+        // Disziplin wird NICHT vom Mitarbeiter gewählt (Rick-Vorgabe 09.06.):
+        // sie kommt aus der Baustellen-/Tagesplanung. Falls die aktuell
+        // gesetzte Disziplin nicht zur Baustelle passt (z.B. nach Wechsel auf
+        // Leuschner Kunststoff), automatisch auf die erste der Baustellen-
+        // Disziplinen korrigieren — der Mitarbeiter merkt nichts davon.
+        const allowed = site?.disciplines && site.disciplines.length > 0
+          ? site.disciplines
+          : (["PFL"] as Discipline[]);
+        if (!allowed.includes(discipline)) {
+          setTimeout(() => onDiscipline(allowed[0]), 0);
+        }
+        return null;
+      })()}
 
       <section className="mt-6">
         <div className="h-mono text-copper text-[12px] mb-2">Wann?</div>

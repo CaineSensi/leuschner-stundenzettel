@@ -35,10 +35,14 @@ async function dbQuery(sql) {
   return r.json();
 }
 
-// Reset: Test-Worker entkoppeln und frische Invitation anlegen
+// Reset: Test-Worker (idempotent) + frische Invitation. Wenn das Cleanup-SQL
+// nach einem früheren Lauf den Worker komplett entfernt hat, legen wir ihn
+// hier wieder an — sonst FK-Verletzung beim Invitation-Insert.
 console.log("Reset Test-Worker und Invitation …");
 await dbQuery(`
-  UPDATE workers SET auth_user_id = NULL WHERE id = '${WORKER_ID}';
+  INSERT INTO workers (id, company_id, initials, first_name, last_name, role, is_admin)
+  VALUES ('${WORKER_ID}', '${COMPANY_ID}', 'TS', 'Test', 'Doku', 'Screenshot-Bot', false)
+  ON CONFLICT (id) DO UPDATE SET auth_user_id = NULL, first_name = EXCLUDED.first_name;
   DELETE FROM invitations WHERE worker_id = '${WORKER_ID}';
   INSERT INTO invitations (code, worker_id, expires_at)
     VALUES ('${CODE}', '${WORKER_ID}', now() + interval '6 hours');

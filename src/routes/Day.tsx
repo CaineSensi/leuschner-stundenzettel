@@ -180,7 +180,7 @@ function Row({ label, value, sub }: { label: string; value: string; sub?: string
   );
 }
 
-const DISCIPLINE_NAME = { PFL: "Pflasterarbeiten", GTN: "Gartenarbeiten", ZAU: "Zaunbau", VWG: "Verwaltung" } as const;
+const DISCIPLINE_NAME = { PFL: "Pflasterarbeiten", GTN: "Gartenarbeiten", ZAU: "Zaunbau", VWG: "Verwaltung", KUN: "Kunststoff-Vermahlung" } as const;
 const WEATHER_LABEL = { sun: "Sonnig", cloud: "Bewölkt", rain: "Regen", snow: "Schnee" } as const;
 
 const ABSENCE_META = {

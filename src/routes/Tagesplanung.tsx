@@ -346,7 +346,9 @@ function Cell({ isToday, isFuture, workEntry, absence, plan, siteOf }: {
 
   if (workEntry && isWorkEntry(workEntry)) {
     const site = siteOf(workEntry.siteId);
-    const min = (workEntry.endMin - workEntry.startMin) - workEntry.pauseMin;
+    // Reine Arbeitszeit (Pause nicht abziehen — sie ist außerhalb der
+    // Spanne und unbezahlt; siehe lib/utils:workMinutes, 09.06.2026).
+    const min = workEntry.endMin - workEntry.startMin;
     return (
       <div className="px-2 py-2.5 border-l border-ink/8 bg-gradient-to-b from-[#FFF8EF] to-[#FCEFDC] flex flex-col justify-center gap-0.5">
         <div className="text-[12px] font-bold text-ink leading-tight truncate">{site?.name ?? "Baustelle"}</div>

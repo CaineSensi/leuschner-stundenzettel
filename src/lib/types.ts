@@ -1,10 +1,11 @@
-export type Discipline = "PFL" | "GTN" | "ZAU" | "VWG";
+export type Discipline = "PFL" | "GTN" | "ZAU" | "VWG" | "KUN";
 
 export const DISCIPLINE_LABEL: Record<Discipline, string> = {
   PFL: "Pflaster",
   GTN: "Garten",
   VWG: "Verwaltung",
-  ZAU: "Zaun"
+  ZAU: "Zaun",
+  KUN: "Kunststoff"
 };
 
 export type EntryType = "work" | "sick" | "vacation" | "holiday";

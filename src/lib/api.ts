@@ -70,6 +70,14 @@ export async function updateWorkerPhone(workerId: string, phone: string | null):
   if (error) throw error;
 }
 
+/** Welche Disziplinen sind auf dieser Site sinnvoll?
+ *  Default: das klassische GaLaBau-Trio (PFL/GTN/ZAU).
+ *  Sonderfall: Standbein-2 (Leuschner Kunststoff-Vermahlung) — nur KUN. */
+function disciplinesForSite(row: any): Discipline[] {
+  if (row?.project_number === "Standbein-2") return ["KUN"];
+  return ["PFL", "GTN", "ZAU"];
+}
+
 export async function listSites(): Promise<Site[]> {
   const sb = requireBackend();
   const { data, error } = await sb
@@ -83,7 +91,7 @@ export async function listSites(): Promise<Site[]> {
     projectNumber: s.project_number ?? undefined,
     street: s.street ?? "",
     city: s.city ?? "",
-    disciplines: ["PFL", "GTN", "ZAU"],
+    disciplines: disciplinesForSite(s),
     starred: s.starred,
     geo: s.geo_lat && s.geo_lng ? { lat: s.geo_lat, lng: s.geo_lng } : undefined
   }));
@@ -102,7 +110,7 @@ export async function listAllSites(includeArchived = false): Promise<(Site & { a
     projectNumber: s.project_number ?? undefined,
     street: s.street ?? "",
     city: s.city ?? "",
-    disciplines: ["PFL", "GTN", "ZAU"] as Discipline[],
+    disciplines: disciplinesForSite(s),
     starred: s.starred,
     geo: s.geo_lat && s.geo_lng ? { lat: s.geo_lat, lng: s.geo_lng } : undefined,
     archived: !!s.archived_at
@@ -147,7 +155,7 @@ export async function createSite(input: SiteInput): Promise<Site> {
     projectNumber: data.project_number ?? undefined,
     street: data.street ?? "",
     city: data.city ?? "",
-    disciplines: ["PFL", "GTN", "ZAU"],
+    disciplines: disciplinesForSite(data),
     starred: data.starred,
     geo: data.geo_lat && data.geo_lng ? { lat: data.geo_lat, lng: data.geo_lng } : undefined
   };

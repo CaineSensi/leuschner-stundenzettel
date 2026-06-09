@@ -1146,8 +1146,10 @@ function fmtShort(iso: string): string {
   return d.toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "2-digit" });
 }
 function workMinutes(e: WorkEntry): number {
-  const total = (e.endMin ?? 0) - (e.startMin ?? 0);
-  return Math.max(0, total - (e.pauseMin ?? 0));
+  // Reine Arbeitszeit = endMin − startMin. Die 30-min-Pause wird nicht
+  // abgezogen (sie ist außerhalb der eingetragenen Spanne und unbezahlt) —
+  // siehe Rick-Vorgabe 09.06. + lib/utils:workMinutes.
+  return Math.max(0, (e.endMin ?? 0) - (e.startMin ?? 0));
 }
 
 async function loadEntriesForSite(siteId: string): Promise<WorkEntry[]> {

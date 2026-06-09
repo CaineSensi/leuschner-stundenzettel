@@ -17,6 +17,7 @@ export const LOHNART_MAPPING: Record<Discipline, string> = {
   GTN: "010",
   ZAU: "010",
   VWG: "020",   // Gehalt/Verwaltung — bis StB eigene Lohnart liefert
+  KUN: "010",   // Kunststoff-Vermahlung (2. Standbein) — vorerst Grundlohn, ggf. später separieren
 };
 
 /** Lohnart für Abwesenheiten. DATEV-übliche Codes:
