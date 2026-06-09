@@ -5,7 +5,7 @@ import {
 } from "../lib/api";
 import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { getHoliday, isHoliday } from "../lib/holidays";
-import { isoWeek, todayIso, weekDays, fmtHours, workMinutes } from "../lib/utils";
+import { isoWeek, todayIso, weekDays, fmtHours, workMinutes, isEntryActiveOn } from "../lib/utils";
 import { isWorkEntry, type Assignment, type Entry, type Site, type Worker } from "../lib/types";
 import BackButton from "../components/BackButton";
 
@@ -87,7 +87,7 @@ export default function Tagesplanung() {
   }, [days]);
 
   function siteOf(siteId?: string) { return sites.find((s) => s.id === siteId); }
-  function entriesFor(workerId: string, date: string) { return entries.filter((e) => e.workerId === workerId && e.date === date); }
+  function entriesFor(workerId: string, date: string) { return entries.filter((e) => e.workerId === workerId && isEntryActiveOn(e, date)); }
   function assignmentFor(workerId: string, date: string) { return assignments.find((a) => a.workerId === workerId && a.date === date); }
   function totalForWorker(workerId: string): number {
     return entries.filter((e) => e.workerId === workerId).reduce((s, e) => s + workMinutes(e), 0);
@@ -96,7 +96,7 @@ export default function Tagesplanung() {
     let n = 0;
     for (const d of days) {
       if (d > today) continue;
-      if (!entries.some((e) => e.workerId === workerId && e.date === d)) n += 1;
+      if (!entries.some((e) => e.workerId === workerId && isEntryActiveOn(e, d))) n += 1;
     }
     return n;
   }

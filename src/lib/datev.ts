@@ -7,7 +7,7 @@
 
 import type { Entry, Worker, Site, Discipline } from "./types";
 import { isWorkEntry, DISCIPLINE_LABEL } from "./types";
-import { workMinutes, fmtHours } from "./utils";
+import { workMinutes, fmtHours, isEntryActiveOn } from "./utils";
 import { getHoliday } from "./holidays";
 
 /** Aktuelles Mapping Discipline → Lohnart (DATEV).
@@ -52,7 +52,7 @@ export function buildExportRows(
 
   for (const w of teamWorkers) {
     for (const d of days) {
-      const dayEntries = entries.filter((e) => e.workerId === w.id && e.date === d);
+      const dayEntries = entries.filter((e) => e.workerId === w.id && isEntryActiveOn(e, d));
       const work = dayEntries.find(isWorkEntry);
       const absence = dayEntries.find((e) => !isWorkEntry(e));
       const holiday = getHoliday(d);

@@ -22,6 +22,19 @@ export function fmtHours(min: number, fractionDigits = 1): string {
   });
 }
 
+/** Gilt der Eintrag an diesem ISO-Datum?
+ *  - work-Einträge: nur am `entry.date` selbst.
+ *  - Krank/Urlaub mit `endDate`: gesamter Bereich date..endDate inklusive.
+ *  Wichtig für Wochensummen + Tagesansichten (sonst zeigt eine 5-Tage-
+ *  Krankschreibung nur den ersten Tag und es fehlen 4 × 8 h = 32 h Lohnfortzahlung). */
+export function isEntryActiveOn(entry: Entry, iso: string): boolean {
+  if (entry.date === iso) return true;
+  if ("endDate" in entry && entry.endDate) {
+    return entry.date <= iso && iso <= entry.endDate;
+  }
+  return false;
+}
+
 /** Bezahlte Arbeitszeit eines Eintrags.
  *  Rick-Vorgabe 09.06.2026: Der Mitarbeiter trägt die produktive Zeit ein
  *  (z.B. 07:00–15:00 = 8 h). Die 30-min-Pause wird vom System automatisch
@@ -32,10 +45,22 @@ export function workMinutes(entry: Entry): number {
   return Math.max(0, entry.endMin - entry.startMin);
 }
 
-/** Anwesenheits-Ende für Stundenzettel: Netto-Feierabend + Pause-Aufschlag.
- *  Zeigt, wann der Mitarbeiter den Hof verlassen hat (für Dokumentation). */
+/** Gesetzlich nötiger Pause-Aufschlag nach §4 ArbZG.
+ *  ≤ 6 h Arbeit: keine Pause vorgeschrieben → 0
+ *  > 6 h bis ≤ 9 h: 30 min Pflicht
+ *  > 9 h: 45 min Pflicht
+ *  Wird für Anwesenheits-Anzeige verwendet (Stundenzettel/Tagesansicht). */
+export function effectivePauseMin(entry: Entry & { type: "work" }): number {
+  const work = Math.max(0, entry.endMin - entry.startMin);
+  if (work > 9 * 60) return 45;
+  if (work > 6 * 60) return 30;
+  return 0;
+}
+
+/** Anwesenheits-Ende für Stundenzettel: Netto-Feierabend + gesetzlich
+ *  vorgeschriebener Pause-Aufschlag (nicht der DB-Default, sondern §4 ArbZG-konform). */
 export function attendanceEndMin(entry: Entry & { type: "work" }): number {
-  return entry.endMin + (entry.pauseMin ?? 0);
+  return entry.endMin + effectivePauseMin(entry);
 }
 
 /** Bezahlungs-relevante Minuten: gearbeitete Zeit für work-Entries,

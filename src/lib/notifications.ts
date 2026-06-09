@@ -1,4 +1,5 @@
 import type { Entry, Worker } from "./types";
+import { isEntryActiveOn } from "./utils";
 
 const ENABLED_KEY = "leuschner.notifications.enabled";
 const REMIND_AT_KEY = "leuschner.notifications.remindAt"; // HH:MM
@@ -60,14 +61,14 @@ export function workersWithoutEntry(
   team: Worker[]
 ): Worker[] {
   return team.filter((w) =>
-    !entries.some((e) => e.workerId === w.id && e.date === date)
+    !entries.some((e) => e.workerId === w.id && isEntryActiveOn(e, date))
   );
 }
 
 /** Browser-Reminder: Mitarbeiter, dass heute noch nichts erfasst wurde. */
 export function remindWorkerIfNeeded(workerId: string, entries: Entry[]) {
   const today = todayIso();
-  const has = entries.some((e) => e.workerId === workerId && e.date === today);
+  const has = entries.some((e) => e.workerId === workerId && isEntryActiveOn(e, today));
   if (!has) {
     notify(
       "Heute noch nichts erfasst",

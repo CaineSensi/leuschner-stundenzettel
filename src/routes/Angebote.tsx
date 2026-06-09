@@ -9,7 +9,7 @@ import {
   type PipelineCard, type Stage, type ReviewStatus, type PipelinePosition
 } from "../lib/pipeline";
 import { sevdeskGetOrderSnapshot, sevdeskFindOrdersForName, type SevOrderSnapshot, type SevOrderRef } from "../lib/sevdesk";
-import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContact, createCustomerLocal, type Customer } from "../lib/customers";
+import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContact, createCustomerLocal, listCustomers, type Customer } from "../lib/customers";
 import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
@@ -74,6 +74,8 @@ function descIsJustDocNumber(desc?: string): boolean {
 export default function Angebote() {
   const navigate = useNavigate();
   const [cards, setCards] = useState<PipelineCard[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [showGaps, setShowGaps] = useState(false);
   // Inquiry je Pipeline-Karte (für Quelle-Symbol + Roh-Text-Vorschau auf den
   // Anfrage-Karten — die Inbox ist seit 06.06. ins Board aufgegangen).
   const [inquiryByCard, setInquiryByCard] = useState<Record<string, Inquiry>>({});
@@ -96,11 +98,13 @@ export default function Angebote() {
   async function refresh() {
     setError(null);
     try {
-      const [cs, inqs] = await Promise.all([
+      const [cs, inqs, cus] = await Promise.all([
         listCards({ archived: view === "archiv" }),
         listInquiries({ onlyOpen: false }).catch(() => [] as Inquiry[]),
+        listCustomers().catch(() => [] as Customer[]),
       ]);
       setCards(cs);
+      setCustomers(cus);
       const map: Record<string, Inquiry> = {};
       for (const i of inqs) if (i.pipelineCardId) map[i.pipelineCardId] = i;
       setInquiryByCard(map);
@@ -130,6 +134,34 @@ export default function Angebote() {
   }, [cards, search]);
 
   const byStage = (s: Stage) => filtered.filter((c) => c.stage === s);
+
+  /** Kunden mit unvollständigen Stammdaten, die in mindestens einer aktiven
+   *  Pipeline-Karte stecken (alle Stufen außer Abgerechnet/storniert). Zeigt
+   *  Banner oben + Detail-Modal. Karteileichen ohne aktive Vorgänge werden
+   *  bewusst nicht angemahnt — die ergänzt man, wenn sie wieder anlaufen. */
+  const customerGaps = useMemo(() => {
+    const activeCardsByCust = new Map<string, PipelineCard>();
+    for (const c of cards) {
+      if (c.stage === "Abgerechnet" || c.cancelledAt || c.archivedAt) continue;
+      if (!c.customerId) continue;
+      // erste aktive Karte des Kunden gewinnt (zum Öffnen)
+      if (!activeCardsByCust.has(c.customerId)) activeCardsByCust.set(c.customerId, c);
+    }
+    type Gap = { customer: Customer; missing: string[]; card: PipelineCard };
+    const gaps: Gap[] = [];
+    for (const cu of customers) {
+      const card = activeCardsByCust.get(cu.id);
+      if (!card) continue;
+      const missing: string[] = [];
+      if (!cu.email)  missing.push("E-Mail");
+      if (!cu.phone)  missing.push("Telefon");
+      if (!cu.street) missing.push("Straße");
+      if (!cu.zip)    missing.push("PLZ");
+      if (!cu.city)   missing.push("Ort");
+      if (missing.length) gaps.push({ customer: cu, missing, card });
+    }
+    return gaps.sort((a, b) => a.customer.name.localeCompare(b.customer.name));
+  }, [cards, customers]);
 
   async function moveTo(card: PipelineCard, stage: Stage) {
     if (card.stage === stage) return;
@@ -365,6 +397,20 @@ export default function Angebote() {
         </div>
       )}
 
+      {customerGaps.length > 0 && !isArchiv && (
+        <button
+          onClick={() => setShowGaps(true)}
+          className="mx-4 lg:mx-8 mt-3 px-4 py-2.5 bg-amber/15 border border-amber/45 rounded-lg flex items-center justify-between gap-3 text-left hover:bg-amber/25 transition-colors"
+          aria-label={`${customerGaps.length} Kunden mit unvollständigen Stammdaten anzeigen`}
+        >
+          <span className="text-[13.5px] text-amber-bright font-sans">
+            <b>⚠ {customerGaps.length} {customerGaps.length === 1 ? "Kunde hat" : "Kunden haben"} unvollständige Stammdaten</b>
+            {" "}— in aktiven Vorgängen, bitte ergänzen
+          </span>
+          <span className="h-mono text-[11px] text-amber-bright whitespace-nowrap">anzeigen →</span>
+        </button>
+      )}
+
       {loading ? (
         <div className="flex-1 grid place-items-center font-mono text-ink-2 text-[13px]">
           Wird geladen …
@@ -440,6 +486,55 @@ export default function Angebote() {
             );
           })}
         </div>
+      )}
+
+      {showGaps && (
+        <>
+          <div className="dd-scrim on" onClick={() => setShowGaps(false)} />
+          <aside className="dd-drawer on" role="dialog" aria-modal="true" aria-label="Kunden mit unvollständigen Stammdaten" style={{ width: "min(640px, 100%)" }}>
+            <div className="surface-steel px-5 lg:px-6 pt-5 pb-4 flex-shrink-0">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-mono font-bold text-[13px] bg-amber/30 text-white px-2.5 py-1 rounded-md">
+                  ⚠ {customerGaps.length} {customerGaps.length === 1 ? "Lücke" : "Lücken"}
+                </span>
+                <button
+                  onClick={() => setShowGaps(false)}
+                  aria-label="Schließen"
+                  className="bg-white/10 border border-white/20 text-white w-9 h-9 rounded-md grid place-items-center hover:bg-white/20 text-[17px]"
+                >✕</button>
+              </div>
+              <div className="font-display font-black uppercase text-[22px] lg:text-[26px] text-white mt-3 leading-tight">
+                Unvollständige Kundendaten
+              </div>
+              <div className="font-sans text-[13px] text-steel mt-2">
+                Diese Kunden haben aktive Vorgänge, aber im Stamm fehlen Kontakt- oder Adressdaten. Karte öffnen → im Detail-Drawer rechts „Kontakt" → Edit.
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 lg:px-6 py-5 board-scroll bg-[#EEF0F2]">
+              <ul className="space-y-2.5">
+                {customerGaps.map(({ customer, missing, card }) => (
+                  <li key={customer.id} className="bg-white border border-steel-line/50 rounded-lg px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-sans font-bold text-[15px] text-ink truncate">{customer.name}</div>
+                      <div className="font-mono text-[11px] text-ink-2 mt-1">
+                        fehlt: {missing.join(" · ")}
+                      </div>
+                      {card.docNumber && (
+                        <div className="font-mono text-[10.5px] text-ink-mute mt-0.5">{card.docNumber} · {card.stage}</div>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => { setShowGaps(false); setDetail(card); }}
+                      className="btn-primary !min-h-[36px] !px-3 text-[12px] whitespace-nowrap"
+                    >
+                      Karte öffnen →
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </aside>
+        </>
       )}
 
       {detail && (

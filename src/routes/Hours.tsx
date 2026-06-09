@@ -3,7 +3,7 @@ import { listAllEntries, listSites, listWorkers } from "../lib/api";
 import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { getHoliday, isHoliday } from "../lib/holidays";
 import {
-  fmtHours, isoWeek, todayIso, weekDays, withTimeout, workMinutes
+  fmtHours, isEntryActiveOn, isoWeek, todayIso, weekDays, withTimeout, workMinutes
 } from "../lib/utils";
 import { isWorkEntry, type Entry, type Site, type Worker } from "../lib/types";
 import BackButton from "../components/BackButton";
@@ -64,7 +64,7 @@ export default function Hours() {
   );
 
   function entriesFor(workerId: string, date: string): Entry[] {
-    return entries.filter((e) => e.workerId === workerId && e.date === date);
+    return entries.filter((e) => e.workerId === workerId && isEntryActiveOn(e, date));
   }
 
   function siteOf(siteId: string): Site | undefined {

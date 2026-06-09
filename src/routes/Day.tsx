@@ -5,7 +5,7 @@ import { listEntryPhotos } from "../lib/photos";
 import { useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import PhotoStrip from "../components/PhotoStrip";
-import { fmtHours, fmtTime, shortDate, withTimeout, workMinutes } from "../lib/utils";
+import { attendanceEndMin, effectivePauseMin, fmtHours, fmtTime, shortDate, withTimeout, workMinutes } from "../lib/utils";
 import { isWorkEntry, type Entry, type EntryPhoto, type Site } from "../lib/types";
 
 export default function Day() {
@@ -154,7 +154,13 @@ export default function Day() {
 
       <ul className="px-6 py-4 divide-y divide-ink/10">
         <Row label="Tätigkeit" value={entry.discipline} sub={DISCIPLINE_NAME[entry.discipline]} />
-        <Row label="Zeit" value={`${fmtTime(entry.startMin)} bis ${fmtTime(entry.endMin + entry.pauseMin)}`} sub={`${fmtHours(min)} h bezahlt · inkl. ${entry.pauseMin} min Pause (unbezahlt)`} />
+        <Row
+          label="Zeit"
+          value={`${fmtTime(entry.startMin)} bis ${fmtTime(attendanceEndMin(entry))}`}
+          sub={effectivePauseMin(entry) > 0
+            ? `${fmtHours(min)} h bezahlt · inkl. ${effectivePauseMin(entry)} min Pause (unbezahlt, §4 ArbZG)`
+            : `${fmtHours(min)} h bezahlt · keine Pause (≤ 6 h)`}
+        />
         {entry.weather && <Row label="Wetter" value={WEATHER_LABEL[entry.weather]} sub={entry.note ?? "keine Notiz"} />}
         <Row label="Standort" value={entry.geoVerified ? "GPS bestätigt" : "Manuell eingetragen"} sub={entry.geoVerified ? "± wenige Meter" : "Kein Geo-Match"} />
       </ul>

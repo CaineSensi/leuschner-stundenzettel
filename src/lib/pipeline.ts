@@ -22,6 +22,8 @@ export interface PipelineCard {
   id: string;
   stage: Stage;
   customerName: string;
+  /** FK auf customers.id — für Kunden-Stammdaten-Lookups (Banner „unvollständige Daten"). */
+  customerId?: string;
   place?: string;
   description?: string;
   valueEur?: number;
@@ -103,6 +105,7 @@ function rowToCard(r: any): PipelineCard {
     id: r.id,
     stage: r.stage,
     customerName: r.customer_name,
+    customerId: r.customer_id ?? undefined,
     place: r.place ?? undefined,
     description: r.description ?? undefined,
     valueEur: r.value_eur != null ? Number(r.value_eur) : undefined,
@@ -128,7 +131,7 @@ function rowToCard(r: any): PipelineCard {
 }
 
 const COLS =
-  "id, stage, customer_name, place, description, value_eur, open_points, " +
+  "id, stage, customer_name, customer_id, place, description, value_eur, open_points, " +
   "doc_number, sevdesk_order_id, site_id, assigned_worker_id, plan_eur, actual_eur, valid_until, " +
   "sent_at, archived_at, cancelled_at, cancellation_reason, positions, freigabe, sort_order, created_at";
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import Logo from "../components/Logo";
 import { signInWithCode } from "../lib/auth";
 
@@ -85,11 +85,6 @@ export default function Login() {
         </button>
       </section>
 
-      <div className="text-center mt-6">
-        <Link to="/buero" className="h-mono text-ink-2 text-[11px] hover:text-copper">
-          Bist du Admin? → Büro-Login
-        </Link>
-      </div>
     </main>
   );
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { listWorkers, listAllEntries } from "../lib/api";
 import { isHoliday, getHoliday } from "../lib/holidays";
-import { fmtHours, paidMinutes, workMinutes, isWorkdayFor } from "../lib/utils";
+import { fmtHours, paidMinutes, workMinutes, isWorkdayFor, effectivePauseMin, isEntryActiveOn } from "../lib/utils";
 import { isWorkEntry, DISCIPLINE_LABEL, type Entry, type Worker } from "../lib/types";
 
 /* ────────────────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ export function StundenzettelSheet({
               const isWeekend = wd === 0 || wd === 6;
               const holiday = getHoliday(iso);
               const isWorkerDay = isWorkdayFor(worker.workdays, iso);
-              const dayEntries = entries.filter((e) => e.date === iso);
+              const dayEntries = entries.filter((e) => isEntryActiveOn(e, iso));
               const workEntry = dayEntries.find(isWorkEntry);
               const absence = dayEntries.find((e) => !isWorkEntry(e));
 
@@ -205,9 +205,11 @@ export function StundenzettelSheet({
                 hoursCell = fmtHours(workMinutes(workEntry), 2);
                 artCell = DISCIPLINE_LABEL[workEntry.discipline] ?? workEntry.discipline;
                 beginCell = fmtTime(workEntry.startMin);
-                // Anwesenheits-Feierabend = Netto-Ende + Pause (Pause hängt am Tagesende dran)
-                endCell = fmtTime(workEntry.endMin + workEntry.pauseMin);
-                pauseCell = workEntry.pauseMin > 0 ? fmtTime(workEntry.pauseMin) : "—";
+                // Anwesenheits-Feierabend = Netto-Ende + ArbZG-konformer Pause-Aufschlag.
+                // < 6 h Arbeit: keine Pflicht-Pause → kein Aufschlag.
+                const pause = effectivePauseMin(workEntry);
+                endCell = fmtTime(workEntry.endMin + pause);
+                pauseCell = pause > 0 ? fmtTime(pause) : "—";
                 bemerkung = workEntry.note ?? "";
               } else if (absence) {
                 const label = absence.type === "vacation" ? "Urlaub"

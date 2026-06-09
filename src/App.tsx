@@ -24,6 +24,7 @@ import OfflineIndicator from "./components/OfflineIndicator";
 import InstallPrompt from "./components/InstallPrompt";
 import UpdatePrompt from "./components/UpdatePrompt";
 import AdminPushBanner from "./components/AdminPushBanner";
+import ChatBubble from "./components/ChatBubble";
 import { currentUser, isOnboarded, syncWorkerFromSession, enforceValidSession, logout } from "./lib/auth";
 import { supabase } from "./lib/supabase";
 import { syncPending } from "./lib/sync";
@@ -79,6 +80,7 @@ export default function App() {
         <OfflineIndicator />
         <InstallPrompt />
         <UpdatePrompt />
+        <ChatBubble />
       </div>
       <Routes>
         <Route path="/onboarding"    element={<Onboarding />} />

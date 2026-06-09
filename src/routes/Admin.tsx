@@ -13,7 +13,7 @@ import { listInquiries, type Inquiry } from "../lib/inquiries";
 import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { isBackendConnected } from "../lib/supabase";
 import { currentUser, signOutFully } from "../lib/auth";
-import { isoWeek, todayIso, weekDays, fmtHours, workMinutes } from "../lib/utils";
+import { isoWeek, todayIso, weekDays, fmtHours, workMinutes, isEntryActiveOn } from "../lib/utils";
 import { isWorkEntry, type Entry, type Site, type Worker, type Assignment } from "../lib/types";
 import { BuiltByDollart } from "../components/Logo";
 import InfoTip from "../components/InfoTip";
@@ -108,7 +108,7 @@ export default function Admin() {
   const todayLive = useMemo(() => {
     const list: { worker: Worker; site?: Site; status: "live" | "vacation" | "sick" | "planned" | "off" }[] = [];
     for (const w of team) {
-      const todayEntry = entries.find((e) => e.workerId === w.id && e.date === today);
+      const todayEntry = entries.find((e) => e.workerId === w.id && isEntryActiveOn(e, today));
       if (todayEntry && isWorkEntry(todayEntry)) {
         list.push({ worker: w, site: sites.find((s) => s.id === todayEntry.siteId), status: "live" });
       } else if (todayEntry && todayEntry.type === "vacation") {
@@ -137,7 +137,7 @@ export default function Admin() {
     for (const w of team) {
       for (const d of days) {
         if (d > today) continue;
-        const e = entries.find((x) => x.workerId === w.id && x.date === d);
+        const e = entries.find((x) => x.workerId === w.id && isEntryActiveOn(x, d));
         if (!e) count += 1;
       }
     }
@@ -289,6 +289,41 @@ export default function Admin() {
                 >
                   DATEV ↗
                 </Link>
+
+                {/* Trenner */}
+                <div className="hidden lg:block w-px self-stretch bg-white/15 mx-1" />
+
+                {/* User-Chip mit Abmelden — zeigt klar wer eingeloggt ist */}
+                {(() => {
+                  const u = currentUser();
+                  if (!u) return null;
+                  return (
+                    <div
+                      className="inline-flex items-center gap-2.5 pl-1.5 pr-2 py-1 rounded-md bg-white/10 border border-white/20 !min-h-[44px]"
+                      title={`${u.firstName} ${u.lastName} · ${u.role}`}
+                    >
+                      <div
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-white font-display font-extrabold text-[12px] border-2 border-white/30"
+                        style={{ background: "linear-gradient(180deg,#E8853F,#C95F22)" }}
+                      >
+                        {u.initials}
+                      </div>
+                      <div className="hidden xl:flex flex-col leading-tight">
+                        <span className="text-white text-[12.5px] font-bold">{u.firstName}</span>
+                        <span className="text-steel text-[10px] font-mono uppercase tracking-wider">{u.role}</span>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (confirm(`${u.firstName}, wirklich abmelden?`)) handleLogout();
+                        }}
+                        className="ml-1 inline-flex items-center justify-center px-2.5 py-1.5 rounded text-white text-[11px] font-display font-extrabold uppercase tracking-wider bg-rust/80 hover:bg-rust transition-colors"
+                        title="Abmelden"
+                      >
+                        ↪ Abmelden
+                      </button>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>

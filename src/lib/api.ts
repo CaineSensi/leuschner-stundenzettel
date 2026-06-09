@@ -28,6 +28,7 @@ export async function listWorkers(includeArchived = false): Promise<Worker[]> {
   if (!includeArchived) q = q.is("archived_at", null);
   const { data, error } = await q;
   if (error) throw error;
+  console.log("[api] listWorkers result count:", data?.length ?? 0, "admins:", (data ?? []).filter((w: any) => w.is_admin).length);
   return (data ?? []).map((w: any) => ({
     id: w.id,
     initials: w.initials,

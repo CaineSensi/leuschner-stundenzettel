@@ -4,7 +4,7 @@ import { listAssignments, listEntries, listSites } from "../lib/api";
 import { getHoliday, isHoliday } from "../lib/holidays";
 import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import {
-  dayName, fmtDateLong, fmtHours, fmtTime, isoWeek, shortDate, todayIso,
+  dayName, fmtDateLong, fmtHours, fmtTime, isEntryActiveOn, isoWeek, shortDate, todayIso,
   weekDays, workMinutes
 } from "../lib/utils";
 import type { Assignment, Entry, Site } from "../lib/types";
@@ -78,7 +78,7 @@ export default function Home() {
 
   const [notifReady, setNotifReady] = useState(notificationsEnabled());
   const todayInWeek = days.includes(today);
-  const hasToday = myEntries.some((e) => e.date === today);
+  const hasToday = myEntries.some((e) => isEntryActiveOn(e, today));
 
   // Reminder: nach 1.5s automatisch Hinweis senden, wenn aktiviert
   useEffect(() => {
@@ -107,7 +107,7 @@ export default function Home() {
 
   // Feiertage zählen NICHT als offen — Mitarbeiter muss da nichts eintragen
   const offen = days.filter((iso) =>
-    iso <= today && !myEntries.some((e) => e.date === iso) && !isHoliday(iso)
+    iso <= today && !myEntries.some((e) => isEntryActiveOn(e, iso)) && !isHoliday(iso)
   );
 
   return (
@@ -232,7 +232,7 @@ export default function Home() {
         </div>
         <ul className="space-y-2.5">
           {days.map((iso) => {
-            const entry = myEntries.find((e) => e.date === iso);
+            const entry = myEntries.find((e) => isEntryActiveOn(e, iso));
             const holiday = getHoliday(iso);
             const assignment = weekAssignments.find((a) => a.date === iso);
             const assignSite = assignment ? allSites.find((s) => s.id === assignment.siteId) ?? null : null;
