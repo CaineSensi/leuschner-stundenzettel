@@ -14,6 +14,7 @@ import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realt
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
 import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, uploadInquiryPhoto, updateInquiryPhotos, SOURCE_ICON, SOURCE_LABEL, type Inquiry, type InquiryPhoto } from "../lib/inquiries";
+import { uploadSitePhoto, getCurrentCompanyId } from "../lib/photos";
 
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
@@ -1113,6 +1114,7 @@ function DetailDrawer({
               {inquiry && (
                 <InquiryHistory
                   inquiry={inquiry}
+                  siteId={card.siteId}
                   onInquiryUpdate={setInquiry}
                 />
               )}
@@ -1991,12 +1993,16 @@ function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry |
   );
 }
 
-/** Foto-Galerie für WhatsApp-Fotos — mit nachträglichem Upload. */
+/** Foto-Galerie für WhatsApp-Fotos — mit nachträglichem Upload.
+ *  Wenn siteId angegeben ist, wird jedes Foto ZUSÄTZLICH als Site-direkt-Foto
+ *  in entry_photos abgelegt, damit es in der Baustellenkarte unter "Fotos" erscheint. */
 function InquiryPhotoGallery({
   inquiry,
+  siteId,
   onPhotosUpdated,
 }: {
   inquiry: Inquiry;
+  siteId?: string;
   onPhotosUpdated?: (photos: InquiryPhoto[]) => void;
 }) {
   const [urls, setUrls] = useState<(string | null)[]>([]);
@@ -2016,10 +2022,24 @@ function InquiryPhotoGallery({
     if (!list.length) return;
     setUploading(true); setUploadErr(null);
     try {
+      // 1) Anfrage-Fotos hochladen (JSONB in inquiries.photos)
       const uploaded = await Promise.all(list.map((f) => uploadInquiryPhoto(f, inquiry.id)));
       const merged = [...(inquiry.photos ?? []), ...uploaded];
       await updateInquiryPhotos(inquiry.id, merged);
       onPhotosUpdated?.(merged);
+
+      // 2) Wenn Baustelle verknüpft: parallel als Site-Foto ablegen
+      if (siteId) {
+        const me = currentUser();
+        const companyId = me?.companyId ?? await getCurrentCompanyId();
+        if (me && companyId) {
+          await Promise.allSettled(
+            list.map((f) =>
+              uploadSitePhoto({ file: f, siteId, workerId: me.id, companyId })
+            )
+          );
+        }
+      }
     } catch (e: any) {
       setUploadErr(e?.message ?? "Upload fehlgeschlagen");
     } finally { setUploading(false); }
@@ -2106,9 +2126,11 @@ function InquiryPhotoGallery({
 /** Verlaufs-Timeline + Original-Rohtext einer Anfrage (unter der ContactCard). */
 function InquiryHistory({
   inquiry,
+  siteId,
   onInquiryUpdate,
 }: {
   inquiry: Inquiry;
+  siteId?: string;
   onInquiryUpdate?: (updated: Inquiry) => void;
 }) {
   const log = [...inquiry.notesLog].sort((a, b) => a.at.localeCompare(b.at));
@@ -2133,6 +2155,7 @@ function InquiryHistory({
 
       <InquiryPhotoGallery
         inquiry={inquiry}
+        siteId={siteId}
         onPhotosUpdated={(photos) => onInquiryUpdate?.({ ...inquiry, photos })}
       />
 
