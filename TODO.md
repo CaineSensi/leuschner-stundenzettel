@@ -1,7 +1,7 @@
 # Leuschner Stundenzettel · Offene Aufgaben
 
-**Stand:** 09. Juni 2026 (Feierabend)
-**Hauptapp (`app`):** `main` = `8cd13c5` lokal committed · Live ✓ (Wrangler 4.99.0, Deploy `2a193a8f`) · **`origin/main` hinkt ~27 Commits hinterher** (kein GitHub-Token → kein Push)
+**Stand:** 11. Juni 2026 (Session)
+**Hauptapp (`app`):** `main` = `b6c5852` lokal committed · Live ✓ (Deploy `19a725c2`) · **`origin/main` hinkt ~39 Commits hinterher** (kein GitHub-Token → kein Push)
 **Aufmaß-App (`aufmass`):** `main` = `8d9afeb` ✓ (lokal committed, KEIN Git-Remote — lebt auf dem Stick) · live `leuschner-aufmass.pages.dev`
 Lokal = Live ✓.
 
@@ -15,7 +15,30 @@ Lokal = Live ✓.
 
 ---
 
-## ✅ Heute drin (09.06.2026)
+## ✅ Heute drin (11.06.2026)
+
+### WhatsApp-Fotos in Anfragen
+- `supabase/migrations/20260611000000_inquiry_photos.sql`: `photos jsonb` Spalte, live applied
+- `inquiries.ts`: `InquiryPhoto`-Typ, `compressInquiryImage/uploadInquiryPhoto/updateInquiryPhotos/inquiryPhotoUrl`
+- `AnfrageNeu.tsx`: Drag&Drop-Upload-Zone, Thumbnail-Vorschau, Upload-Schritt nach Speichern
+- `Angebote.tsx`: `InquiryPhotoGallery`-Komponente mit Lightbox, in `InquiryHistory` eingebunden
+- Commit: `b6c5852` · Deploy: `19a725c2`
+
+### LV-Tab · Variante B (permanenter 3-Spalten Drawer-Panel)
+- `src/routes/LV.tsx` komplett neu (V3): Desktop 3-Spalten (190px Sidebar · 360px Liste · flex-1 Drawer-Panel)
+- Drawer-Panel: heller Verlauf `#EEF0F2→#E2E4E7`, Stahl-Kopfband + Kupfer-Schweißnaht, ID-Badge
+- Mobile: Chips-Header + Karten-Grid + dd-drawer (unverändert vom alten Design)
+- `tailwind.config.ts`: `opacity` Scale 2/4/6/8/12/22 ergänzt (war silent broken für `bg-white/8` etc.)
+- Live deployt + Playwright-verifiziert (Desktop 3-Spalten + Mobile Chips+Cards)
+- Commit: `17b36a8`
+
+### sevDesk Rechnungsanalyse
+- `scripts/fetch-invoices.mjs` + `build-positions.mjs` (264 Rechnungen, 806 Positionen, 479.557 €)
+- PP Mahlgut (Plastik-Betrieb) rausgefiltert
+- Lebende HTML-Doku: `L:\Leuschner APP\Leuschner_Rechnungspositionen.html`
+- Mockup 3 Varianten: `_Reports/2026-06-11_LV-Master-Detail-Mockup.html`
+
+## ✅ Drin (09.06.2026)
 
 ### Leistungsverzeichnis (LV)
 - Neue Route `/admin/lv` — 3-spaltiges Master-Detail-Layout (Kategorien · Liste · Detail)
