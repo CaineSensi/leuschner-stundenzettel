@@ -133,7 +133,7 @@ export default function Sites() {
 
   // Echtzeit-Updates: Baustellen-Stammdaten + Planung + Ist-Stunden — so wandert
   // eine Baustelle automatisch nach „Heute vor Ort", sobald die Crew eincheckt.
-  useRealtime("sites-admin", ["sites", "assignments", "entries"], refresh);
+  useRealtime("sites-admin", ["sites", "assignments", "entries", "inquiries", "pipeline_cards"], refresh);
   useRefreshOnVisible(refresh);
   // Auth-Session war beim ersten Fetch evtl. noch nicht da → nachladen, sobald sie kommt
   useRefreshOnAuth(refresh);

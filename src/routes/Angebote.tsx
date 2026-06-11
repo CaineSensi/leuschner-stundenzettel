@@ -117,7 +117,7 @@ export default function Angebote() {
   }
 
   useEffect(() => { setLoading(true); refresh(); /* eslint-disable-next-line */ }, [view]);
-  useRealtime("pipeline", ["pipeline_cards"], refresh);
+  useRealtime("pipeline", ["pipeline_cards", "inquiries"], refresh);
   useRefreshOnVisible(refresh);
   // Holt die Daten nach, sobald die Supabase-Session steht (Route mountet
   // sonst vor dem Session-Restore -> erster Fetch ohne Token -> leerer View).

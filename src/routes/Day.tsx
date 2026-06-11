@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { listEntries, listSites } from "../lib/api";
 import { listEntryPhotos } from "../lib/photos";
-import { useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import PhotoStrip from "../components/PhotoStrip";
 import { attendanceEndMin, effectivePauseMin, fmtHours, fmtTime, shortDate, withTimeout, workMinutes } from "../lib/utils";
@@ -59,6 +59,7 @@ export default function Day() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, me?.id, refreshKey]);
 
+  useRealtime(`day-${date}`, ["entries", "entry_photos"], () => setRefreshKey((k) => k + 1));
   useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
   useRefreshOnAuth(() => setRefreshKey((k) => k + 1));
 

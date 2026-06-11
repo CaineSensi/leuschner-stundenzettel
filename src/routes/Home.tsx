@@ -101,7 +101,8 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   function handleRefresh() {
     setRefreshing(true);
-    window.location.reload();
+    setRefreshKey((k) => k + 1);
+    setTimeout(() => setRefreshing(false), 800);
   }
 
   const [submitting, setSubmitting] = useState(false);
