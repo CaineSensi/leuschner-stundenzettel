@@ -11,6 +11,10 @@ import {
 } from "../lib/chat";
 import { startPresence, useOnlineUsers, isWorkerOnline } from "../lib/presence";
 import { useRefreshOnVisible } from "../lib/realtime";
+import { withTimeout } from "../lib/utils";
+
+const SEND_TIMEOUT_MS = 15_000;   // max Wartezeit pro Sende-Vorgang
+const POLL_INTERVAL_MS = 30_000;  // Fallback-Polling wenn WebSocket schweigt
 
 /* ────────────────────────────────────────────────────────────────────────
    ChatBubble + Prime-Modal · interner App-Chat (Floating Bubble unten rechts)
@@ -91,7 +95,7 @@ function ChatBubbleInner({ me }: { me: Worker }) {
   // Inbox laden — alle Nachrichten an/von mir
   const refreshMessages = useMemo(() => async () => {
     try {
-      const msgs = await listAllMyMessages(me.id);
+      const msgs = await withTimeout(listAllMyMessages(me.id), 8_000, "Nachrichten");
       setMessages(msgs);
     } catch (err) {
       console.warn("[chat] refreshMessages failed", err);
@@ -99,6 +103,15 @@ function ChatBubbleInner({ me }: { me: Worker }) {
   }, [me.id]);
 
   useEffect(() => { refreshMessages(); }, [refreshMessages]);
+
+  // Fallback-Polling: alle 30 s nachladen falls WebSocket schweigt
+  useEffect(() => {
+    const id = setInterval(refreshMessages, POLL_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [refreshMessages]);
+
+  // Sofort neu laden wenn Tab wieder sichtbar wird (z.B. nach Seiten-Wechsel)
+  useRefreshOnVisible(refreshMessages);
 
   // Realtime: neue Nachrichten reinpushen
   useEffect(() => {
@@ -195,33 +208,36 @@ function ChatBubbleInner({ me }: { me: Worker }) {
     setPendingAttachments([]);
     setUploadError(null);
     try {
-      // Erst alle Anhänge hochladen, dann eine Nachricht mit allen Pfaden
-      let uploaded: ChatAttachment[] = [];
-      if (filesToSend.length > 0) {
-        const results = await Promise.allSettled(
-          filesToSend.map((p) => uploadChatAttachment(p.file, me.id))
-        );
-        uploaded = results
-          .filter((r): r is PromiseFulfilledResult<ChatAttachment> => r.status === "fulfilled")
-          .map((r) => r.value);
-        const failed = results.length - uploaded.length;
-        if (failed > 0) setUploadError(`${failed} von ${results.length} Bildern konnten nicht hochgeladen werden`);
-      }
-      // Object-URLs aufräumen
-      filesToSend.forEach((p) => URL.revokeObjectURL(p.preview));
+      const doSend = async () => {
+        // Erst alle Anhänge hochladen, dann eine Nachricht mit allen Pfaden
+        let uploaded: ChatAttachment[] = [];
+        if (filesToSend.length > 0) {
+          const results = await Promise.allSettled(
+            filesToSend.map((p) => uploadChatAttachment(p.file, me.id))
+          );
+          uploaded = results
+            .filter((r): r is PromiseFulfilledResult<ChatAttachment> => r.status === "fulfilled")
+            .map((r) => r.value);
+          const failed = results.length - uploaded.length;
+          if (failed > 0) setUploadError(`${failed} von ${results.length} Bildern konnten nicht hochgeladen werden`);
+        }
+        filesToSend.forEach((p) => URL.revokeObjectURL(p.preview));
+        return sendMessage({
+          meId: me.id,
+          companyId: me.companyId!,
+          receiverId: activePeerId!,
+          content: text,
+          attachments: uploaded.length > 0 ? uploaded : undefined,
+        });
+      };
 
-      const sent = await sendMessage({
-        meId: me.id,
-        companyId: me.companyId,
-        receiverId: activePeerId,
-        content: text,
-        attachments: uploaded.length > 0 ? uploaded : undefined,
-      });
+      const sent = await withTimeout(doSend(), SEND_TIMEOUT_MS, "Senden");
       setMessages((prev) => prev.find((m) => m.id === sent.id) ? prev : [sent, ...prev]);
     } catch (err: any) {
       console.warn("[chat] send failed", err);
-      setDraft(text); // restore
-      setUploadError(err?.message ?? "Senden fehlgeschlagen");
+      // Draft wiederherstellen damit der Text nicht verloren geht
+      setDraft((prev) => prev || text);
+      setUploadError(err?.message ?? "Senden fehlgeschlagen — bitte erneut versuchen");
     } finally {
       setSending(false);
     }
