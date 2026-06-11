@@ -9,10 +9,19 @@ export type InquiryStatus = 'offen' | 'in_arbeit' | 'wurde_zu_angebot' | 'verwor
 export type InquiryPriority = 'niedrig' | 'normal' | 'hoch';
 
 export interface InquiryNote {
-  at: string;          // ISO timestamp
-  by?: string;         // Worker-Name (optional)
+  at: string;
+  by?: string;
   kind: 'note' | 'status' | 'parse' | 'system';
   text: string;
+}
+
+export interface InquiryPhoto {
+  path: string;    // Storage-Pfad im entry-photos Bucket
+  mime: string;
+  name: string;
+  width?: number;
+  height?: number;
+  size?: number;
 }
 
 export interface Inquiry {
@@ -33,6 +42,7 @@ export interface Inquiry {
   customerId?: string;
   pipelineCardId?: string;
   status: InquiryStatus;
+  photos: InquiryPhoto[];
   createdAt: string;
   updatedAt: string;
 }
@@ -51,6 +61,7 @@ export interface InquiryInput {
   notes?: string;
   priority?: InquiryPriority;
   customerId?: string;
+  photos?: InquiryPhoto[];
 }
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000001';
@@ -83,12 +94,13 @@ function rowToInquiry(r: any): Inquiry {
     customerId: r.customer_id ?? undefined,
     pipelineCardId: r.pipeline_card_id ?? undefined,
     status: r.status,
+    photos: Array.isArray(r.photos) ? r.photos : [],
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
 }
 
-const COLS = 'id, source, raw_text, parsed_json, customer_name, customer_phone, customer_email, street, zip, city, description, notes, notes_log, priority, customer_id, pipeline_card_id, status, created_at, updated_at';
+const COLS = 'id, source, raw_text, parsed_json, customer_name, customer_phone, customer_email, street, zip, city, description, notes, notes_log, priority, customer_id, pipeline_card_id, status, photos, created_at, updated_at';
 
 export async function listInquiries(opts: { onlyOpen?: boolean } = {}): Promise<Inquiry[]> {
   if (!isBackendConnected() || !supabase) return [];
@@ -229,4 +241,67 @@ export async function deleteInquiry(id: string): Promise<void> {
   const sb: any = supabase;
   const { error } = await sb.from('inquiries').delete().eq('id', id);
   if (error) throw error;
+}
+
+/** Komprimiert ein Bild (max 1600px, JPEG 0.85) und gibt Blob + Maße zurück. */
+async function compressInquiryImage(file: File): Promise<{ blob: Blob; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const maxDim = 1600;
+      const ratio = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.round(img.width * ratio);
+      const h = Math.round(img.height * ratio);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return reject(new Error("Canvas-Kontext fehlt"));
+      ctx.drawImage(img, 0, 0, w, h);
+      const outType = (file.type === "image/png" || file.type === "image/gif") ? file.type : "image/jpeg";
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return reject(new Error("toBlob fehlgeschlagen"));
+          resolve({ blob, width: w, height: h });
+        },
+        outType, 0.85
+      );
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Bild laden fehlgeschlagen")); };
+    img.src = url;
+  });
+}
+
+/** Lädt ein Foto in den entry-photos Bucket unter inquiries/{inquiryId}/ hoch. */
+export async function uploadInquiryPhoto(file: File, inquiryId: string): Promise<InquiryPhoto> {
+  if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
+  const compressed = await compressInquiryImage(file);
+  const ext = compressed.blob.type === "image/png" ? "png" : compressed.blob.type === "image/gif" ? "gif" : "jpg";
+  const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const path = `${COMPANY_ID}/inquiries/${inquiryId}/${uid}.${ext}`;
+  const sb: any = supabase;
+  const { error } = await sb.storage.from("entry-photos").upload(path, compressed.blob, {
+    contentType: compressed.blob.type,
+    upsert: false,
+  });
+  if (error) throw error;
+  return { path, mime: compressed.blob.type, name: file.name, width: compressed.width, height: compressed.height, size: compressed.blob.size };
+}
+
+/** Aktualisiert das photos-Array einer Anfrage. */
+export async function updateInquiryPhotos(id: string, photos: InquiryPhoto[]): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb.from("inquiries").update({ photos }).eq("id", id);
+  if (error) throw error;
+}
+
+/** Gibt eine signierte URL für ein Anfrage-Foto zurück (1h gültig). */
+export async function inquiryPhotoUrl(path: string): Promise<string | null> {
+  if (!isBackendConnected() || !supabase) return null;
+  const sb: any = supabase;
+  const { data, error } = await sb.storage.from("entry-photos").createSignedUrl(path, 3600);
+  if (error) return null;
+  return data?.signedUrl ?? null;
 }

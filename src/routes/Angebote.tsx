@@ -13,7 +13,7 @@ import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContac
 import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
-import { getInquiryByCardId, listInquiries, SOURCE_ICON, SOURCE_LABEL, type Inquiry } from "../lib/inquiries";
+import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, SOURCE_ICON, SOURCE_LABEL, type Inquiry } from "../lib/inquiries";
 
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
@@ -1931,6 +1931,42 @@ function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry |
   );
 }
 
+/** Foto-Galerie für WhatsApp-Fotos einer Anfrage. */
+function InquiryPhotoGallery({ inquiry }: { inquiry: Inquiry }) {
+  const [urls, setUrls] = useState<(string | null)[]>([]);
+  const [open, setOpen] = useState<string | null>(null);
+  useEffect(() => {
+    if (!inquiry.photos?.length) return;
+    Promise.all(inquiry.photos.map((p) => inquiryPhotoUrl(p.path))).then(setUrls);
+  }, [inquiry.id, inquiry.photos?.length]);
+  if (!inquiry.photos?.length) return null;
+  return (
+    <div className="border border-steel rounded-lg bg-white px-4 py-3">
+      <div className="dd-eyebrow text-ink-mute mb-2">
+        📷 WhatsApp-Fotos · {inquiry.photos.length} Bild{inquiry.photos.length === 1 ? "" : "er"}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {inquiry.photos.map((photo, i) => {
+          const url = urls[i];
+          return url ? (
+            <button key={i} type="button" onClick={() => setOpen(url)} className="group relative overflow-hidden rounded-md border border-steel-line/20 focus:outline-none focus:ring-2 focus:ring-copper">
+              <img src={url} alt={photo.name} className="w-24 h-24 object-cover group-hover:opacity-90 transition-opacity" loading="lazy" />
+            </button>
+          ) : (
+            <div key={i} className="w-24 h-24 rounded-md border border-steel-line/20 bg-bg-2 animate-pulse" />
+          );
+        })}
+      </div>
+      {open && (
+        <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-4" onClick={() => setOpen(null)}>
+          <img src={open} alt="" className="max-w-full max-h-full rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
+          <button onClick={() => setOpen(null)} className="absolute top-4 right-4 w-10 h-10 bg-white/10 text-white rounded-full grid place-items-center hover:bg-white/25 text-lg">✕</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Verlaufs-Timeline + Original-Rohtext einer Anfrage (unter der ContactCard). */
 function InquiryHistory({ inquiry }: { inquiry: Inquiry }) {
   const log = [...inquiry.notesLog].sort((a, b) => a.at.localeCompare(b.at));
@@ -1952,6 +1988,8 @@ function InquiryHistory({ inquiry }: { inquiry: Inquiry }) {
           </ol>
         </div>
       )}
+
+      <InquiryPhotoGallery inquiry={inquiry} />
 
       {inquiry.rawText && (
         <details className="border border-steel rounded-lg bg-white px-4 py-3">

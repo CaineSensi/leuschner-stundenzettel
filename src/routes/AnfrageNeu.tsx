@@ -10,7 +10,7 @@ import {
   type Customer, type CustomerMatch
 } from "../lib/customers";
 import { sevdeskCreateContact, sevdeskListContacts } from "../lib/sevdesk";
-import { findSimilar, type InquirySource, type Inquiry } from "../lib/inquiries";
+import { findSimilar, uploadInquiryPhoto, updateInquiryPhotos, type InquirySource, type Inquiry } from "../lib/inquiries";
 import { diffCorrections, logCorrections } from "../lib/corrections";
 import { createInquiryBundle, attachSevdeskToCustomer, countCardsForCustomer } from "../lib/pipeline";
 import { enforceValidSession } from "../lib/auth";
@@ -77,6 +77,7 @@ export default function AnfrageNeu() {
   const [step, setStep] = useState<Step>("paste");
   const [source, setSource] = useState<InquirySource>("mail");
   const [rawText, setRawText] = useState("");
+  const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
   const [parsing, setParsing] = useState(false);
   const [parsed, setParsed] = useState<ParsedInquiry | null>(null);
   // M13: Live-Stream-Steps. Map von step.id → latest StreamStep.
@@ -416,6 +417,7 @@ export default function AnfrageNeu() {
     return [
       { key: "anmeldung", label: "Anmeldung prüfen", status: "pending" },
       { key: "bundle",    label: "Anfrage sichern · Kunde, Vorgang, Anfrage & Baustelle", status: "pending" },
+      ...(pendingPhotos.length > 0 ? [{ key: "fotos", label: `${pendingPhotos.length} WhatsApp-Foto${pendingPhotos.length === 1 ? "" : "s"} hochladen`, status: "pending" as const }] : []),
       { key: "sevdesk",   label: willCreateSev ? "sevDesk-Kontakt anlegen"
                                : sevOnly ? "sevDesk-Kontakt vorhanden"
                                : useExisting ? "sevDesk · Bestandskunde"
@@ -514,6 +516,23 @@ export default function AnfrageNeu() {
       });
       setCreatedCardId(bundle.cardId);
       updateStep("bundle", { status: "done", detail: place ? `${customerName} · ${place}` : customerName });
+
+      // 2b) Fotos aus WhatsApp hochladen (falls vorhanden)
+      if (pendingPhotos.length > 0) {
+        updateStep("fotos", { status: "running", detail: `${pendingPhotos.length} Foto${pendingPhotos.length === 1 ? "" : "s"} hochladen …` });
+        try {
+          const uploaded = await Promise.all(
+            pendingPhotos.map((f) => uploadInquiryPhoto(f, bundle.inquiryId))
+          );
+          await updateInquiryPhotos(bundle.inquiryId, uploaded);
+          updateStep("fotos", { status: "done", detail: `${uploaded.length} Foto${uploaded.length === 1 ? "" : "s"} gespeichert` });
+        } catch (fotoErr: any) {
+          updateStep("fotos", {
+            status: "error", detail: String(fotoErr?.message ?? fotoErr),
+            errorHint: "Anfrage ist vollständig gespeichert — nur die Fotos fehlen und können später nachgetragen werden.",
+          });
+        }
+      }
 
       // 3) sevDesk als LETZTER, idempotenter Schritt. Erst live prüfen, ob der
       //    Kontakt schon existiert (kein Doppel!), sonst neu anlegen. Schlägt das
@@ -639,6 +658,73 @@ export default function AnfrageNeu() {
               <p className="font-mono text-[11px] text-ink-2 mt-1.5">
                 {rawText.length} Zeichen · <kbd className="px-1 py-0.5 bg-bg-3 text-[10px] font-mono rounded">Strg+↵</kbd> zum Strukturieren
               </p>
+            </div>
+
+            {/* Fotos aus WhatsApp */}
+            <div>
+              <label className="dd-eyebrow text-ink-2 block mb-1.5">
+                Fotos aus WhatsApp
+                <span className="normal-case tracking-normal font-sans font-normal text-[11px] text-ink-2 ml-2">(optional · werden zur Anfrage gespeichert)</span>
+              </label>
+              <div
+                className="relative border-[1.5px] border-dashed border-steel-line/45 rounded-lg p-4 transition-colors hover:border-copper/60 cursor-pointer"
+                onClick={() => document.getElementById("waphoto-input")?.click()}
+                onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add("border-copper"); }}
+                onDragLeave={(e) => e.currentTarget.classList.remove("border-copper")}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.currentTarget.classList.remove("border-copper");
+                  const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+                  if (files.length) setPendingPhotos((prev) => [...prev, ...files]);
+                }}
+              >
+                <input
+                  id="waphoto-input"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="sr-only"
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []).filter((f) => f.type.startsWith("image/"));
+                    if (files.length) setPendingPhotos((prev) => [...prev, ...files]);
+                    e.target.value = "";
+                  }}
+                />
+                {pendingPhotos.length === 0 ? (
+                  <p className="text-center font-sans text-[12.5px] text-ink-2">
+                    📷 Bilder hier ablegen oder klicken zum Auswählen
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {pendingPhotos.map((f, i) => (
+                      <div key={i} className="relative group">
+                        <img
+                          src={URL.createObjectURL(f)}
+                          alt={f.name}
+                          className="w-20 h-20 object-cover rounded-md border border-steel-line/30"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setPendingPhotos((prev) => prev.filter((_, j) => j !== i)); }}
+                          className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-rust text-white rounded-full text-[11px] leading-none grid place-items-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          aria-label="Foto entfernen"
+                        >✕</button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); document.getElementById("waphoto-input")?.click(); }}
+                      className="w-20 h-20 border-[1.5px] border-dashed border-steel-line/45 rounded-md grid place-items-center text-ink-2 hover:border-copper/60 hover:text-copper transition-colors text-2xl"
+                      aria-label="Weiteres Foto hinzufügen"
+                    >+</button>
+                  </div>
+                )}
+              </div>
+              {pendingPhotos.length > 0 && (
+                <p className="font-mono text-[11px] text-ink-2 mt-1">
+                  {pendingPhotos.length} Foto{pendingPhotos.length === 1 ? "" : "s"} ausgewählt · werden beim Speichern hochgeladen
+                </p>
+              )}
             </div>
 
             {/* Doppel-Anfrage-Warnung */}
