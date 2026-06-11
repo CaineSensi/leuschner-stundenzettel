@@ -4,6 +4,8 @@ import {
   archiveSite, createSite, listAllSites, unarchiveSite, updateSite,
   listAllEntries, listAssignmentsForCompany, listWorkers
 } from "../lib/api";
+import { listCards } from "../lib/pipeline";
+import { listInquiries, type Inquiry } from "../lib/inquiries";
 import { supabase } from "../lib/supabase";
 import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import {
@@ -19,13 +21,15 @@ type SiteRow = Site & { archived?: boolean };
 /** Kanban-Spalten = Aktivitäts-Status, abgeleitet aus echten Daten
  *  (heutige Ist-Stunden + veröffentlichter Wochenplan). Baustellen tragen
  *  selbst KEINEN Status-Wert — deshalb wird hier nicht gezogen/verschoben,
- *  sondern der Status folgt automatisch dem Wochenplan. */
-type ColKey = "heute" | "woche" | "aktiv";
+ *  sondern der Status folgt automatisch dem Wochenplan.
+ *  "anfrage" = eigene Spalte für Baustellen mit verknüpfter offener Anfrage. */
+type ColKey = "anfrage" | "heute" | "woche" | "aktiv";
 
 const COLUMNS: { key: ColKey; label: string; color: string; hint: string }[] = [
-  { key: "heute", label: "Heute vor Ort",        color: "#DC6E2D", hint: "Mitarbeiter heute auf der Baustelle" },
-  { key: "woche", label: "Diese Woche geplant",  color: "#1F7A3D", hint: "im Wochenplan eingetragen" },
-  { key: "aktiv", label: "Aktiv",                color: "#8B9197", hint: "angelegt · derzeit kein Einsatz" },
+  { key: "anfrage", label: "Anfragebaustellen",   color: "#DC6E2D", hint: "aus Anfrage angelegt · Angebot noch offen" },
+  { key: "heute",   label: "Heute vor Ort",        color: "#DC6E2D", hint: "Mitarbeiter heute auf der Baustelle" },
+  { key: "woche",   label: "Diese Woche geplant",  color: "#1F7A3D", hint: "im Wochenplan eingetragen" },
+  { key: "aktiv",   label: "Aktiv",                color: "#8B9197", hint: "angelegt · derzeit kein Einsatz" },
 ];
 
 /** Sortier-Optionen (Favoriten bleiben immer oben gepinnt). */
@@ -71,6 +75,7 @@ export default function Sites() {
   const [sortBy, setSortBy] = useState<SortKey>("az");
   const [editing, setEditing] = useState<SiteRow | null>(null);
   const [creating, setCreating] = useState(false);
+  const [inquiryBySite, setInquiryBySite] = useState<Record<string, Inquiry>>({});
 
   // Verhindert, dass ein langsamer (z. B. tokenloser) Fetch ein neueres,
   // volles Ergebnis überschreibt: nur das Resultat des jüngsten Aufrufs zählt.
@@ -92,17 +97,28 @@ export default function Sites() {
       // Baustellen sind Pflicht; Aktivitäts-Daten sind „nice to have" — fällt
       // eine Quelle aus, landet die Baustelle einfach in „Aktiv" statt das
       // ganze Board zu blockieren.
-      const [data, ents, asgs, wks] = await Promise.all([
+      const [data, ents, asgs, wks, cards, inqs] = await Promise.all([
         withTimeout(listAllSites(true), 8000, "Baustellen"),
         listAllEntries(today, today).catch(() => [] as Entry[]),
         listAssignmentsForCompany(days[0], days[days.length - 1]).catch(() => [] as Assignment[]),
         listWorkers().catch(() => [] as Worker[]),
+        listCards().catch(() => []),
+        listInquiries({ onlyOpen: true }).catch(() => [] as Inquiry[]),
       ]);
       if (seq !== reqSeq.current) return; // ein neuerer Refresh ist unterwegs
       setSites(data);
       setEntries(ents);
       setAssignments(asgs);
       setWorkers(wks);
+      // Anfragen-Map: siteId → Inquiry (über Karte als Zwischenschritt)
+      const cardBySiteId = new Map(cards.filter((c) => c.siteId).map((c) => [c.siteId!, c]));
+      const inqByCardId = new Map(inqs.filter((i) => i.pipelineCardId).map((i) => [i.pipelineCardId!, i]));
+      const ibySite: Record<string, Inquiry> = {};
+      for (const [siteId, card] of cardBySiteId) {
+        const inq = inqByCardId.get(card.id);
+        if (inq) ibySite[siteId] = inq;
+      }
+      setInquiryBySite(ibySite);
     } catch (err: any) {
       if (seq !== reqSeq.current) return;
       setError(err?.message ?? "Fehler beim Laden");
@@ -199,8 +215,13 @@ export default function Sites() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sites, search, showArchived, sortBy]);
 
-  const byCol = (key: ColKey) =>
-    visible.filter((s) => (activityBySite.get(s.id)?.status ?? "aktiv") === key);
+  const byCol = (key: ColKey) => {
+    if (key === "anfrage") return visible.filter((s) => !!inquiryBySite[s.id]);
+    // Anfragebaustellen erscheinen exklusiv in der "anfrage"-Spalte
+    return visible.filter(
+      (s) => !inquiryBySite[s.id] && (activityBySite.get(s.id)?.status ?? "aktiv") === key
+    );
+  };
 
   const activeCount = sites.filter((s) => !s.archived).length;
   const archivedCount = sites.filter((s) => s.archived).length;
@@ -335,20 +356,31 @@ export default function Sites() {
         <div className="flex-1 flex gap-3.5 px-5 lg:px-10 xl:px-14 py-6 overflow-x-auto board-scroll w-full max-w-[2400px] mx-auto">
           {COLUMNS.map((col) => {
             const list = byCol(col.key);
+            const isAnfrageSpalte = col.key === "anfrage";
             return (
               <section
                 key={col.key}
-                className="flex-1 basis-0 min-w-[280px] flex flex-col bg-white/30 rounded-xl border border-steel-line/45"
+                className={`flex-1 basis-0 min-w-[280px] flex flex-col rounded-xl ${
+                  isAnfrageSpalte
+                    ? "bg-copper/5 border-2 border-copper/35"
+                    : "bg-white/30 border border-steel-line/45"
+                }`}
               >
-                <header className="surface-steel rounded-t-[11px] px-3.5 py-3 flex items-center justify-between gap-2">
-                  <div className="font-display font-extrabold uppercase text-[14.5px] tracking-wide text-white flex items-center gap-2.5 whitespace-nowrap">
+                <header className={`rounded-t-[11px] px-3.5 py-3 flex items-center justify-between gap-2 ${
+                  isAnfrageSpalte ? "bg-copper/15" : "surface-steel"
+                }`}>
+                  <div className={`font-display font-extrabold uppercase text-[14.5px] tracking-wide flex items-center gap-2.5 whitespace-nowrap ${
+                    isAnfrageSpalte ? "text-copper-bright" : "text-white"
+                  }`}>
                     <span
                       className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                       style={{ background: col.color, boxShadow: "0 0 0 3px rgba(255,255,255,.10)" }}
                     />
                     {col.label}
                   </div>
-                  <span className="font-mono font-bold text-[12px] bg-white/15 text-white px-2.5 py-0.5 rounded-full min-w-[26px] text-center">
+                  <span className={`font-mono font-bold text-[12px] px-2.5 py-0.5 rounded-full min-w-[26px] text-center ${
+                    isAnfrageSpalte ? "bg-copper text-white" : "bg-white/15 text-white"
+                  }`}>
                     {list.length}
                   </span>
                 </header>
@@ -357,13 +389,18 @@ export default function Sites() {
                 </div>
                 <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 min-h-[140px] board-scroll">
                   {list.length === 0 ? (
-                    <div className="font-sans text-ink-2 text-[12.5px] text-center py-8">keine Baustellen</div>
+                    <div className={`font-sans text-[12.5px] text-center py-8 ${
+                      isAnfrageSpalte ? "text-copper/40 italic" : "text-ink-2"
+                    }`}>
+                      {isAnfrageSpalte ? "keine offenen Anfragen" : "keine Baustellen"}
+                    </div>
                   ) : (
                     list.map((site) => (
                       <BoardCard
                         key={site.id}
                         site={site}
                         activity={activityBySite.get(site.id)}
+                        inquiry={inquiryBySite[site.id] ?? null}
                         color={col.color}
                         onOpen={() => navigate(`/admin/sites/${site.id}`)}
                         onEdit={() => setEditing(site)}
@@ -426,10 +463,11 @@ export default function Sites() {
 
 /** Board-Karte: kompakt, mit heutiger Crew bzw. nächstem geplanten Einsatz. */
 function BoardCard({
-  site, activity, color, onOpen, onEdit, onArchive, onToggleStar
+  site, activity, inquiry, color, onOpen, onEdit, onArchive, onToggleStar
 }: {
   site: SiteRow;
   activity?: Activity;
+  inquiry?: Inquiry | null;
   color: string;
   onOpen: () => void;
   onEdit: () => void;
@@ -444,9 +482,16 @@ function BoardCard({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
-          {site.projectNumber && (
-            <div className="h-mono text-copper text-[11px]">Auftrag {site.projectNumber}</div>
-          )}
+          <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+            {inquiry && (
+              <span className="font-mono font-bold text-[9.5px] tracking-widest uppercase text-white bg-copper px-1.5 py-0.5 rounded">
+                ANFRAGE
+              </span>
+            )}
+            {site.projectNumber && (
+              <span className="h-mono text-copper text-[11px]">Auftrag {site.projectNumber}</span>
+            )}
+          </div>
           <div className="font-display text-[17px] uppercase tracking-tight leading-tight flex items-center gap-1.5">
             {site.starred && <span className="text-copper text-[13px]">★</span>}
             <span className="break-words">{site.name}</span>
