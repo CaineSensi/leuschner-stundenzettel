@@ -60,11 +60,9 @@ export default function LV() {
   const [positions, setPositions] = useState<LvPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /* Desktop: aktive Kategorie der linken Spalte. Mobil: Chip (inkl. "ALLE"). */
-  const [activeCat, setActiveCat] = useState<string>("ERD");
-  const [mobileCat, setMobileCat] = useState<string>("ALLE");
+  /* Kategorie-Filter für Chips (Desktop + Mobil, inkl. "ALLE"). */
+  const [activeCat, setActiveCat] = useState<string>("ALLE");
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [drawerId, setDrawerId] = useState<string | null>(null); // Mobil-Drawer
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -120,19 +118,11 @@ export default function LV() {
     p.id.toLowerCase().includes(q) ||
     (p.shortText ?? "").toLowerCase().includes(q);
 
-  /* Desktop-Liste: aktive Kategorie + Suche. Bei aktiver Suche wird über ALLE
-     Kategorien gesucht (sonst findet man nichts, was woanders liegt). */
-  const listItems = positions.filter((p) => (q !== "" || p.cat === activeCat) && matches(p));
-
-  /* Mobil: Chip-Filter + Suche */
-  const mobileCats = mobileCat === "ALLE" ? [...LV_CAT_ORDER] : [mobileCat];
-  const mobileGrouped = mobileCats
-    .map((cat) => ({ cat, items: positions.filter((p) => p.cat === cat && matches(p)) }))
-    .filter((g) => g.items.length > 0);
+  /* Liste: aktive Kategorie + Suche. "ALLE" zeigt alles, Suche sucht über alles. */
+  const listItems = positions.filter((p) => (q !== "" || activeCat === "ALLE" || p.cat === activeCat) && matches(p));
 
   const errPositions = positions.filter((p) => p.cat === "ERR");
   const activePos = positions.find((p) => p.id === activeId) ?? null;
-  const drawerPos = positions.find((p) => p.id === drawerId) ?? null;
 
   const catCount = (cat: string) =>
     cat === "ALLE" ? positions.length : positions.filter((p) => p.cat === cat).length;
@@ -140,7 +130,7 @@ export default function LV() {
   function switchCat(cat: string) {
     setActiveCat(cat);
     setSearch("");
-    const first = positions.find((p) => p.cat === cat);
+    const first = cat === "ALLE" ? positions[0] : positions.find((p) => p.cat === cat);
     setActiveId(first?.id ?? null);
     setDeleteConfirm(null);
   }
@@ -208,7 +198,6 @@ export default function LV() {
         return next;
       });
       setDeleteConfirm(null);
-      setDrawerId(null);
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "Archivieren fehlgeschlagen.");
     } finally {
@@ -254,15 +243,15 @@ export default function LV() {
             </div>
           </div>
 
-          {/* Mobil: Kategorie-Chips */}
-          <div className="flex lg:hidden gap-1.5 overflow-x-auto board-scroll mt-4 py-0.5 -my-0.5">
+          {/* Kategorie-Chips · Desktop + Mobil */}
+          <div className="flex gap-1.5 overflow-x-auto board-scroll mt-4 py-0.5 -my-0.5">
             {["ALLE", ...LV_CAT_ORDER].map((cat) => {
-              const isActive = mobileCat === cat;
+              const isActive = activeCat === cat;
               const isErr = cat === "ERR";
               return (
                 <button
                   key={cat}
-                  onClick={() => setMobileCat(cat)}
+                  onClick={() => switchCat(cat)}
                   aria-pressed={isActive}
                   aria-label={`Kategorie ${cat === "ALLE" ? "Alle" : LV_CATEGORIES[cat].label}`}
                   className={`flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-display font-extrabold uppercase text-[11.5px] tracking-wide transition-colors !min-h-[36px] ${
@@ -292,57 +281,11 @@ export default function LV() {
         </div>
       )}
 
-      {/* ════════ DESKTOP · 3 Spalten Master-Detail (Variante B) ════════ */}
-      <div className="hidden lg:flex flex-1 min-h-0 w-full">
+      {/* ════════ 2 Spalten Master-Detail ════════ */}
+      <div className="flex flex-1 min-h-0 w-full">
 
-        {/* ── Spalte 1: Kategorien · links angeheftet ── */}
-        <aside className="flex flex-col w-[190px] flex-shrink-0 surface-steel border-r border-white/10 py-4 overflow-y-auto board-scroll">
-          <p className="dd-eyebrow text-steel px-4 mb-3">Kategorien</p>
-          <nav className="flex flex-col gap-0.5 px-2">
-            {LV_CAT_ORDER.map((cat) => {
-              const meta = LV_CATEGORIES[cat];
-              const isErr = cat === "ERR";
-              const isActive = activeCat === cat && q === "";
-              return (
-                <span key={cat} className="contents">
-                  {isErr && <span aria-hidden className="h-px bg-white/10 my-2 mx-2" />}
-                  <button
-                    onClick={() => switchCat(cat)}
-                    aria-label={`Kategorie ${meta.label}`}
-                    aria-pressed={isActive}
-                    title={`${meta.label} (${catCount(cat)} Positionen)${isErr ? " · prozentuale Aufschläge auf den Einheitspreis" : ""}`}
-                    className={`relative flex items-center justify-between gap-2 px-3 py-2.5 rounded-md text-left transition-colors ${
-                      isActive
-                        ? isErr ? "bg-copper/20" : "bg-white/12"
-                        : "hover:bg-white/8"
-                    }`}
-                  >
-                    {isActive && (
-                      <span aria-hidden className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-copper" />
-                    )}
-                    <span className={`font-display font-extrabold uppercase text-[12.5px] tracking-wide leading-none ${
-                      isErr
-                        ? isActive ? "text-copper-bright" : "text-copper/80"
-                        : isActive ? "text-white" : "text-white/60"
-                    }`}>
-                      {meta.label}
-                    </span>
-                    <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-sm leading-none ${
-                      isActive
-                        ? isErr ? "bg-copper/30 text-copper-bright" : "bg-white/15 text-white"
-                        : "bg-white/8 text-white/40"
-                    }`}>
-                      {catCount(cat)}
-                    </span>
-                  </button>
-                </span>
-              );
-            })}
-          </nav>
-        </aside>
-
-        {/* ── Spalte 2: Positions-Liste · dunkel, kompakt ── */}
-        <section className="flex flex-col w-[360px] flex-shrink-0 bg-[#191B1E] border-r border-white/8 min-h-0">
+        {/* ── Spalte 1: Positions-Liste · dunkel, kompakt ── */}
+        <section className="flex flex-col flex-1 min-w-[280px] bg-[#191B1E] border-r border-white/8 min-h-0">
           <div className="px-4 py-2.5 border-b border-white/8 flex items-center justify-between flex-shrink-0">
             <span className="dd-eyebrow text-copper">
               {q !== "" ? "Suchtreffer" : LV_CATEGORIES[activeCat]?.label ?? activeCat}
@@ -394,9 +337,9 @@ export default function LV() {
           </div>
         </section>
 
-        {/* ── Spalte 3: Permanenter Drawer-Panel (hell, Stahl-Kopfband) ── */}
+        {/* ── Spalte 2: Permanenter Drawer-Panel (hell, Stahl-Kopfband) ── */}
         <section
-          className="flex flex-col flex-1 min-w-[340px] min-h-0"
+          className="flex flex-col w-[560px] flex-shrink-0 min-h-0"
           style={{
             background: "linear-gradient(180deg, #EEF0F2, #E2E4E7)",
             borderLeft: "1px solid rgba(0,0,0,.1)",
@@ -427,58 +370,6 @@ export default function LV() {
         </section>
       </div>
 
-      {/* ════════ MOBIL · Karten + echter Drawer ════════ */}
-      <main className="lg:hidden w-full px-5 py-6">
-        {loading ? (
-          <div className="flex items-center justify-center py-20">
-            <span className="font-mono text-[12px] text-white/40 animate-pulse">Lädt …</span>
-          </div>
-        ) : mobileGrouped.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-2">
-            <span className="font-mono text-[12px] text-white/40 uppercase tracking-wider">
-              {search ? "Keine Treffer" : "Noch keine Positionen"}
-            </span>
-          </div>
-        ) : (
-          mobileGrouped.map(({ cat, items }) => (
-            <section key={cat} className="mb-8 last:mb-0">
-              <div className="flex items-baseline gap-2.5 mb-3">
-                <h2 className={`dd-eyebrow ${cat === "ERR" ? "text-copper-bright" : "text-steel"}`}>
-                  {LV_CATEGORIES[cat]?.label ?? cat}
-                </h2>
-                <span className="font-mono text-[10px] text-white/35">{items.length} Pos.</span>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {items.map((p) => (
-                  <PositionCard
-                    key={p.id}
-                    pos={p}
-                    onOpen={() => { setDrawerId(p.id); setDeleteConfirm(null); }}
-                    onEdit={() => { setEditId(p.id); setSaveError(null); }}
-                  />
-                ))}
-              </div>
-            </section>
-          ))
-        )}
-      </main>
-
-      {/* ── Mobil: Detail als echter Drawer ── */}
-      {drawerPos && (
-        <div className="lg:hidden">
-          <MobileDrawer
-            pos={drawerPos}
-            errPositions={errPositions}
-            onClose={() => { setDrawerId(null); setDeleteConfirm(null); }}
-            onEdit={() => { setEditId(drawerPos.id); setSaveError(null); }}
-            deleteConfirm={deleteConfirm}
-            onDelete={() => setDeleteConfirm(drawerPos.id)}
-            onDeleteConfirm={() => handleArchive(drawerPos.id)}
-            onDeleteCancel={() => setDeleteConfirm(null)}
-            saving={saving}
-          />
-        </div>
-      )}
 
       {/* ── Fehler beim Speichern (global) ── */}
       {saveError && !showNew && !editId && (
@@ -701,69 +592,6 @@ function PanelDetail({
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────────
-   Mobil: Positions-Kachel (dd-card) + echter Drawer mit demselben Panel
-   ──────────────────────────────────────────────────────────────────────── */
-function PositionCard({
-  pos,
-  onOpen,
-  onEdit,
-}: {
-  pos: LvPosition;
-  onOpen: () => void;
-  onEdit: () => void;
-}) {
-  return (
-    <div
-      onClick={onOpen}
-      className="dd-card is-click p-4"
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      style={{ ["--c" as any]: pos.cat === "ERR" ? "#DC6E2D" : "#8B9197" }}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <span className="h-mono text-copper text-[11px] font-bold tracking-wider">{pos.id}</span>
-        <span className="h-mono text-ink-2 text-[11px] whitespace-nowrap font-bold">{priceStr(pos)}</span>
-      </div>
-      <div className="font-display text-lg uppercase tracking-tight leading-tight mt-1">
-        {pos.name}
-      </div>
-      {pos.shortText && (
-        <p className="font-sans text-[12.5px] text-ink-2 leading-snug mt-1.5 line-clamp-2">
-          {pos.shortText}
-        </p>
-      )}
-      <div className="flex gap-2 mt-3 pt-3 border-t border-ink/10" onClick={(e) => e.stopPropagation()}>
-        <button onClick={onEdit} className="btn-ghost text-[11px] flex-1">Bearbeiten</button>
-        <button onClick={onOpen} className="btn-ghost text-[11px] flex-1">Details</button>
-      </div>
-    </div>
-  );
-}
-
-function MobileDrawer(props: DetailProps & { onClose: () => void }) {
-  const { onClose, ...detail } = props;
-  return (
-    <>
-      <div className="dd-scrim on" onClick={onClose} />
-      <aside
-        className="dd-drawer on"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Positions-Detail"
-        style={{ width: "min(560px, 100%)" }}
-      >
-        <div className="flex justify-end px-4 pt-3 flex-shrink-0" style={{ background: "linear-gradient(180deg, #2B2E31, #2B2E31)" }}>
-          <button
-            onClick={onClose}
-            aria-label="Schließen"
-            className="bg-white/10 border border-white/20 text-white w-9 h-9 rounded-md grid place-items-center hover:bg-white/20 text-[17px]"
-          >✕</button>
-        </div>
-        <PanelDetail {...detail} />
-      </aside>
-    </>
-  );
-}
 
 /* ────────────────────────────────────────────────────────────────────────
    Positions-Modal (Neu anlegen + Bearbeiten) · helles App-Modal
