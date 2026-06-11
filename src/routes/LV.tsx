@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import BackButton from "../components/BackButton";
 import {
   LV_CATEGORIES,
@@ -11,10 +11,12 @@ import {
 import type { LvPosition, LvPositionInput } from "../lib/types";
 
 /* ────────────────────────────────────────────────────────────────────────
-   Leistungsverzeichnis · App-konformer Flow:
-   Stahl-Header + Kategorie-Chips → dd-card-Kacheln im Grid (wie Baustellen)
-   → Detail im dd-drawer von rechts (wie Angebote). Anlegen/Bearbeiten im
-   hellen Modal (App-Standard). Normale Seiten-Scrollung.
+   Leistungsverzeichnis · Variante B (Mockup-Freigabe Rick 11.06.2026):
+   Desktop = Master-Detail mit drei Spalten — Kategorien links ANGEHEFTET,
+   Positions-Liste dunkel in der Mitte, rechts ein PERMANENTER Drawer-Panel
+   (heller Verlauf EEF0F2→E2E4E7, Stahl-Kopfband mit ID-Badge und
+   Kupfer-Schweißnaht — exakt die Optik des Angebote-Drawers).
+   Mobil (<lg) = bekannter Flow: Kategorie-Chips + Karten + echter Drawer.
    ──────────────────────────────────────────────────────────────────────── */
 
 function priceStr(p: LvPosition): string {
@@ -22,11 +24,6 @@ function priceStr(p: LvPosition): string {
   if (p.price === null) return "–";
   const fmt = p.price % 1 === 0 ? `${p.price}` : p.price.toFixed(2).replace(".", ",");
   return `${fmt} €/${p.unit ?? "?"}`;
-}
-
-/* Akzentfarbe der Karten-Kante (--c der dd-card): Zulagen kupfern, Rest Stahl */
-function catAccent(cat: string): string {
-  return cat === "ERR" ? "#DC6E2D" : "#8B9197";
 }
 
 /* ── Leerer Formular-State ─────────────────────────────────────────────── */
@@ -63,8 +60,11 @@ export default function LV() {
   const [positions, setPositions] = useState<LvPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeCat, setActiveCat] = useState<string>("ALLE");
-  const [drawerId, setDrawerId] = useState<string | null>(null);
+  /* Desktop: aktive Kategorie der linken Spalte. Mobil: Chip (inkl. "ALLE"). */
+  const [activeCat, setActiveCat] = useState<string>("ERD");
+  const [mobileCat, setMobileCat] = useState<string>("ALLE");
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [drawerId, setDrawerId] = useState<string | null>(null); // Mobil-Drawer
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -72,11 +72,39 @@ export default function LV() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
+  /* Desktop-Spalten brauchen eine feste Resthöhe (interne Scrolls). App-Banner
+     (Push/Offline) sitzen im Flow ÜBER der Route — daher eigene Oberkante
+     messen. Auf Mobil (<1024px) normale Seiten-Scrollung → Höhe freigeben. */
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const fit = () => {
+      if (window.innerWidth >= 1024) {
+        el.style.height = `${window.innerHeight - el.getBoundingClientRect().top}px`;
+        el.style.overflow = "hidden";
+      } else {
+        el.style.height = "";
+        el.style.overflow = "";
+      }
+    };
+    fit();
+    window.addEventListener("resize", fit);
+    const ro = new ResizeObserver(fit);
+    ro.observe(document.body);
+    return () => {
+      window.removeEventListener("resize", fit);
+      ro.disconnect();
+    };
+  }, []);
+
   useEffect(() => {
     listLvPositions()
       .then((data) => {
         setPositions(data);
         setLoading(false);
+        const first = data.find((p) => p.cat === "ERD") ?? data[0];
+        if (first) setActiveId(first.id);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -92,20 +120,30 @@ export default function LV() {
     p.id.toLowerCase().includes(q) ||
     (p.shortText ?? "").toLowerCase().includes(q);
 
-  const visibleCats = activeCat === "ALLE" ? [...LV_CAT_ORDER] : [activeCat];
-  const grouped = visibleCats
-    .map((cat) => ({
-      cat,
-      items: positions.filter((p) => p.cat === cat && matches(p)),
-    }))
+  /* Desktop-Liste: aktive Kategorie + Suche. Bei aktiver Suche wird über ALLE
+     Kategorien gesucht (sonst findet man nichts, was woanders liegt). */
+  const listItems = positions.filter((p) => (q !== "" || p.cat === activeCat) && matches(p));
+
+  /* Mobil: Chip-Filter + Suche */
+  const mobileCats = mobileCat === "ALLE" ? [...LV_CAT_ORDER] : [mobileCat];
+  const mobileGrouped = mobileCats
+    .map((cat) => ({ cat, items: positions.filter((p) => p.cat === cat && matches(p)) }))
     .filter((g) => g.items.length > 0);
-  const visibleCount = grouped.reduce((n, g) => n + g.items.length, 0);
 
   const errPositions = positions.filter((p) => p.cat === "ERR");
+  const activePos = positions.find((p) => p.id === activeId) ?? null;
   const drawerPos = positions.find((p) => p.id === drawerId) ?? null;
 
   const catCount = (cat: string) =>
     cat === "ALLE" ? positions.length : positions.filter((p) => p.cat === cat).length;
+
+  function switchCat(cat: string) {
+    setActiveCat(cat);
+    setSearch("");
+    const first = positions.find((p) => p.cat === cat);
+    setActiveId(first?.id ?? null);
+    setDeleteConfirm(null);
+  }
 
   /* Neue Position speichern */
   async function handleCreate(input: LvPositionInput) {
@@ -117,7 +155,8 @@ export default function LV() {
         [...prev, created].sort((a, b) => a.cat.localeCompare(b.cat) || a.id.localeCompare(b.id))
       );
       setShowNew(false);
-      setDrawerId(created.id);
+      setActiveCat(created.cat);
+      setActiveId(created.id);
     } catch (err: unknown) {
       setSaveError(err instanceof Error ? err.message : "Speichern fehlgeschlagen.");
     } finally {
@@ -162,7 +201,12 @@ export default function LV() {
     setSaveError(null);
     try {
       await archiveLvPosition(id);
-      setPositions((prev) => prev.filter((p) => p.id !== id));
+      setPositions((prev) => {
+        const next = prev.filter((p) => p.id !== id);
+        const fallback = next.find((p) => p.cat === activeCat);
+        setActiveId(fallback?.id ?? null);
+        return next;
+      });
       setDeleteConfirm(null);
       setDrawerId(null);
     } catch (err: unknown) {
@@ -173,14 +217,14 @@ export default function LV() {
   }
 
   return (
-    <div className="min-h-screen safe-bottom">
-      {/* ── Stahl-Header · konsistent mit Baustellen/Angebote ── */}
-      <header className="sticky top-0 z-30 surface-steel safe-top">
-        <div className="w-full max-w-[2400px] mx-auto px-5 lg:px-10 xl:px-14 pt-4 pb-4">
+    <div ref={rootRef} className="min-h-screen lg:h-screen flex flex-col">
+      {/* ── Stahl-Header ── */}
+      <header className="sticky top-0 lg:static z-30 surface-steel safe-top flex-shrink-0">
+        <div className="w-full px-5 lg:px-8 pt-4 pb-4">
           <BackButton to="/admin" label="Zur Übersicht" />
           <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3 flex-wrap">
             <div>
-              <span className="dd-eyebrow text-copper-bright block">Stammdaten</span>
+              <span className="dd-eyebrow text-copper-bright block">Stammdaten · Preisliste</span>
               <h1 className="font-display font-black uppercase text-2xl lg:text-3xl text-white leading-none mt-1">
                 Leistungsverzeichnis
               </h1>
@@ -190,86 +234,213 @@ export default function LV() {
                 </p>
               )}
             </div>
-            <button
-              onClick={() => { setShowNew(true); setSaveError(null); }}
-              aria-label="Neue Position anlegen"
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md bg-copper text-white font-display font-extrabold uppercase tracking-wide text-[12px] hover:bg-copper-bright transition-colors !min-h-[44px]"
-            >
-              + Neue Position
-            </button>
+            <div className="flex gap-2.5 items-center flex-wrap">
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Position suchen …"
+                aria-label="Positionen durchsuchen"
+                title="Suche nach ID, Name oder Kurztext — sucht über alle Kategorien"
+                className="w-full lg:w-[260px] bg-white/10 border border-white/20 rounded-md px-3 py-2 text-[13px] font-sans text-white placeholder:text-white/40 focus:outline-none focus:border-copper-bright transition-colors !min-h-[44px]"
+              />
+              <button
+                onClick={() => { setShowNew(true); setSaveError(null); }}
+                aria-label="Neue Position anlegen"
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md bg-copper text-white font-display font-extrabold uppercase tracking-wide text-[12px] hover:bg-copper-bright transition-colors !min-h-[44px]"
+              >
+                + Position
+              </button>
+            </div>
           </div>
 
-          {/* Filter-Zeile: Kategorie-Chips + Suche */}
-          <div className="flex items-center gap-2 mt-4 flex-wrap">
-            <div className="flex gap-1.5 overflow-x-auto board-scroll py-0.5 -my-0.5 flex-1 min-w-0">
-              {["ALLE", ...LV_CAT_ORDER].map((cat) => {
-                const isActive = activeCat === cat;
-                const isErr = cat === "ERR";
-                return (
-                  <button
-                    key={cat}
-                    onClick={() => setActiveCat(cat)}
-                    aria-pressed={isActive}
-                    aria-label={`Kategorie ${cat === "ALLE" ? "Alle" : LV_CATEGORIES[cat].label}`}
-                    className={`flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-display font-extrabold uppercase text-[11.5px] tracking-wide transition-colors !min-h-[36px] ${
-                      isActive
-                        ? isErr
-                          ? "bg-copper text-white"
-                          : "bg-white/20 text-white"
-                        : "bg-white/8 text-white/65 hover:bg-white/15 hover:text-white"
-                    }`}
-                  >
-                    {cat === "ALLE" ? "Alle" : LV_CATEGORIES[cat].label}
-                    <span className={`font-mono text-[10px] leading-none px-1.5 py-0.5 rounded-sm ${
-                      isActive ? "bg-black/20 text-white" : "bg-white/10 text-white/45"
-                    }`}>
-                      {catCount(cat)}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Suche: ID, Name, Kurztext …"
-              aria-label="Positionen durchsuchen"
-              className="w-full lg:w-[280px] flex-shrink-0 bg-white/10 border border-white/20 rounded-md px-3 py-2 text-[13px] font-sans text-white placeholder:text-white/40 focus:outline-none focus:border-copper-bright transition-colors !min-h-[40px]"
-            />
+          {/* Mobil: Kategorie-Chips */}
+          <div className="flex lg:hidden gap-1.5 overflow-x-auto board-scroll mt-4 py-0.5 -my-0.5">
+            {["ALLE", ...LV_CAT_ORDER].map((cat) => {
+              const isActive = mobileCat === cat;
+              const isErr = cat === "ERR";
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setMobileCat(cat)}
+                  aria-pressed={isActive}
+                  aria-label={`Kategorie ${cat === "ALLE" ? "Alle" : LV_CATEGORIES[cat].label}`}
+                  className={`flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md font-display font-extrabold uppercase text-[11.5px] tracking-wide transition-colors !min-h-[36px] ${
+                    isActive
+                      ? isErr ? "bg-copper text-white" : "bg-white/20 text-white"
+                      : "bg-white/8 text-white/65 hover:bg-white/15 hover:text-white"
+                  }`}
+                >
+                  {cat === "ALLE" ? "Alle" : LV_CATEGORIES[cat].label}
+                  <span className={`font-mono text-[10px] leading-none px-1.5 py-0.5 rounded-sm ${
+                    isActive ? "bg-black/20 text-white" : "bg-white/10 text-white/45"
+                  }`}>
+                    {catCount(cat)}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </header>
 
-      {/* ── Inhalt ── */}
-      <main className="w-full max-w-[2400px] mx-auto px-5 lg:px-10 xl:px-14 py-6">
-        {loadError && (
-          <div className="bg-rust/15 border border-rust/40 rounded-xl p-4 mb-5">
-            <div className="dd-eyebrow text-rust">Fehler beim Laden</div>
-            <p className="text-sm text-paper mt-1">{loadError}</p>
-          </div>
-        )}
+      {/* ── Fehler beim Laden ── */}
+      {loadError && (
+        <div className="mx-5 lg:mx-8 mt-4 bg-rust/15 border border-rust/40 rounded-xl p-4 flex-shrink-0">
+          <div className="dd-eyebrow text-rust">Fehler beim Laden</div>
+          <p className="text-sm text-paper mt-1">{loadError}</p>
+        </div>
+      )}
 
+      {/* ════════ DESKTOP · 3 Spalten Master-Detail (Variante B) ════════ */}
+      <div className="hidden lg:flex flex-1 min-h-0 w-full">
+
+        {/* ── Spalte 1: Kategorien · links angeheftet ── */}
+        <aside className="flex flex-col w-[190px] flex-shrink-0 surface-steel border-r border-white/10 py-4 overflow-y-auto board-scroll">
+          <p className="dd-eyebrow text-steel px-4 mb-3">Kategorien</p>
+          <nav className="flex flex-col gap-0.5 px-2">
+            {LV_CAT_ORDER.map((cat) => {
+              const meta = LV_CATEGORIES[cat];
+              const isErr = cat === "ERR";
+              const isActive = activeCat === cat && q === "";
+              return (
+                <span key={cat} className="contents">
+                  {isErr && <span aria-hidden className="h-px bg-white/10 my-2 mx-2" />}
+                  <button
+                    onClick={() => switchCat(cat)}
+                    aria-label={`Kategorie ${meta.label}`}
+                    aria-pressed={isActive}
+                    title={`${meta.label} (${catCount(cat)} Positionen)${isErr ? " · prozentuale Aufschläge auf den Einheitspreis" : ""}`}
+                    className={`relative flex items-center justify-between gap-2 px-3 py-2.5 rounded-md text-left transition-colors ${
+                      isActive
+                        ? isErr ? "bg-copper/20" : "bg-white/12"
+                        : "hover:bg-white/8"
+                    }`}
+                  >
+                    {isActive && (
+                      <span aria-hidden className="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-full bg-copper" />
+                    )}
+                    <span className={`font-display font-extrabold uppercase text-[12.5px] tracking-wide leading-none ${
+                      isErr
+                        ? isActive ? "text-copper-bright" : "text-copper/80"
+                        : isActive ? "text-white" : "text-white/60"
+                    }`}>
+                      {meta.label}
+                    </span>
+                    <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded-sm leading-none ${
+                      isActive
+                        ? isErr ? "bg-copper/30 text-copper-bright" : "bg-white/15 text-white"
+                        : "bg-white/8 text-white/40"
+                    }`}>
+                      {catCount(cat)}
+                    </span>
+                  </button>
+                </span>
+              );
+            })}
+          </nav>
+        </aside>
+
+        {/* ── Spalte 2: Positions-Liste · dunkel, kompakt ── */}
+        <section className="flex flex-col w-[360px] flex-shrink-0 bg-[#191B1E] border-r border-white/8 min-h-0">
+          <div className="px-4 py-2.5 border-b border-white/8 flex items-center justify-between flex-shrink-0">
+            <span className="dd-eyebrow text-copper">
+              {q !== "" ? "Suchtreffer" : LV_CATEGORIES[activeCat]?.label ?? activeCat}
+              <span className="text-white/35 ml-1.5 normal-case tracking-normal">({listItems.length})</span>
+            </span>
+            <span className="dd-eyebrow text-steel !text-[9px]" title="Netto-Einheitspreis">Netto-EP</span>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto board-scroll">
+            {loading ? (
+              <div className="flex items-center justify-center py-12">
+                <span className="font-mono text-[11px] text-white/30 animate-pulse">Lädt …</span>
+              </div>
+            ) : listItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-12 gap-2">
+                <span className="font-mono text-[11px] text-white/30 uppercase tracking-wider">
+                  {q !== "" ? "Keine Treffer" : "Noch keine Positionen"}
+                </span>
+              </div>
+            ) : (
+              listItems.map((p) => {
+                const isActive = p.id === activeId;
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => { setActiveId(p.id); setDeleteConfirm(null); }}
+                    aria-label={`Position ${p.id} anzeigen: ${p.name}`}
+                    aria-pressed={isActive}
+                    title="Klick: Detail im rechten Panel anzeigen"
+                    className={`w-full text-left px-4 py-3 border-b border-white/6 transition-colors flex items-baseline gap-3 ${
+                      isActive ? "bg-white/10 border-l-2 border-l-copper" : "hover:bg-white/5"
+                    }`}
+                  >
+                    <span className="font-mono text-[11px] tracking-wider font-bold text-copper w-[62px] flex-shrink-0">
+                      {p.id}
+                    </span>
+                    <span className="flex-1 font-sans text-[13px] font-semibold text-white/85 leading-snug">
+                      {p.name}
+                      {q !== "" && (
+                        <span className="ml-1.5 font-mono text-[9.5px] text-white/35 uppercase">{p.cat}</span>
+                      )}
+                    </span>
+                    <span className="font-mono text-[11px] text-white/50 whitespace-nowrap flex-shrink-0">
+                      {priceStr(p)}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        {/* ── Spalte 3: Permanenter Drawer-Panel (hell, Stahl-Kopfband) ── */}
+        <section
+          className="flex flex-col flex-1 min-w-[340px] min-h-0"
+          style={{
+            background: "linear-gradient(180deg, #EEF0F2, #E2E4E7)",
+            borderLeft: "1px solid rgba(0,0,0,.1)",
+            boxShadow: "-8px 0 30px -10px rgba(0,0,0,.4)",
+          }}
+        >
+          {activePos ? (
+            <PanelDetail
+              pos={activePos}
+              errPositions={errPositions}
+              onEdit={() => { setEditId(activePos.id); setSaveError(null); }}
+              deleteConfirm={deleteConfirm}
+              onDelete={() => setDeleteConfirm(activePos.id)}
+              onDeleteConfirm={() => handleArchive(activePos.id)}
+              onDeleteCancel={() => setDeleteConfirm(null)}
+              saving={saving}
+            />
+          ) : (
+            <div className="flex flex-col items-center justify-center flex-1 gap-3">
+              <span className="font-display font-black uppercase text-[13px] tracking-wide text-[#9CA3AF]">
+                Position auswählen
+              </span>
+              <p className="font-mono text-[11px] text-[#9CA3AF] text-center max-w-[220px]">
+                Eine Position aus der Liste links anklicken, um Details anzuzeigen.
+              </p>
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* ════════ MOBIL · Karten + echter Drawer ════════ */}
+      <main className="lg:hidden w-full px-5 py-6">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <span className="font-mono text-[12px] text-white/40 animate-pulse">Lädt …</span>
           </div>
-        ) : visibleCount === 0 ? (
+        ) : mobileGrouped.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 gap-2">
             <span className="font-mono text-[12px] text-white/40 uppercase tracking-wider">
               {search ? "Keine Treffer" : "Noch keine Positionen"}
             </span>
-            {!search && (
-              <button
-                onClick={() => { setShowNew(true); setSaveError(null); }}
-                className="dd-eyebrow text-copper-bright hover:underline mt-1"
-              >
-                + Erste Position anlegen
-              </button>
-            )}
           </div>
         ) : (
-          grouped.map(({ cat, items }) => (
+          mobileGrouped.map(({ cat, items }) => (
             <section key={cat} className="mb-8 last:mb-0">
               <div className="flex items-baseline gap-2.5 mb-3">
                 <h2 className={`dd-eyebrow ${cat === "ERR" ? "text-copper-bright" : "text-steel"}`}>
@@ -277,7 +448,7 @@ export default function LV() {
                 </h2>
                 <span className="font-mono text-[10px] text-white/35">{items.length} Pos.</span>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 3xl:grid-cols-6 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {items.map((p) => (
                   <PositionCard
                     key={p.id}
@@ -292,19 +463,21 @@ export default function LV() {
         )}
       </main>
 
-      {/* ── Detail-Drawer (wie Angebote/Anfragen) ── */}
+      {/* ── Mobil: Detail als echter Drawer ── */}
       {drawerPos && (
-        <PositionDrawer
-          pos={drawerPos}
-          errPositions={errPositions}
-          onClose={() => { setDrawerId(null); setDeleteConfirm(null); }}
-          onEdit={() => { setEditId(drawerPos.id); setSaveError(null); }}
-          deleteConfirm={deleteConfirm}
-          onDelete={() => setDeleteConfirm(drawerPos.id)}
-          onDeleteConfirm={() => handleArchive(drawerPos.id)}
-          onDeleteCancel={() => setDeleteConfirm(null)}
-          saving={saving}
-        />
+        <div className="lg:hidden">
+          <MobileDrawer
+            pos={drawerPos}
+            errPositions={errPositions}
+            onClose={() => { setDrawerId(null); setDeleteConfirm(null); }}
+            onEdit={() => { setEditId(drawerPos.id); setSaveError(null); }}
+            deleteConfirm={deleteConfirm}
+            onDelete={() => setDeleteConfirm(drawerPos.id)}
+            onDeleteConfirm={() => handleArchive(drawerPos.id)}
+            onDeleteCancel={() => setDeleteConfirm(null)}
+            saving={saving}
+          />
+        </div>
       )}
 
       {/* ── Fehler beim Speichern (global) ── */}
@@ -348,7 +521,188 @@ export default function LV() {
 }
 
 /* ────────────────────────────────────────────────────────────────────────
-   Positions-Kachel · dd-card wie im Baustellen-Grid
+   Panel-Detail · Inhalt des permanenten Drawer-Panels (Desktop) —
+   Stahl-Kopfband mit Kupfer-Schweißnaht + heller Body (Mockup Variante B)
+   ──────────────────────────────────────────────────────────────────────── */
+interface DetailProps {
+  pos: LvPosition;
+  errPositions: LvPosition[];
+  onEdit: () => void;
+  deleteConfirm: string | null;
+  onDelete: () => void;
+  onDeleteConfirm: () => void;
+  onDeleteCancel: () => void;
+  saving: boolean;
+}
+
+function PanelDetail({
+  pos,
+  errPositions,
+  onEdit,
+  deleteConfirm,
+  onDelete,
+  onDeleteConfirm,
+  onDeleteCancel,
+  saving,
+}: DetailProps) {
+  const isErr = pos.cat === "ERR";
+  const meta = LV_CATEGORIES[pos.cat];
+  const zulagen = pos.zulagen
+    .map((id) => errPositions.find((e) => e.id === id))
+    .filter((e): e is LvPosition => Boolean(e));
+
+  return (
+    <>
+      {/* Stahl-Kopfband · Kupfer-Schweißnaht unten (wie Angebote-Drawer) */}
+      <div
+        className="flex items-center gap-3 px-5 py-3.5 flex-shrink-0"
+        style={{
+          background: "linear-gradient(180deg, #2B2E31, #1A1C1E)",
+          boxShadow: "inset 0 -2px 0 #DC6E2D",
+        }}
+      >
+        <span
+          className="font-mono text-[11px] font-bold tracking-wider px-2.5 py-1 rounded-[5px] whitespace-nowrap flex-shrink-0"
+          style={{
+            background: "rgba(220,110,45,.22)",
+            color: "#E8853F",
+            border: "1px solid rgba(220,110,45,.35)",
+          }}
+          title="Positions-ID aus dem Leistungsverzeichnis"
+        >
+          {pos.id}
+        </span>
+        <span className="font-display font-black uppercase text-[15px] text-white leading-tight">
+          {pos.name}
+        </span>
+      </div>
+
+      {/* Heller Body */}
+      <div className="flex-1 min-h-0 overflow-y-auto board-scroll px-5 py-5">
+        {/* Preis groß */}
+        <div className="mb-4">
+          <div className="font-mono text-[10px] tracking-[.14em] uppercase text-ink-mute mb-1" title={isErr ? "Aufschlag auf den Einheitspreis der Grundposition" : "Netto-Einheitspreis — Basis für die Angebotszeile"}>
+            {isErr ? "Aufschlag" : "Einheitspreis (netto)"}
+          </div>
+          <div className="font-mono font-bold text-[26px] text-copper leading-none">
+            {isErr ? (pos.surcharge ?? "–") : (
+              <>
+                {pos.price === null ? "–" : (pos.price % 1 === 0 ? pos.price : pos.price.toFixed(2).replace(".", ","))}
+                {pos.price !== null && (
+                  <span className="text-[15px] text-ink-2 font-normal"> €/{pos.unit ?? "?"}</span>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Mini-Zellen: Kategorie + Einheit/Genutzt */}
+        <div className="grid grid-cols-2 gap-2.5 mb-4">
+          <div className="bg-black/5 rounded-md px-3 py-2">
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase text-ink-mute mb-0.5">Kategorie</div>
+            <div className={`font-bold text-[14px] ${isErr ? "text-copper" : "text-ink"}`}>{meta?.label ?? pos.cat}</div>
+          </div>
+          <div className="bg-black/5 rounded-md px-3 py-2">
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase text-ink-mute mb-0.5" title="Wie oft wurde diese Position in Angeboten eingesetzt">
+              {pos.usedCount > 0 ? "Genutzt" : "Einheit"}
+            </div>
+            <div className="font-bold text-[14px] text-ink">
+              {pos.usedCount > 0 ? `${pos.usedCount}×` : (isErr ? "—" : (pos.unit ?? "–"))}
+            </div>
+          </div>
+        </div>
+
+        {/* Kurztext */}
+        {pos.shortText && (
+          <div className="mb-4">
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase text-ink-mute mb-1" title="Kurztext: erscheint als Angebotszeile im PDF">
+              Kurztext (Angebot)
+            </div>
+            <p className="font-sans text-[13.5px] text-ink-body leading-relaxed">{pos.shortText}</p>
+          </div>
+        )}
+
+        {/* Zulagen-Block (Kupfer) — nur zugewiesene */}
+        {!isErr && zulagen.length > 0 && (
+          <div
+            className="rounded-md px-3.5 py-2.5 mb-4"
+            style={{ background: "#FDECD8", border: "1px solid #E8A97A", borderLeft: "3px solid #DC6E2D" }}
+          >
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase mb-1.5" style={{ color: "#7A3510" }} title="Diese Aufschläge können zusätzlich ausgewiesen werden, wenn die Bedingung auf der Baustelle zutrifft">
+              Erschwernis-Zulagen ({zulagen.length})
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {zulagen.map((z) => (
+                <span
+                  key={z.id}
+                  className="font-mono text-[11px] font-bold px-2 py-1 rounded-[5px] cursor-help"
+                  style={{ background: "#FFF", border: "1px solid #E8A97A", color: "#7A3510" }}
+                  title={`${z.id}: ${z.name}. Aufschlag ${z.surcharge ?? "–"}${z.longText ? ` — ${z.longText}` : ""}`}
+                >
+                  {z.id} {z.surcharge ?? ""}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Langtext (VOB) */}
+        {pos.longText && (
+          <div className="mb-5">
+            <div className="font-mono text-[10px] tracking-[.14em] uppercase text-ink-mute mb-1" title="Vollständiger Positionstext nach VOB für Leistungsverzeichnis und Angebots-PDF">
+              Positionstext (VOB)
+            </div>
+            <p className="font-sans text-[12.5px] text-ink-body leading-[1.6] whitespace-pre-line">
+              {pos.longText}
+            </p>
+          </div>
+        )}
+
+        {/* Aktionen */}
+        <div className="flex items-center gap-2.5 flex-wrap pt-3.5 border-t border-steel-line/40">
+          <button
+            onClick={onEdit}
+            aria-label={`Position ${pos.id} bearbeiten`}
+            className="btn-primary !min-h-[44px] !px-5 text-[12px]"
+          >
+            Bearbeiten
+          </button>
+          {deleteConfirm === pos.id ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-sans text-[13px] text-rust font-semibold">Wirklich archivieren?</span>
+              <button
+                onClick={onDeleteConfirm}
+                disabled={saving}
+                aria-label="Archivierung bestätigen"
+                className="inline-flex items-center px-3.5 py-2 rounded-md bg-rust text-white font-display font-extrabold uppercase tracking-wide text-[11px] hover:bg-red-700 transition-colors !min-h-[44px] disabled:opacity-50"
+              >
+                {saving ? "Archiviere …" : "Ja, archivieren"}
+              </button>
+              <button
+                onClick={onDeleteCancel}
+                aria-label="Archivierung abbrechen"
+                className="btn-ghost !min-h-[44px] !px-4 text-[11px]"
+              >
+                Abbrechen
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={onDelete}
+              aria-label={`Position ${pos.id} archivieren`}
+              className="inline-flex items-center px-4 py-2 rounded-md bg-[#FEF2F2] text-rust border border-[#FECACA] font-display font-extrabold uppercase tracking-wide text-[12px] hover:bg-[#FECACA] transition-colors !min-h-[44px]"
+            >
+              Archivieren
+            </button>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Mobil: Positions-Kachel (dd-card) + echter Drawer mit demselben Panel
    ──────────────────────────────────────────────────────────────────────── */
 function PositionCard({
   pos,
@@ -364,7 +718,7 @@ function PositionCard({
       onClick={onOpen}
       className="dd-card is-click p-4"
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      style={{ ["--c" as any]: catAccent(pos.cat) }}
+      style={{ ["--c" as any]: pos.cat === "ERR" ? "#DC6E2D" : "#8B9197" }}
     >
       <div className="flex items-start justify-between gap-3">
         <span className="h-mono text-copper text-[11px] font-bold tracking-wider">{pos.id}</span>
@@ -378,18 +732,6 @@ function PositionCard({
           {pos.shortText}
         </p>
       )}
-      {(pos.zulagen.length > 0 || pos.usedCount > 0) && (
-        <div className="flex gap-1.5 mt-2.5 flex-wrap">
-          {pos.zulagen.length > 0 && (
-            <span className="dd-chip !text-[11px]">
-              {pos.zulagen.length} Zulage{pos.zulagen.length !== 1 ? "n" : ""}
-            </span>
-          )}
-          {pos.usedCount > 0 && (
-            <span className="dd-chip !text-[11px]">Genutzt {pos.usedCount}×</span>
-          )}
-        </div>
-      )}
       <div className="flex gap-2 mt-3 pt-3 border-t border-ink/10" onClick={(e) => e.stopPropagation()}>
         <button onClick={onEdit} className="btn-ghost text-[11px] flex-1">Bearbeiten</button>
         <button onClick={onOpen} className="btn-ghost text-[11px] flex-1">Details</button>
@@ -398,36 +740,8 @@ function PositionCard({
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────────
-   Detail-Drawer · dd-drawer von rechts wie im Angebote-Board
-   ──────────────────────────────────────────────────────────────────────── */
-interface PositionDrawerProps {
-  pos: LvPosition;
-  errPositions: LvPosition[];
-  onClose: () => void;
-  onEdit: () => void;
-  deleteConfirm: string | null;
-  onDelete: () => void;
-  onDeleteConfirm: () => void;
-  onDeleteCancel: () => void;
-  saving: boolean;
-}
-
-function PositionDrawer({
-  pos,
-  errPositions,
-  onClose,
-  onEdit,
-  deleteConfirm,
-  onDelete,
-  onDeleteConfirm,
-  onDeleteCancel,
-  saving,
-}: PositionDrawerProps) {
-  const isErr = pos.cat === "ERR";
-  const meta = LV_CATEGORIES[pos.cat];
-  const [tooltipId, setTooltipId] = useState<string | null>(null);
-
+function MobileDrawer(props: DetailProps & { onClose: () => void }) {
+  const { onClose, ...detail } = props;
   return (
     <>
       <div className="dd-scrim on" onClick={onClose} />
@@ -436,176 +750,23 @@ function PositionDrawer({
         role="dialog"
         aria-modal="true"
         aria-label="Positions-Detail"
-        style={{ width: "min(720px, 100%)" }}
+        style={{ width: "min(560px, 100%)" }}
       >
-        {/* Stahl-Kopf */}
-        <div className="surface-steel px-5 lg:px-6 pt-5 pb-4 flex-shrink-0">
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-mono font-bold text-[13px] bg-white/15 text-white px-2.5 py-1 rounded-md tracking-wider">
-              {pos.id}
-            </span>
-            <button
-              onClick={onClose}
-              aria-label="Schließen"
-              className="bg-white/10 border border-white/20 text-white w-9 h-9 rounded-md grid place-items-center hover:bg-white/20 text-[17px]"
-            >✕</button>
-          </div>
-          <div className="font-display font-black uppercase text-[24px] lg:text-[28px] text-white mt-3 leading-tight">
-            {pos.name}
-          </div>
-          <div className="flex flex-wrap gap-x-6 gap-y-1 mt-3">
-            <div className="font-sans text-[13px] text-steel">
-              Kategorie <b className={isErr ? "text-copper-bright" : "text-white"}>{meta?.label ?? pos.cat}</b>
-            </div>
-            <div className="font-sans text-[13px] text-steel">
-              {isErr ? "Aufschlag" : "Festpreis"} <b className="text-white">{priceStr(pos)}</b>
-            </div>
-            {pos.usedCount > 0 && (
-              <div className="font-sans text-[13px] text-steel">
-                Genutzt <b className="text-white">{pos.usedCount}×</b>
-              </div>
-            )}
-          </div>
+        <div className="flex justify-end px-4 pt-3 flex-shrink-0" style={{ background: "linear-gradient(180deg, #2B2E31, #2B2E31)" }}>
+          <button
+            onClick={onClose}
+            aria-label="Schließen"
+            className="bg-white/10 border border-white/20 text-white w-9 h-9 rounded-md grid place-items-center hover:bg-white/20 text-[17px]"
+          >✕</button>
         </div>
-
-        {/* Heller Body */}
-        <div className="flex-1 overflow-y-auto px-5 lg:px-8 py-6 board-scroll">
-          {pos.shortText && (
-            <div className="mb-5">
-              <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2">
-                Kurztext
-              </div>
-              <p className="font-sans text-[14.5px] text-ink-body leading-relaxed">{pos.shortText}</p>
-            </div>
-          )}
-
-          {pos.longText && (
-            <div className="mb-5">
-              <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2">
-                Langtext (VOB)
-              </div>
-              <p className="font-sans text-[13.5px] text-ink-body leading-relaxed whitespace-pre-line">
-                {pos.longText}
-              </p>
-            </div>
-          )}
-
-          {/* Zulagen-Tabelle (nur Arbeits-Positionen) */}
-          {!isErr && errPositions.length > 0 && (
-            <div className="mb-6">
-              <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
-                Erschwernis-Zulagen ({errPositions.length})
-              </div>
-              {/* overflow-visible, damit der Zeilen-Tooltip nicht geclippt wird;
-                  Rundung an erster/letzter Zeile */}
-              <div className="border border-steel-line/50 rounded-lg relative bg-white">
-                {errPositions.map((err) => {
-                  const isChecked = pos.zulagen.includes(err.id);
-                  const isTooltipVisible = tooltipId === err.id;
-                  return (
-                    <div
-                      key={err.id}
-                      className={`relative flex items-center gap-3 px-4 py-2.5 border-b border-[#F0F1F2] last:border-0 first:rounded-t-lg last:rounded-b-lg transition-colors ${
-                        isChecked ? "bg-[#FFF8F3]" : "bg-white"
-                      }`}
-                      onMouseEnter={() => setTooltipId(err.id)}
-                      onMouseLeave={() => setTooltipId(null)}
-                    >
-                      {/* Checkbox (optisch, Zuweisung wird im Bearbeiten-Modal geändert) */}
-                      <span
-                        aria-hidden
-                        className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center ${
-                          isChecked ? "bg-copper border-copper" : "bg-white border-[#D1D5DB]"
-                        }`}
-                      >
-                        {isChecked && (
-                          <svg viewBox="0 0 12 12" className="w-2.5 h-2.5">
-                            <path d="M2 6l3 3 5-5" stroke="white" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
-                      </span>
-                      <span className="font-mono text-[11px] tracking-wider text-copper w-[68px] flex-shrink-0 font-bold">
-                        {err.id}
-                      </span>
-                      <span className="flex-1 font-sans text-[13px] text-ink-body leading-snug">
-                        {err.name}
-                      </span>
-                      <span className="font-mono text-[11px] font-bold text-ink-2 whitespace-nowrap">
-                        {err.surcharge ?? "–"}
-                      </span>
-
-                      {/* Tooltip — an der Zeile verankert, klappt darunter auf */}
-                      {isTooltipVisible && err.longText && (
-                        <div
-                          role="tooltip"
-                          className="absolute right-2 top-full -mt-1 z-30 w-72 max-w-[calc(100%-16px)] p-3.5 rounded-lg shadow-2xl text-left pointer-events-none"
-                          style={{
-                            background: "#1A1C1F",
-                            border: "1px solid rgba(220,110,45,0.4)",
-                          }}
-                        >
-                          <div className="font-mono text-[10px] tracking-wider text-copper-bright mb-1.5 uppercase">{err.id}</div>
-                          <div className="font-sans font-bold text-[12.5px] text-white mb-1.5 leading-snug">{err.name}</div>
-                          <p className="font-sans text-[11.5px] text-[#C9CCCF] leading-relaxed">{err.longText}</p>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Aktionen */}
-          <div className="flex items-center gap-3 flex-wrap pt-4 border-t border-steel-line/40">
-            <button
-              onClick={onEdit}
-              aria-label={`Position ${pos.id} bearbeiten`}
-              className="btn-primary !min-h-[48px] !px-5 text-[12px]"
-            >
-              Bearbeiten
-            </button>
-
-            {deleteConfirm === pos.id ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-sans text-[13px] text-rust font-semibold">
-                  Wirklich archivieren?
-                </span>
-                <button
-                  onClick={onDeleteConfirm}
-                  disabled={saving}
-                  aria-label="Archivierung bestätigen"
-                  className="inline-flex items-center px-4 py-2.5 rounded-md bg-rust text-white font-display font-extrabold uppercase tracking-wide text-[11px] hover:bg-red-700 transition-colors !min-h-[48px] disabled:opacity-50"
-                >
-                  {saving ? "Archiviere …" : "Ja, archivieren"}
-                </button>
-                <button
-                  onClick={onDeleteCancel}
-                  aria-label="Archivierung abbrechen"
-                  className="btn-ghost !min-h-[48px] !px-4 text-[11px]"
-                >
-                  Abbrechen
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={onDelete}
-                aria-label={`Position ${pos.id} archivieren`}
-                className="inline-flex items-center px-4 py-2.5 rounded-md bg-[#FEF2F2] text-rust border border-[#FECACA] font-display font-extrabold uppercase tracking-wide text-[12px] hover:bg-[#FECACA] transition-colors !min-h-[48px]"
-              >
-                Archivieren
-              </button>
-            )}
-          </div>
-        </div>
+        <PanelDetail {...detail} />
       </aside>
     </>
   );
 }
 
 /* ────────────────────────────────────────────────────────────────────────
-   Positions-Modal (Neu anlegen + Bearbeiten) · helles App-Modal wie im
-   Angebote-Board (bg-bg-2, dunkle Schrift, weiße Inputs)
+   Positions-Modal (Neu anlegen + Bearbeiten) · helles App-Modal
    ──────────────────────────────────────────────────────────────────────── */
 interface PositionModalProps {
   title: string;
