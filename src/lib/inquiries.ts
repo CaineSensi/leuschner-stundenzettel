@@ -22,6 +22,8 @@ export interface InquiryPhoto {
   width?: number;
   height?: number;
   size?: number;
+  type?: 'image' | 'video';   // fehlt = image (Rückwärtskompatibilität)
+  at?: string;                 // ISO-Datum aus Dateiname/EXIF
 }
 
 export interface Inquiry {
@@ -287,6 +289,27 @@ export async function uploadInquiryPhoto(file: File, inquiryId: string): Promise
   });
   if (error) throw error;
   return { path, mime: compressed.blob.type, name: file.name, width: compressed.width, height: compressed.height, size: compressed.blob.size };
+}
+
+/** Lädt ein Video direkt (ohne Komprimierung) in den entry-photos Bucket hoch. */
+export async function uploadInquiryVideo(file: File, inquiryId: string): Promise<InquiryPhoto> {
+  if (!isBackendConnected() || !supabase) throw new Error("Backend nicht verbunden");
+  const ext = file.name.split(".").pop()?.toLowerCase() ?? "mp4";
+  const uid = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const path = `${COMPANY_ID}/inquiries/${inquiryId}/vid-${uid}.${ext}`;
+  const sb: any = supabase;
+  const { error } = await sb.storage.from("entry-photos").upload(path, file, {
+    contentType: file.type || "video/mp4",
+    upsert: false,
+  });
+  if (error) throw error;
+  const at = (() => {
+    const m = file.name.match(/[-_](\d{8})[-_]/);
+    if (!m) return undefined;
+    const s = m[1];
+    return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`;
+  })();
+  return { path, mime: file.type || "video/mp4", name: file.name, size: file.size, type: "video", at };
 }
 
 /** Aktualisiert das photos-Array einer Anfrage. */

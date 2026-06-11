@@ -13,8 +13,9 @@ import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContac
 import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
-import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, uploadInquiryPhoto, updateInquiryPhotos, SOURCE_ICON, SOURCE_LABEL, type Inquiry, type InquiryPhoto } from "../lib/inquiries";
+import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, uploadInquiryPhoto, uploadInquiryVideo, updateInquiryPhotos, updateInquiry, SOURCE_ICON, SOURCE_LABEL, type Inquiry, type InquiryPhoto } from "../lib/inquiries";
 import { uploadSitePhoto, getCurrentCompanyId } from "../lib/photos";
+import { extractZipMedia, parseWhatsAppText, whatsAppSummary } from "../lib/zipImport";
 
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
@@ -1996,6 +1997,14 @@ function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry |
 /** Foto-Galerie für WhatsApp-Fotos — mit nachträglichem Upload.
  *  Wenn siteId angegeben ist, wird jedes Foto ZUSÄTZLICH als Site-direkt-Foto
  *  in entry_photos abgelegt, damit es in der Baustellenkarte unter "Fotos" erscheint. */
+// ── ZIP-Import-Status ─────────────────────────────────────────────────────────
+interface ZipProgress {
+  phase: 'extracting' | 'uploading' | 'done' | 'error';
+  message: string;
+  current: number;
+  total: number;
+}
+
 function InquiryPhotoGallery({
   inquiry,
   siteId,
@@ -2006,10 +2015,11 @@ function InquiryPhotoGallery({
   onPhotosUpdated?: (photos: InquiryPhoto[]) => void;
 }) {
   const [urls, setUrls] = useState<(string | null)[]>([]);
-  const [open, setOpen] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ url: string; type: 'image' | 'video' } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [zipProgress, setZipProgress] = useState<ZipProgress | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -2017,51 +2027,177 @@ function InquiryPhotoGallery({
     Promise.all(inquiry.photos.map((p) => inquiryPhotoUrl(p.path))).then(setUrls);
   }, [inquiry.id, inquiry.photos?.length]);
 
+  // ── Einzelne Bilder / Videos hochladen ────────────────────────────────────
+  async function uploadMediaFiles(images: File[], videos: File[], chatRawText?: string) {
+    const newPhotos: InquiryPhoto[] = [];
+    const total = images.length + videos.length;
+    let done = 0;
+
+    const tick = (name: string) => {
+      done++;
+      setZipProgress((p) => p ? { ...p, current: done, message: `${name} hochgeladen …` } : null);
+    };
+
+    // Bilder
+    for (const f of images) {
+      const photo = await uploadInquiryPhoto(f, inquiry.id);
+      newPhotos.push({ ...photo, type: 'image' });
+      tick(f.name);
+    }
+
+    // Videos
+    for (const f of videos) {
+      const photo = await uploadInquiryVideo(f, inquiry.id);
+      newPhotos.push(photo);
+      tick(f.name);
+    }
+
+    const merged = [...(inquiry.photos ?? []), ...newPhotos];
+    await updateInquiryPhotos(inquiry.id, merged);
+
+    // WhatsApp-Chat-Text in rawText speichern
+    if (chatRawText) {
+      await updateInquiry(inquiry.id, { rawText: chatRawText });
+    }
+
+    onPhotosUpdated?.(merged);
+
+    // Wenn Baustelle verknüpft: Bilder parallel als Site-Foto ablegen
+    if (siteId && images.length > 0) {
+      const me = currentUser();
+      const companyId = me?.companyId ?? await getCurrentCompanyId();
+      if (me && companyId) {
+        await Promise.allSettled(
+          images.map((f) => uploadSitePhoto({ file: f, siteId, workerId: me.id, companyId }))
+        );
+      }
+    }
+
+    return { images: images.length, videos: videos.length, total };
+  }
+
+  // ── ZIP-Datei verarbeiten ─────────────────────────────────────────────────
+  async function handleZip(file: File) {
+    setZipProgress({ phase: 'extracting', message: 'ZIP wird entpackt …', current: 0, total: 0 });
+    try {
+      const result = await extractZipMedia(file);
+
+      const total = result.images.length + result.videos.length;
+      if (total === 0) {
+        setZipProgress({ phase: 'error', message: 'Keine Bilder oder Videos im ZIP gefunden.', current: 0, total: 0 });
+        setTimeout(() => setZipProgress(null), 4000);
+        return;
+      }
+
+      const label = [
+        result.images.length > 0 ? `${result.images.length} Bild${result.images.length !== 1 ? "er" : ""}` : null,
+        result.videos.length > 0 ? `${result.videos.length} Video${result.videos.length !== 1 ? "s" : ""}` : null,
+        result.whatsApp ? "· WhatsApp-Export erkannt" : null,
+      ].filter(Boolean).join(" ");
+
+      setZipProgress({ phase: 'uploading', message: `${label} werden hochgeladen …`, current: 0, total });
+
+      // WhatsApp-Chat-Text aufbereiten
+      let chatRawText: string | undefined;
+      if (result.chatText) {
+        const meta = parseWhatsAppText(result.chatText);
+        chatRawText = whatsAppSummary(meta, result.chatText);
+      }
+
+      await uploadMediaFiles(result.images, result.videos, chatRawText);
+
+      const doneLabel = [
+        result.images.length > 0 ? `${result.images.length} Bild${result.images.length !== 1 ? "er" : ""}` : null,
+        result.videos.length > 0 ? `${result.videos.length} Video${result.videos.length !== 1 ? "s" : ""}` : null,
+        result.whatsApp ? "· Chat gespeichert" : null,
+        result.stats.skipped > 0 ? `· ${result.stats.skipped} übersprungen` : null,
+      ].filter(Boolean).join(" ");
+
+      setZipProgress({ phase: 'done', message: `✓ ${doneLabel}`, current: total, total });
+      setTimeout(() => setZipProgress(null), 3500);
+    } catch (e: any) {
+      setZipProgress({ phase: 'error', message: e?.message ?? "ZIP-Import fehlgeschlagen", current: 0, total: 0 });
+      setTimeout(() => setZipProgress(null), 5000);
+    }
+  }
+
+  // ── Datei-Drop / Auswahl ──────────────────────────────────────────────────
   async function handleFiles(files: FileList | File[]) {
-    const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
-    if (!list.length) return;
+    const list = Array.from(files);
+    const zips = list.filter((f) => f.name.toLowerCase().endsWith(".zip") || f.type === "application/zip" || f.type === "application/x-zip-compressed");
+    const images = list.filter((f) => f.type.startsWith("image/"));
+    const videos = list.filter((f) => f.type.startsWith("video/"));
+
+    if (zips.length > 0) {
+      // ZIP hat Vorrang (eins nach dem anderen verarbeiten)
+      for (const zip of zips) await handleZip(zip);
+      return;
+    }
+
+    if (images.length === 0 && videos.length === 0) return;
+
     setUploading(true); setUploadErr(null);
     try {
-      // 1) Anfrage-Fotos hochladen (JSONB in inquiries.photos)
-      const uploaded = await Promise.all(list.map((f) => uploadInquiryPhoto(f, inquiry.id)));
-      const merged = [...(inquiry.photos ?? []), ...uploaded];
-      await updateInquiryPhotos(inquiry.id, merged);
-      onPhotosUpdated?.(merged);
-
-      // 2) Wenn Baustelle verknüpft: parallel als Site-Foto ablegen
-      if (siteId) {
-        const me = currentUser();
-        const companyId = me?.companyId ?? await getCurrentCompanyId();
-        if (me && companyId) {
-          await Promise.allSettled(
-            list.map((f) =>
-              uploadSitePhoto({ file: f, siteId, workerId: me.id, companyId })
-            )
-          );
-        }
-      }
+      await uploadMediaFiles(images, videos);
     } catch (e: any) {
       setUploadErr(e?.message ?? "Upload fehlgeschlagen");
     } finally { setUploading(false); }
   }
 
-  const hasPhotos = (inquiry.photos?.length ?? 0) > 0;
+  const mediaCount = inquiry.photos?.length ?? 0;
+  const hasMedia = mediaCount > 0;
+  const imgCount = inquiry.photos?.filter((p) => !p.type || p.type === "image").length ?? 0;
+  const vidCount = inquiry.photos?.filter((p) => p.type === "video").length ?? 0;
 
   return (
     <div className="border border-steel rounded-lg bg-white px-4 py-3 space-y-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="dd-eyebrow text-ink-mute">
-          📷 WhatsApp-Fotos{hasPhotos ? ` · ${inquiry.photos.length} Bild${inquiry.photos.length === 1 ? "" : "er"}` : ""}
+          📷 Medien
+          {hasMedia && (
+            <span className="ml-1.5 font-mono text-[10px] text-ink-mute normal-case tracking-normal">
+              {imgCount > 0 ? `${imgCount} Bild${imgCount !== 1 ? "er" : ""}` : ""}
+              {imgCount > 0 && vidCount > 0 ? " · " : ""}
+              {vidCount > 0 ? `${vidCount} Video${vidCount !== 1 ? "s" : ""}` : ""}
+            </span>
+          )}
         </div>
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
-          disabled={uploading}
+          disabled={uploading || !!zipProgress}
           className="font-mono text-[10.5px] uppercase tracking-wider bg-bg-2 hover:bg-steel-line border border-steel-line/40 text-ink-2 px-2.5 py-1 rounded transition-colors disabled:opacity-50"
         >
-          {uploading ? "lädt …" : "+ Foto"}
+          {uploading ? "lädt …" : "+ Medien / ZIP"}
         </button>
       </div>
+
+      {/* ZIP-Fortschritt */}
+      {zipProgress && (
+        <div className={`rounded-lg px-3 py-2.5 text-[12px] font-sans flex items-center gap-2.5 ${
+          zipProgress.phase === 'error' ? "bg-rust/8 border border-rust/30 text-rust" :
+          zipProgress.phase === 'done' ? "bg-moss/8 border border-moss/30 text-good" :
+          "bg-copper/8 border border-copper/30 text-copper"
+        }`}>
+          {zipProgress.phase === 'extracting' && <span className="animate-spin text-[14px]">⟳</span>}
+          {zipProgress.phase === 'uploading' && (
+            <span className="font-mono text-[10px] shrink-0">
+              {zipProgress.current}/{zipProgress.total}
+            </span>
+          )}
+          {zipProgress.phase === 'done' && <span>✓</span>}
+          {zipProgress.phase === 'error' && <span>⚠</span>}
+          <span>{zipProgress.message}</span>
+          {zipProgress.phase === 'uploading' && zipProgress.total > 0 && (
+            <div className="flex-1 h-1 bg-copper/20 rounded-full overflow-hidden ml-1">
+              <div
+                className="h-full bg-copper rounded-full transition-all duration-300"
+                style={{ width: `${Math.round(zipProgress.current / zipProgress.total * 100)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Drop-Zone + Thumbnails */}
       <div
@@ -2069,39 +2205,57 @@ function InquiryPhotoGallery({
         onDragLeave={() => setDragOver(false)}
         onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
         className={`rounded-lg border-2 border-dashed transition-colors ${
-          dragOver ? "border-copper bg-copper/5" : hasPhotos ? "border-transparent" : "border-steel-line/40 bg-bg-2/50"
-        } ${!hasPhotos ? "flex items-center justify-center py-6" : "p-1"}`}
+          dragOver ? "border-copper bg-copper/5" : hasMedia ? "border-transparent" : "border-steel-line/40 bg-bg-2/50"
+        } ${!hasMedia ? "flex items-center justify-center py-8" : "p-1"}`}
       >
-        {hasPhotos ? (
+        {hasMedia ? (
           <div className="flex flex-wrap gap-2 p-1">
             {inquiry.photos.map((photo, i) => {
               const url = urls[i];
+              const isVideo = photo.type === "video";
               return url ? (
-                <button key={i} type="button" onClick={() => setOpen(url)}
-                  className="group relative overflow-hidden rounded-md border border-steel-line/20 focus:outline-none focus:ring-2 focus:ring-copper">
-                  <img src={url} alt={photo.name} className="w-24 h-24 object-cover group-hover:opacity-90 transition-opacity" loading="lazy" />
+                <button key={i} type="button"
+                  onClick={() => setLightbox({ url, type: isVideo ? "video" : "image" })}
+                  className="group relative overflow-hidden rounded-md border border-steel-line/20 focus:outline-none focus:ring-2 focus:ring-copper w-24 h-24">
+                  {isVideo ? (
+                    <>
+                      <video src={url} className="w-full h-full object-cover" muted preload="metadata" />
+                      <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/20 transition-colors">
+                        <span className="text-white text-2xl drop-shadow-lg">▶</span>
+                      </div>
+                    </>
+                  ) : (
+                    <img src={url} alt={photo.name} className="w-full h-full object-cover group-hover:opacity-90 transition-opacity" loading="lazy" />
+                  )}
+                  {photo.at && (
+                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white font-mono text-[8px] px-1 py-0.5 text-center">
+                      {photo.at.slice(5, 10)}
+                    </div>
+                  )}
                 </button>
               ) : (
                 <div key={i} className="w-24 h-24 rounded-md border border-steel-line/20 bg-bg-2 animate-pulse" />
               );
             })}
-            {uploading && (
+            {(uploading) && (
               <div className="w-24 h-24 rounded-md border border-dashed border-copper/40 bg-copper/5 grid place-items-center">
                 <span className="font-mono text-[10px] text-copper animate-pulse">lädt…</span>
               </div>
             )}
           </div>
         ) : (
-          <div className="text-center">
-            <div className="font-sans text-[13px] text-ink-mute">
-              {uploading ? "Foto wird hochgeladen …" : "Fotos hier ablegen oder"}
+          <div className="text-center px-4">
+            <div className="text-2xl mb-2">📁</div>
+            <div className="font-sans text-[13px] text-ink-mute font-medium">
+              Bilder, Videos oder ZIP hier ablegen
             </div>
-            {!uploading && (
-              <button type="button" onClick={() => inputRef.current?.click()}
-                className="mt-1.5 font-mono text-[11px] text-copper underline underline-offset-2">
-                Datei auswählen
-              </button>
-            )}
+            <div className="font-mono text-[10.5px] text-ink-mute mt-0.5">
+              WhatsApp-Export · Foto-Ordner · einzelne Dateien
+            </div>
+            <button type="button" onClick={() => inputRef.current?.click()}
+              className="mt-2.5 font-mono text-[11px] text-copper underline underline-offset-2">
+              Datei auswählen
+            </button>
           </div>
         )}
       </div>
@@ -2110,13 +2264,29 @@ function InquiryPhotoGallery({
         <div className="font-sans text-[12px] text-rust bg-rust/8 rounded px-3 py-2">{uploadErr}</div>
       )}
 
-      <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"
+      <input ref={inputRef} type="file"
+        accept="image/*,video/*,.zip,application/zip,application/x-zip-compressed"
+        multiple className="hidden"
         onChange={(e) => { if (e.target.files) handleFiles(e.target.files); e.target.value = ""; }} />
 
-      {open && (
-        <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-4" onClick={() => setOpen(null)}>
-          <img src={open} alt="" className="max-w-full max-h-full rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
-          <button onClick={() => setOpen(null)} className="absolute top-4 right-4 w-10 h-10 bg-white/10 text-white rounded-full grid place-items-center hover:bg-white/25 text-lg">✕</button>
+      {/* Lightbox */}
+      {lightbox && (
+        <div className="fixed inset-0 z-[200] bg-black/90 flex items-center justify-center p-4"
+          onClick={() => setLightbox(null)}>
+          {lightbox.type === "video" ? (
+            <video
+              src={lightbox.url}
+              controls
+              autoPlay
+              className="max-w-full max-h-full rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img src={lightbox.url} alt="" className="max-w-full max-h-full rounded-lg shadow-2xl"
+              onClick={(e) => e.stopPropagation()} />
+          )}
+          <button onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 w-10 h-10 bg-white/10 text-white rounded-full grid place-items-center hover:bg-white/25 text-lg">✕</button>
         </div>
       )}
     </div>
