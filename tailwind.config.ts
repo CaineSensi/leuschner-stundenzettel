@@ -9,6 +9,17 @@ export default {
         "3xl": "1920px",
         "4xl": "2560px",
       },
+      // Zwischenwerte für Farb-Opacity-Modifier (bg-white/8 etc.) — die
+      // Standard-Skala kennt nur 5er-Schritte; ohne diese Einträge werden
+      // Klassen wie bg-white/6 stillschweigend NICHT generiert.
+      opacity: {
+        2: "0.02",
+        4: "0.04",
+        6: "0.06",
+        8: "0.08",
+        12: "0.12",
+        22: "0.22",
+      },
       colors: {
         // Stahl & Beton · Betongrau / gebürsteter Stahl / Orange als Schweißnaht
         // Outdoor-Lesbarkeit hat Priorität — robust, wertig, kein Lifestyle.
