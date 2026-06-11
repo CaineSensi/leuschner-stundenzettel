@@ -63,6 +63,8 @@ function ChatBubbleInner({ me }: { me: Worker }) {
   const streamRef = useRef<HTMLDivElement | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // Tracks the temp ID of the currently in-flight optimistic message
+  const optimisticIdRef = useRef<string | null>(null);
   const onlineUsers = useOnlineUsers();
 
   // Presence aktivieren, solange ich eingeloggt bin
@@ -117,7 +119,17 @@ function ChatBubbleInner({ me }: { me: Worker }) {
   useEffect(() => {
     const unsub = subscribeToInbox(me.id, (m) => {
       setMessages((prev) => {
-        // Insert oder Update (UPDATE bei read_at)
+        // Eigenes Echo: optimistischen Platzhalter ersetzen (falls noch vorhanden)
+        if (m.senderId === me.id && optimisticIdRef.current) {
+          const optIdx = prev.findIndex((x) => x.id === optimisticIdRef.current);
+          if (optIdx >= 0) {
+            optimisticIdRef.current = null;
+            const next = prev.slice();
+            next[optIdx] = m;
+            return next;
+          }
+        }
+        // Normales Insert oder Update (UPDATE bei read_at)
         const i = prev.findIndex((x) => x.id === m.id);
         if (i >= 0) {
           const next = prev.slice();
@@ -202,14 +214,28 @@ function ChatBubbleInner({ me }: { me: Worker }) {
     const text = draft.trim();
     const hasAtt = pendingAttachments.length > 0;
     if ((!text && !hasAtt) || !activePeerId || !me.companyId) return;
+
     setSending(true);
     setDraft("");
     const filesToSend = pendingAttachments.slice();
     setPendingAttachments([]);
     setUploadError(null);
+
+    // Optimistisch sofort in der Unterhaltung zeigen — damit nichts "verschwindet"
+    const tempId = `opt-${Date.now()}`;
+    optimisticIdRef.current = tempId;
+    const optimistic: Message = {
+      id: tempId,
+      companyId: me.companyId,
+      senderId: me.id,
+      receiverId: activePeerId,
+      content: text || "📎",
+      createdAt: new Date().toISOString(),
+    };
+    setMessages((prev) => [optimistic, ...prev]);
+
     try {
       const doSend = async () => {
-        // Erst alle Anhänge hochladen, dann eine Nachricht mit allen Pfaden
         let uploaded: ChatAttachment[] = [];
         if (filesToSend.length > 0) {
           const results = await Promise.allSettled(
@@ -232,10 +258,19 @@ function ChatBubbleInner({ me }: { me: Worker }) {
       };
 
       const sent = await withTimeout(doSend(), SEND_TIMEOUT_MS, "Senden");
-      setMessages((prev) => prev.find((m) => m.id === sent.id) ? prev : [sent, ...prev]);
+      optimisticIdRef.current = null;
+      // Optimistischen Platzhalter durch echte Nachricht ersetzen (falls Subscription
+      // das noch nicht erledigt hat)
+      setMessages((prev) => {
+        const withoutOpt = prev.filter((m) => m.id !== tempId);
+        if (withoutOpt.find((m) => m.id === sent.id)) return withoutOpt;
+        return [sent, ...withoutOpt];
+      });
     } catch (err: any) {
       console.warn("[chat] send failed", err);
-      // Draft wiederherstellen damit der Text nicht verloren geht
+      // Optimistischen Platzhalter entfernen + Draft zurückgeben
+      optimisticIdRef.current = null;
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       setDraft((prev) => prev || text);
       setUploadError(err?.message ?? "Senden fehlgeschlagen — bitte erneut versuchen");
     } finally {
@@ -567,10 +602,11 @@ function ChatModalView(props: {
                   )}
                   {conversation.map((m, i) => {
                     const isMe = m.senderId === me.id;
+                    const isPending = m.id.startsWith("opt-");
                     const prev = conversation[i - 1];
                     const showDayLabel = !prev || dayKey(prev.createdAt) !== dayKey(m.createdAt);
                     return (
-                      <div key={m.id} className="flex flex-col">
+                      <div key={m.id} className={`flex flex-col${isPending ? " opacity-60" : ""}`}>
                         {showDayLabel && (
                           <div className="self-center font-mono text-[10px] text-ink-mute bg-white/5 px-3 py-0.5 rounded-full my-2 uppercase tracking-wider">
                             {fmtDayLabel(m.createdAt)}
