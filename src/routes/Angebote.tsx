@@ -13,7 +13,7 @@ import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContac
 import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
-import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, SOURCE_ICON, SOURCE_LABEL, type Inquiry } from "../lib/inquiries";
+import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, uploadInquiryPhoto, updateInquiryPhotos, SOURCE_ICON, SOURCE_LABEL, type Inquiry, type InquiryPhoto } from "../lib/inquiries";
 
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
@@ -418,73 +418,123 @@ export default function Angebote() {
       ) : isArchiv ? (
         <ArchivList cards={filtered} onOpen={setDetail} onUnarchive={unarchive} />
       ) : (
-        <div className="flex-1 flex gap-3.5 px-4 lg:px-8 py-5 overflow-x-auto board-scroll">
-          {STAGES.filter((s) => !(hideClosed && s === "Abgerechnet")).map((stage) => {
-            const list = byStage(stage);
-            const sum = list.reduce((t, c) => t + (c.valueEur ?? c.planEur ?? 0), 0);
-            const meta = STAGE_META[stage];
+        <div className="flex-1 flex flex-col overflow-hidden">
+
+          {/* ── ANFRAGE-EINGANG ─────────────────────────────────────── */}
+          {(() => {
+            const anfrageList = byStage("Anfrage");
+            const anfrageMeta = STAGE_META["Anfrage"];
             return (
               <section
-                key={stage}
-                className="flex-1 basis-0 min-w-[270px] flex flex-col bg-white/30 rounded-xl border border-steel-line/45"
+                className="mx-4 lg:mx-8 mt-4 rounded-xl border-2 border-copper/30 bg-copper/5 flex-shrink-0"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={() => {
                   const c = cards.find((x) => x.id === dragId.current);
-                  if (c) moveTo(c, stage);
+                  if (c) moveTo(c, "Anfrage");
                   dragId.current = null;
                 }}
               >
-                <header
-                  className="surface-steel rounded-t-[11px] px-3.5 py-3 flex items-center justify-between gap-2"
-                >
-                  <div className="font-display font-extrabold uppercase text-[14.5px] tracking-wide text-white flex items-center gap-2.5 whitespace-nowrap">
+                <header className="px-4 py-3 flex items-center justify-between gap-3 border-b border-copper/20">
+                  <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
-                          style={{ background: meta.color, boxShadow: "0 0 0 3px rgba(255,255,255,.10)" }} />
-                    {stage}
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    {stage === "Anfrage" && (
-                      <button
-                        onClick={() => navigate("/admin/anfrage-neu")}
-                        title="Anfrage einfügen"
-                        className="w-7 h-7 rounded-full bg-copper hover:bg-copper-bright text-white font-bold text-[14px] grid place-items-center transition-colors"
-                      >＋</button>
-                    )}
-                    <span className="font-mono font-bold text-[12px] bg-white/15 text-white px-2.5 py-0.5 rounded-full min-w-[26px] text-center">
-                      {list.length}
+                          style={{ background: anfrageMeta.color }} />
+                    <span className="font-display font-extrabold uppercase text-[13px] tracking-widest text-copper-bright">
+                      Anfrage-Eingang
+                    </span>
+                    <span className="font-mono font-bold text-[11px] bg-copper text-white px-2 py-0.5 rounded-full min-w-[22px] text-center">
+                      {anfrageList.length}
                     </span>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-sans text-[11.5px] text-ink-mute">{anfrageMeta.hint}</span>
+                    <button
+                      onClick={() => navigate("/admin/anfrage-neu")}
+                      title="Neue Anfrage anlegen"
+                      className="w-7 h-7 rounded-full bg-copper hover:bg-copper-bright text-white font-bold text-[14px] grid place-items-center transition-colors"
+                    >＋</button>
+                  </div>
                 </header>
-                <div className="flex items-center justify-between gap-2 px-3.5 py-2 bg-bg-deep/95 border-b border-steel-line/40">
-                  <span className="font-sans text-[11.5px] text-steel">{meta.hint}</span>
-                  <span className="font-mono font-bold text-[12px] text-copper-bright whitespace-nowrap">
-                    {stage === "Anfrage"
-                      ? "noch nicht beziffert"
-                      : sum > 0 ? `Σ ${eur(sum)}` : "—"}
-                  </span>
-                </div>
-                <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 min-h-[140px] board-scroll">
-                  {list.length === 0 ? (
-                    <div className="font-sans text-ink-2 text-[12.5px] text-center py-8">
-                      keine Vorgänge
+                <div className="flex gap-3 px-4 py-3 overflow-x-auto board-scroll min-h-[80px]">
+                  {anfrageList.length === 0 ? (
+                    <div className="flex-1 grid place-items-center font-sans text-[12.5px] text-copper/50 italic py-2">
+                      kein offener Eingang
                     </div>
                   ) : (
-                    list.map((c) => (
-                      <CardView
-                        key={c.id}
-                        card={c}
-                        color={meta.color}
-                        inquiry={inquiryByCard[c.id] ?? null}
-                        onOpen={() => setDetail(c)}
-                        onDragStart={() => { dragId.current = c.id; }}
-                        onArchive={() => archive(c)}
-                      />
+                    anfrageList.map((c) => (
+                      <div key={c.id} className="w-[260px] flex-shrink-0">
+                        <CardView
+                          card={c}
+                          color={anfrageMeta.color}
+                          inquiry={inquiryByCard[c.id] ?? null}
+                          onOpen={() => setDetail(c)}
+                          onDragStart={() => { dragId.current = c.id; }}
+                          onArchive={() => archive(c)}
+                        />
+                      </div>
                     ))
                   )}
                 </div>
               </section>
             );
-          })}
+          })()}
+
+          {/* ── PIPELINE-BOARD (ohne Anfrage-Stage) ─────────────────── */}
+          <div className="flex-1 flex gap-3.5 px-4 lg:px-8 py-4 overflow-x-auto board-scroll">
+            {STAGES.filter((s) => s !== "Anfrage" && !(hideClosed && s === "Abgerechnet")).map((stage) => {
+              const list = byStage(stage);
+              const sum = list.reduce((t, c) => t + (c.valueEur ?? c.planEur ?? 0), 0);
+              const meta = STAGE_META[stage];
+              return (
+                <section
+                  key={stage}
+                  className="flex-1 basis-0 min-w-[270px] flex flex-col bg-white/30 rounded-xl border border-steel-line/45"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => {
+                    const c = cards.find((x) => x.id === dragId.current);
+                    if (c) moveTo(c, stage);
+                    dragId.current = null;
+                  }}
+                >
+                  <header className="surface-steel rounded-t-[11px] px-3.5 py-3 flex items-center justify-between gap-2">
+                    <div className="font-display font-extrabold uppercase text-[14.5px] tracking-wide text-white flex items-center gap-2.5 whitespace-nowrap">
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+                            style={{ background: meta.color, boxShadow: "0 0 0 3px rgba(255,255,255,.10)" }} />
+                      {stage}
+                    </div>
+                    <span className="font-mono font-bold text-[12px] bg-white/15 text-white px-2.5 py-0.5 rounded-full min-w-[26px] text-center">
+                      {list.length}
+                    </span>
+                  </header>
+                  <div className="flex items-center justify-between gap-2 px-3.5 py-2 bg-bg-deep/95 border-b border-steel-line/40">
+                    <span className="font-sans text-[11.5px] text-steel">{meta.hint}</span>
+                    <span className="font-mono font-bold text-[12px] text-copper-bright whitespace-nowrap">
+                      {sum > 0 ? `Σ ${eur(sum)}` : "—"}
+                    </span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 min-h-[140px] board-scroll">
+                    {list.length === 0 ? (
+                      <div className="font-sans text-ink-2 text-[12.5px] text-center py-8">
+                        keine Vorgänge
+                      </div>
+                    ) : (
+                      list.map((c) => (
+                        <CardView
+                          key={c.id}
+                          card={c}
+                          color={meta.color}
+                          inquiry={inquiryByCard[c.id] ?? null}
+                          onOpen={() => setDetail(c)}
+                          onDragStart={() => { dragId.current = c.id; }}
+                          onArchive={() => archive(c)}
+                        />
+                      ))
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+
         </div>
       )}
 
@@ -629,6 +679,11 @@ function CardView({
           ? <span className="font-mono font-bold text-[12px] bg-bg-deep text-bg-2 px-2 py-0.5 rounded">{card.docNumber}</span>
           : <span className="font-mono font-bold text-[12px] bg-copper text-white px-2 py-0.5 rounded">NEU</span>}
         <div className="flex items-center gap-2">
+          {inquiry && card.stage !== "Anfrage" && (
+            <span className="font-mono font-bold text-[9.5px] tracking-widest uppercase text-white bg-copper px-1.5 py-0.5 rounded">
+              ANFRAGE
+            </span>
+          )}
           {expired && (
             <span className="font-mono font-bold text-[10.5px] tracking-wider text-white bg-rust px-2 py-0.5 rounded">
               ABGELAUFEN
@@ -1055,7 +1110,12 @@ function DetailDrawer({
             {/* RECHTS · Anfrage + Beleg-Positionen */}
             <div className="space-y-5">
               <ContactCard card={card} inquiry={inquiry} />
-              {inquiry && <InquiryHistory inquiry={inquiry} />}
+              {inquiry && (
+                <InquiryHistory
+                  inquiry={inquiry}
+                  onInquiryUpdate={setInquiry}
+                />
+              )}
               {card.positions && card.positions.length > 0 ? (
                 <>
                   <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
@@ -1931,32 +1991,108 @@ function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry |
   );
 }
 
-/** Foto-Galerie für WhatsApp-Fotos einer Anfrage. */
-function InquiryPhotoGallery({ inquiry }: { inquiry: Inquiry }) {
+/** Foto-Galerie für WhatsApp-Fotos — mit nachträglichem Upload. */
+function InquiryPhotoGallery({
+  inquiry,
+  onPhotosUpdated,
+}: {
+  inquiry: Inquiry;
+  onPhotosUpdated?: (photos: InquiryPhoto[]) => void;
+}) {
   const [urls, setUrls] = useState<(string | null)[]>([]);
   const [open, setOpen] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadErr, setUploadErr] = useState<string | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
-    if (!inquiry.photos?.length) return;
+    if (!inquiry.photos?.length) { setUrls([]); return; }
     Promise.all(inquiry.photos.map((p) => inquiryPhotoUrl(p.path))).then(setUrls);
   }, [inquiry.id, inquiry.photos?.length]);
-  if (!inquiry.photos?.length) return null;
+
+  async function handleFiles(files: FileList | File[]) {
+    const list = Array.from(files).filter((f) => f.type.startsWith("image/"));
+    if (!list.length) return;
+    setUploading(true); setUploadErr(null);
+    try {
+      const uploaded = await Promise.all(list.map((f) => uploadInquiryPhoto(f, inquiry.id)));
+      const merged = [...(inquiry.photos ?? []), ...uploaded];
+      await updateInquiryPhotos(inquiry.id, merged);
+      onPhotosUpdated?.(merged);
+    } catch (e: any) {
+      setUploadErr(e?.message ?? "Upload fehlgeschlagen");
+    } finally { setUploading(false); }
+  }
+
+  const hasPhotos = (inquiry.photos?.length ?? 0) > 0;
+
   return (
-    <div className="border border-steel rounded-lg bg-white px-4 py-3">
-      <div className="dd-eyebrow text-ink-mute mb-2">
-        📷 WhatsApp-Fotos · {inquiry.photos.length} Bild{inquiry.photos.length === 1 ? "" : "er"}
+    <div className="border border-steel rounded-lg bg-white px-4 py-3 space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="dd-eyebrow text-ink-mute">
+          📷 WhatsApp-Fotos{hasPhotos ? ` · ${inquiry.photos.length} Bild${inquiry.photos.length === 1 ? "" : "er"}` : ""}
+        </div>
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="font-mono text-[10.5px] uppercase tracking-wider bg-bg-2 hover:bg-steel-line border border-steel-line/40 text-ink-2 px-2.5 py-1 rounded transition-colors disabled:opacity-50"
+        >
+          {uploading ? "lädt …" : "+ Foto"}
+        </button>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {inquiry.photos.map((photo, i) => {
-          const url = urls[i];
-          return url ? (
-            <button key={i} type="button" onClick={() => setOpen(url)} className="group relative overflow-hidden rounded-md border border-steel-line/20 focus:outline-none focus:ring-2 focus:ring-copper">
-              <img src={url} alt={photo.name} className="w-24 h-24 object-cover group-hover:opacity-90 transition-opacity" loading="lazy" />
-            </button>
-          ) : (
-            <div key={i} className="w-24 h-24 rounded-md border border-steel-line/20 bg-bg-2 animate-pulse" />
-          );
-        })}
+
+      {/* Drop-Zone + Thumbnails */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => { e.preventDefault(); setDragOver(false); handleFiles(e.dataTransfer.files); }}
+        className={`rounded-lg border-2 border-dashed transition-colors ${
+          dragOver ? "border-copper bg-copper/5" : hasPhotos ? "border-transparent" : "border-steel-line/40 bg-bg-2/50"
+        } ${!hasPhotos ? "flex items-center justify-center py-6" : "p-1"}`}
+      >
+        {hasPhotos ? (
+          <div className="flex flex-wrap gap-2 p-1">
+            {inquiry.photos.map((photo, i) => {
+              const url = urls[i];
+              return url ? (
+                <button key={i} type="button" onClick={() => setOpen(url)}
+                  className="group relative overflow-hidden rounded-md border border-steel-line/20 focus:outline-none focus:ring-2 focus:ring-copper">
+                  <img src={url} alt={photo.name} className="w-24 h-24 object-cover group-hover:opacity-90 transition-opacity" loading="lazy" />
+                </button>
+              ) : (
+                <div key={i} className="w-24 h-24 rounded-md border border-steel-line/20 bg-bg-2 animate-pulse" />
+              );
+            })}
+            {uploading && (
+              <div className="w-24 h-24 rounded-md border border-dashed border-copper/40 bg-copper/5 grid place-items-center">
+                <span className="font-mono text-[10px] text-copper animate-pulse">lädt…</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-center">
+            <div className="font-sans text-[13px] text-ink-mute">
+              {uploading ? "Foto wird hochgeladen …" : "Fotos hier ablegen oder"}
+            </div>
+            {!uploading && (
+              <button type="button" onClick={() => inputRef.current?.click()}
+                className="mt-1.5 font-mono text-[11px] text-copper underline underline-offset-2">
+                Datei auswählen
+              </button>
+            )}
+          </div>
+        )}
       </div>
+
+      {uploadErr && (
+        <div className="font-sans text-[12px] text-rust bg-rust/8 rounded px-3 py-2">{uploadErr}</div>
+      )}
+
+      <input ref={inputRef} type="file" accept="image/*" multiple className="hidden"
+        onChange={(e) => { if (e.target.files) handleFiles(e.target.files); e.target.value = ""; }} />
+
       {open && (
         <div className="fixed inset-0 z-[200] bg-black/85 flex items-center justify-center p-4" onClick={() => setOpen(null)}>
           <img src={open} alt="" className="max-w-full max-h-full rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
@@ -1968,7 +2104,13 @@ function InquiryPhotoGallery({ inquiry }: { inquiry: Inquiry }) {
 }
 
 /** Verlaufs-Timeline + Original-Rohtext einer Anfrage (unter der ContactCard). */
-function InquiryHistory({ inquiry }: { inquiry: Inquiry }) {
+function InquiryHistory({
+  inquiry,
+  onInquiryUpdate,
+}: {
+  inquiry: Inquiry;
+  onInquiryUpdate?: (updated: Inquiry) => void;
+}) {
   const log = [...inquiry.notesLog].sort((a, b) => a.at.localeCompare(b.at));
   return (
     <div className="space-y-3">
@@ -1989,7 +2131,10 @@ function InquiryHistory({ inquiry }: { inquiry: Inquiry }) {
         </div>
       )}
 
-      <InquiryPhotoGallery inquiry={inquiry} />
+      <InquiryPhotoGallery
+        inquiry={inquiry}
+        onPhotosUpdated={(photos) => onInquiryUpdate?.({ ...inquiry, photos })}
+      />
 
       {inquiry.rawText && (
         <details className="border border-steel rounded-lg bg-white px-4 py-3">
