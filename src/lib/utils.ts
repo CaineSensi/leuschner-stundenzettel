@@ -1,12 +1,24 @@
 import type { Entry } from "./types";
+import { reportTimeout } from "./diag";
 
+/**
+ * Begrenzt ein Promise hart auf `ms`. Schlägt der Timer zu, wird der Vorgang
+ * abgebrochen UND zentral ins Diagnose-Log gemeldet (so taucht z.B. ein
+ * Firefox-Hänger beim Senden automatisch auf, ohne dass man ihn nachstellen muss).
+ *
+ * Wichtig: Der Timer wird IMMER aufgeräumt (clearTimeout), sobald das echte
+ * Promise zuerst fertig ist — sonst würde der Timeout-Callback später trotzdem
+ * feuern und einen Fehl-Timeout melden, obwohl alles gut lief.
+ */
 export function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`Zeitüberschreitung: ${label} (${ms}ms)`)), ms)
-    )
-  ]);
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reportTimeout(label, ms);
+      reject(new Error(`Zeitüberschreitung: ${label} (${ms}ms)`));
+    }, ms);
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
 }
 
 export function fmtTime(min: number): string {

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import BackButton from "../components/BackButton";
+import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import {
   LV_CATEGORIES,
   LV_CAT_ORDER,
@@ -97,20 +98,33 @@ export default function LV() {
     };
   }, []);
 
-  useEffect(() => {
+  // Nachladbar gemacht (Rick 16.06.: kein manuelles Neuladen mehr). Der erste
+  // Fetch beim Mount kann ohne Session-Token laufen (RLS → leer); die Hooks
+  // unten holen die Daten nach, sobald die Anmeldung steht / der Tab sichtbar
+  // wird, und live bei Katalog-Änderungen.
+  const refresh = useCallback(() => {
     listLvPositions()
       .then((data) => {
         setPositions(data);
         setLoading(false);
-        const first = data.find((p) => p.cat === "ERD") ?? data[0];
-        if (first) setActiveId(first.id);
+        setLoadError(null);
+        // Auswahl nur beim ersten Mal setzen — eine spätere Aktualisierung darf
+        // die aktive Position des Nutzers nicht wegspringen lassen.
+        setActiveId((cur) => cur ?? (data.find((p) => p.cat === "ERD") ?? data[0])?.id ?? null);
       })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
-        setLoadError(msg);
+        // Nur als Fehler zeigen, wenn wir noch GAR keine Daten haben — sonst
+        // einen vorübergehenden Hänger nicht über gute Daten legen.
+        setPositions((cur) => { if (cur.length === 0) setLoadError(msg); return cur; });
         setLoading(false);
       });
   }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  useRealtime("lv", ["lv_positions"], refresh);
+  useRefreshOnVisible(refresh);
+  useRefreshOnAuth(refresh);
 
   const q = search.trim().toLowerCase();
   const matches = (p: LvPosition) =>

@@ -20,6 +20,7 @@ import AnfrageNeu from "./routes/AnfrageNeu";
 import AngebotNeu from "./routes/AngebotNeu";
 import GartenEditor from "./routes/GartenEditor";
 import LV from "./routes/LV";
+import Diagnose from "./routes/Diagnose";
 import AuthCallback from "./routes/AuthCallback";
 import OfflineIndicator from "./components/OfflineIndicator";
 import InstallPrompt from "./components/InstallPrompt";
@@ -106,6 +107,7 @@ export default function App() {
         <Route path="/admin/angebot-neu/:cardId" element={<ProtectedRoute adminOnly><AngebotNeu /></ProtectedRoute>} />
         <Route path="/admin/lv"      element={<ProtectedRoute adminOnly><LV /></ProtectedRoute>} />
         <Route path="/admin/garten"  element={<ProtectedRoute adminOnly><GartenEditor /></ProtectedRoute>} />
+        <Route path="/admin/diagnose" element={<ProtectedRoute adminOnly><Diagnose /></ProtectedRoute>} />
         <Route path="/entry"         element={<ProtectedRoute><Entry /></ProtectedRoute>} />
         <Route path="/day/:date"     element={<ProtectedRoute><Day /></ProtectedRoute>} />
         <Route path="*"              element={<Navigate to="/" replace />} />

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "./supabase";
+import { reportEvent } from "./diag";
 
 /**
  * Ruft `refresh()` jedes Mal auf, wenn die App vom Hintergrund zurückkommt
@@ -55,26 +56,44 @@ export function useRefreshOnAuth(refresh: () => void) {
 
   useEffect(() => {
     if (!supabase) return;
-    // Beim Mount aktiv die Session holen. getSession() erneuert in supabase-js v2
-    // ein abgelaufenes Token automatisch — DANN laden. Das faengt den haeufigsten
-    // Fall ab: Tab-Wechsel nach laengerer Nutzung mit abgelaufenem Token, der sonst
-    // einen leeren View hinterlaesst, bis man die Seite manuell neu laedt.
     let cancelled = false;
-    // getSession() wartet intern auf Token-Refresh ab. Danach IMMER laden —
-    // auch ohne explizite Session-Prüfung, weil RLS den leeren Fall selbst handled.
-    // Das eliminiert die Race Condition beim schnellen Tab-Wechsel: ohne dieses
-    // "await", startet der erste Tab-Fetch bevor der Token refreshed ist → leer.
-    supabase.auth.getSession().then(() => {
-      if (!cancelled) refreshRef.current();
-    });
+    let fired = false;
+    let safety: ReturnType<typeof setTimeout>;
+
+    // Genau EINMAL laden — egal welcher Auslöser zuerst kommt.
+    const fire = () => {
+      if (cancelled || fired) return;
+      fired = true;
+      clearTimeout(safety);
+      refreshRef.current();
+    };
+
+    // Sicherheitsnetz gegen den Firefox-Hänger: getSession() kann (Web-Locks-/
+    // Token-Refresh-Bug) NICHT zurückkehren — dann blieb der View bisher leer,
+    // bis man die Seite manuell neu lud. Nach 3 s laden wir TROTZDEM: der
+    // Supabase-Client hat das persistierte Token längst angehängt, RLS regelt
+    // den Rest. Der Hänger meldet sich dabei selbst im Diagnose-Log.
+    safety = setTimeout(() => {
+      reportEvent(
+        "timeout",
+        "getSession-RefreshGuard",
+        "getSession kam beim Seitenaufbau nicht zurück — Daten per Sicherheitsnetz nachgeladen"
+      );
+      fire();
+    }, 3000);
+
+    // Normalfall: getSession() erneuert ein abgelaufenes Token und kehrt zurück
+    // → sofort laden (mit Token). Auch bei Fehler laden (RLS handled leer).
+    supabase.auth.getSession().then(fire).catch(fire);
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      // Token-Refresh feuert regelmäßig — auch das wollen wir, damit ein
-      // abgelaufenes Token nicht unbemerkt einen leeren View hinterlässt.
+      // Nach dem ersten Laden weiterhin auf echte Auth-Wechsel reagieren, damit
+      // ein Token-Refresh keinen veralteten/leeren View hinterlässt.
       if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
         refreshRef.current();
       }
     });
-    return () => { cancelled = true; subscription.unsubscribe(); };
+    return () => { cancelled = true; clearTimeout(safety); subscription.unsubscribe(); };
   }, []);
 }
 

@@ -45,7 +45,10 @@ export default function Admin() {
   const roleSuffix = (() => {
     if (!me) return "Admin";
     const r = (me.role ?? "").toLowerCase();
-    if (/inhaber|geschäftsführer|gesellschafter/.test(r)) return "Inhaber";
+    // Udo Leuschner = Inhaber. Wolfgang Wilken = Geschäftsführer (Bau-Sparte) —
+    // bewusst NICHT als „Inhaber" labeln (beide klar getrennt halten).
+    if (/inhaber|gesellschafter/.test(r)) return "Inhaber";
+    if (/geschäftsführer/.test(r)) return "Geschäftsführer";
     if (/büro|verwaltung|coder|doll/.test(r)) return "Admin · Doll(ART)";
     return "Admin";
   })();
@@ -228,6 +231,7 @@ export default function Admin() {
             <SbItem icon="◯" label="Mitarbeiter" onClick={() => setShowWorkers(true)} />
             <SbItem icon="✎" label="Garten-Planer" disabled />
             <div className="h-px bg-white/8 my-3" />
+            <SbItem icon="◬" label="Diagnose" to="/admin/diagnose" hint="System-Protokoll: Fehler, Crashes und Timeouts automatisch erfasst, mit Muster-Erkennung. Zeigt z.B. browser-spezifische Hänger." />
             <SbItem icon="▮" label="Auswertung" disabled />
           </nav>
 

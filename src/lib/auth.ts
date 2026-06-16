@@ -1,5 +1,6 @@
 import type { Worker } from "./types";
 import { supabase } from "./supabase";
+import { withTimeout } from "./utils";
 
 const KEY = "leuschner.session";
 const CODE_KEY = "leuschner.code";
@@ -70,15 +71,6 @@ export async function signInWithEmail(email: string): Promise<{ error?: string }
     }
   });
   return error ? { error: error.message } : {};
-}
-
-function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`Zeitüberschreitung bei ${label} (${ms}ms)`)), ms)
-    )
-  ]);
 }
 
 export async function signInWithPassword(email: string, password: string): Promise<{ error?: string }> {
