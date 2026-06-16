@@ -207,6 +207,107 @@ export async function appendNote(id: string, note: Omit<InquiryNote, 'at'> & { a
   return newLog;
 }
 
+/**
+ * Hängt eine Notiz/Info an einen PIPELINE-VORGANG (Karte) an — auch wenn dahinter
+ * (noch) keine Anfrage existiert (z.B. direkt angelegte Aufträge wie AN-1243).
+ * Gibt es schon eine verknüpfte Anfrage → Notiz dort anhängen. Sonst wird ein
+ * schlanker Verlaufs-Träger angelegt (source 'other', status 'wurde_zu_angebot',
+ * damit er NICHT als offene Anfrage in der Inbox auftaucht) und mit der Karte verknüpft.
+ * Rückgabe: die (ggf. neu angelegte) Anfrage mit aktualisiertem Verlauf.
+ */
+export async function appendCardNote(
+  cardId: string, text: string, by?: string, cardName?: string
+): Promise<Inquiry> {
+  if (!isBackendConnected() || !supabase) throw new Error('Backend nicht verbunden');
+  const sb: any = supabase;
+  const entry: InquiryNote = { at: new Date().toISOString(), by, kind: 'note', text };
+
+  const existing = await getInquiryByCardId(cardId);
+  if (existing) {
+    const newLog = [...existing.notesLog, entry];
+    await updateInquiry(existing.id, { notesLog: newLog });
+    return { ...existing, notesLog: newLog };
+  }
+
+  const initialLog: InquiryNote[] = [
+    { at: new Date().toISOString(), kind: 'system', text: 'Notiz-Verlauf zum Vorgang angelegt' },
+    entry,
+  ];
+  const { data, error } = await sb
+    .from('inquiries')
+    .insert({
+      company_id: COMPANY_ID,
+      source: 'other',
+      raw_text: '',
+      customer_name: cardName ?? null,
+      notes_log: initialLog,
+      priority: 'normal',
+      pipeline_card_id: cardId,
+      status: 'wurde_zu_angebot',
+    })
+    .select(COLS)
+    .single();
+  if (error) throw error;
+  return rowToInquiry(data);
+}
+
+/**
+ * Speichert/ergänzt KONTAKTDATEN an einem Pipeline-Vorgang (Karte) — auch ohne
+ * Anfrage dahinter. Nur übergebene Felder werden gesetzt (undefined = unverändert).
+ * Existiert keine Anfrage, wird derselbe schlanke Verlaufs-Träger angelegt wie bei
+ * appendCardNote. Rückgabe: die (ggf. neue) Anfrage mit aktualisierten Feldern.
+ */
+export async function upsertCardContact(
+  cardId: string,
+  fields: { customerPhone?: string; customerEmail?: string; street?: string; zip?: string; city?: string },
+  cardName?: string
+): Promise<Inquiry> {
+  if (!isBackendConnected() || !supabase) throw new Error('Backend nicht verbunden');
+  const sb: any = supabase;
+  const clean = <T,>(v: T) => (typeof v === 'string' ? (v.trim() || undefined) : v);
+  const patch = {
+    customerPhone: clean(fields.customerPhone),
+    customerEmail: clean(fields.customerEmail),
+    street: clean(fields.street),
+    zip: clean(fields.zip),
+    city: clean(fields.city),
+  };
+
+  const existing = await getInquiryByCardId(cardId);
+  if (existing) {
+    await updateInquiry(existing.id, patch);
+    await appendNote(existing.id, { kind: 'system', text: 'Kontaktdaten manuell ergänzt' });
+    const fresh = await getInquiry(existing.id);
+    return fresh ?? { ...existing, ...patch };
+  }
+
+  const initialLog: InquiryNote[] = [
+    { at: new Date().toISOString(), kind: 'system', text: 'Notiz-Verlauf zum Vorgang angelegt' },
+    { at: new Date().toISOString(), kind: 'system', text: 'Kontaktdaten manuell erfasst' },
+  ];
+  const { data, error } = await sb
+    .from('inquiries')
+    .insert({
+      company_id: COMPANY_ID,
+      source: 'other',
+      raw_text: '',
+      customer_name: cardName ?? null,
+      customer_phone: patch.customerPhone ?? null,
+      customer_email: patch.customerEmail ?? null,
+      street: patch.street ?? null,
+      zip: patch.zip ?? null,
+      city: patch.city ?? null,
+      notes_log: initialLog,
+      priority: 'normal',
+      pipeline_card_id: cardId,
+      status: 'wurde_zu_angebot',
+    })
+    .select(COLS)
+    .single();
+  if (error) throw error;
+  return rowToInquiry(data);
+}
+
 /** Helper: gibt's vergleichbare offene Anfrage in den letzten N Tagen? */
 export async function findSimilar(rawText: string, days = 7): Promise<Inquiry[]> {
   if (!isBackendConnected() || !supabase) return [];

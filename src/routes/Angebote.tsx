@@ -13,7 +13,7 @@ import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContac
 import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
-import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, uploadInquiryPhoto, uploadInquiryVideo, updateInquiryPhotos, updateInquiry, SOURCE_ICON, SOURCE_LABEL, type Inquiry, type InquiryPhoto } from "../lib/inquiries";
+import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, uploadInquiryPhoto, uploadInquiryVideo, updateInquiryPhotos, updateInquiry, appendCardNote, upsertCardContact, SOURCE_ICON, SOURCE_LABEL, type Inquiry, type InquiryPhoto } from "../lib/inquiries";
 import { uploadSitePhoto, getCurrentCompanyId } from "../lib/photos";
 import { extractZipMedia, parseWhatsAppText, whatsAppSummary } from "../lib/zipImport";
 
@@ -938,6 +938,19 @@ function DetailDrawer({
         }
       }
 
+      // WICHTIG: Kontaktdaten AUCH an den Vorgang (Anfrage) schreiben — die
+      // ContactCard im Drawer zeigt sie von DORT, nicht aus dem Kundenstamm.
+      // Ohne das blieb die Karte nach dem Abgleich fälschlich auf „nicht erfasst".
+      if (contact && (contact.phone || contact.email || contact.street || contact.zip || contact.city)) {
+        try {
+          const updatedInq = await upsertCardContact(card.id, {
+            customerPhone: contact.phone, customerEmail: contact.email,
+            street: contact.street, zip: contact.zip, city: contact.city,
+          }, card.customerName);
+          setInquiry(updatedInq);
+        } catch { /* Anzeige-Spiegelung ist nicht kritisch fürs Abgleich-Ergebnis */ }
+      }
+
       onUpdate(cardPatch as Partial<PipelineCard>);
       setSyncSnap(null);
       setSyncCustomer(null);
@@ -1111,14 +1124,13 @@ function DetailDrawer({
 
             {/* RECHTS · Anfrage + Beleg-Positionen */}
             <div className="space-y-5">
-              <ContactCard card={card} inquiry={inquiry} />
-              {inquiry && (
-                <InquiryHistory
-                  inquiry={inquiry}
-                  siteId={card.siteId}
-                  onInquiryUpdate={setInquiry}
-                />
-              )}
+              <ContactCard card={card} inquiry={inquiry} onInquiryUpdate={setInquiry} />
+              <InquiryHistory
+                card={card}
+                inquiry={inquiry}
+                siteId={card.siteId}
+                onInquiryUpdate={setInquiry}
+              />
               {card.positions && card.positions.length > 0 ? (
                 <>
                   <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
@@ -1921,7 +1933,7 @@ function prioStyle(p: string): React.CSSProperties {
  * Erscheint in JEDER Karte: nutzt die Anfrage-Daten, wenn vorhanden, sonst die
  * Karten-Stammdaten als Fallback (graceful — fehlende Felder „nicht erfasst").
  */
-function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry | null }) {
+function ContactCard({ card, inquiry, onInquiryUpdate }: { card: PipelineCard; inquiry: Inquiry | null; onInquiryUpdate?: (i: Inquiry) => void }) {
   const name = inquiry?.customerName || card.customerName || "—";
   const phone = inquiry?.customerPhone;
   const mobile = inquiry?.parsedJson?.phone_mobile as string | undefined;
@@ -1932,6 +1944,35 @@ function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry |
   const ort = [zip, city].filter(Boolean).join(" ") || undefined;
   const anliegen = inquiry?.description || card.description;
   const sub = [card.docNumber, ort].filter(Boolean).join(" · ");
+
+  // Manuelle Kontaktdaten-Ergänzung (Rick 16.06.: fehlende Daten direkt hier ausfüllen)
+  const [editing, setEditing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [form, setForm] = useState({ phone: "", email: "", street: "", zip: "", city: "" });
+  function startEdit() {
+    setForm({
+      phone: phone ?? "", email: email ?? "", street: street ?? "",
+      zip: zip ?? "", city: city ?? "",
+    });
+    setErr(null); setEditing(true);
+  }
+  async function saveContact() {
+    if (busy) return;
+    setBusy(true); setErr(null);
+    try {
+      const updated = await upsertCardContact(card.id, {
+        customerPhone: form.phone, customerEmail: form.email,
+        street: form.street, zip: form.zip, city: form.city,
+      }, card.customerName);
+      onInquiryUpdate?.(updated);
+      setEditing(false);
+    } catch (e: any) {
+      setErr(e?.message ?? "Speichern fehlgeschlagen");
+    } finally { setBusy(false); }
+  }
+  const fieldStyle = "w-full rounded-md px-2.5 py-1.5 text-[12.5px] font-mono";
+  const fieldCss = { background: "rgba(255,255,255,.06)", border: "1px solid rgba(255,255,255,.18)", color: "#F0F2F4" } as const;
 
   const avatarBg = inquiry
     ? "linear-gradient(135deg,#DC6E2D 0%,#8A3A10 100%)"
@@ -1959,11 +2000,53 @@ function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry |
           )}
           {inquiry?.status && <CcBadge style={statusStyle(inquiry.status)}>{inquiry.status}</CcBadge>}
           {inquiry?.priority && <CcBadge style={prioStyle(inquiry.priority)}>{inquiry.priority}</CcBadge>}
+          {!editing && (
+            <button onClick={startEdit} title="Kontaktdaten bearbeiten"
+              className="mt-0.5 font-mono text-[10px] tracking-wider uppercase px-2 py-1 rounded-md"
+              style={{ background: "rgba(255,255,255,.08)", border: "1px solid rgba(255,255,255,.2)", color: "#E8853F" }}>
+              ✎ Bearbeiten
+            </button>
+          )}
         </div>
       </div>
 
       {/* Body: Feld-Zeilen */}
       <div className="px-4 py-1.5 [&>*:last-child]:border-b-0">
+        {editing ? (
+          <div className="py-2 space-y-2">
+            {[
+              { k: "phone", label: "Telefon", ph: "z.B. 0176 …" },
+              { k: "email", label: "E-Mail", ph: "name@domain.de" },
+              { k: "street", label: "Straße", ph: "Straße + Nr." },
+              { k: "zip", label: "PLZ", ph: "26826" },
+              { k: "city", label: "Ort", ph: "Weener" },
+            ].map((f) => (
+              <div key={f.k} className="flex items-center gap-2">
+                <span className="text-[11px] font-mono tracking-wide w-16 flex-shrink-0" style={{ color: "rgba(255,255,255,.4)" }}>{f.label}</span>
+                <input
+                  value={(form as any)[f.k]}
+                  onChange={(e) => setForm((s) => ({ ...s, [f.k]: e.target.value }))}
+                  placeholder={f.ph}
+                  className={fieldStyle}
+                  style={fieldCss}
+                />
+              </div>
+            ))}
+            {err && <p className="text-[12px]" style={{ color: "#F87171" }}>{err}</p>}
+            <div className="flex gap-2 justify-end pt-1">
+              <button onClick={() => setEditing(false)} disabled={busy}
+                className="font-mono text-[11px] tracking-wider uppercase px-3 py-1.5 rounded-md"
+                style={{ background: "transparent", border: "1px solid rgba(255,255,255,.2)", color: "rgba(255,255,255,.6)" }}>
+                Abbrechen
+              </button>
+              <button onClick={saveContact} disabled={busy}
+                className="font-mono text-[11px] tracking-wider uppercase px-4 py-1.5 rounded-md"
+                style={{ background: "#DC6E2D", color: "#fff", opacity: busy ? 0.5 : 1 }}>
+                {busy ? "speichert …" : "Speichern"}
+              </button>
+            </div>
+          </div>
+        ) : (<>
         {(phone || mobile) ? (
           <>
             {phone && (
@@ -2003,6 +2086,7 @@ function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry |
             ? <span className="font-medium" style={{ color: "rgba(255,255,255,.85)" }}>{ort}</span>
             : <span className="text-[12px]" style={{ color: "rgba(255,255,255,.3)" }}>nicht erfasst</span>}
         </div>
+        </>)}
       </div>
 
       {/* Copper-Schweißnaht + Anliegen */}
@@ -2320,15 +2404,38 @@ function InquiryPhotoGallery({
 
 /** Verlaufs-Timeline + Original-Rohtext einer Anfrage (unter der ContactCard). */
 function InquiryHistory({
+  card,
   inquiry,
   siteId,
   onInquiryUpdate,
 }: {
-  inquiry: Inquiry;
+  card: PipelineCard;
+  inquiry: Inquiry | null;
   siteId?: string;
   onInquiryUpdate?: (updated: Inquiry) => void;
 }) {
-  const log = [...inquiry.notesLog].sort((a, b) => a.at.localeCompare(b.at));
+  const [noteText, setNoteText] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteErr, setNoteErr] = useState<string | null>(null);
+
+  async function addNote() {
+    const text = noteText.trim();
+    if (!text || noteBusy) return;
+    setNoteBusy(true); setNoteErr(null);
+    try {
+      const me = currentUser();
+      const by = me ? `${me.firstName} ${me.lastName.charAt(0)}.` : undefined;
+      const updated = await appendCardNote(card.id, text, by, card.customerName);
+      onInquiryUpdate?.(updated);
+      setNoteText("");
+    } catch (e: any) {
+      setNoteErr(e?.message ?? "Notiz konnte nicht gespeichert werden");
+    } finally {
+      setNoteBusy(false);
+    }
+  }
+
+  const log = inquiry ? [...inquiry.notesLog].sort((a, b) => a.at.localeCompare(b.at)) : [];
   return (
     <div className="space-y-3">
       {log.length > 0 && (
@@ -2348,13 +2455,44 @@ function InquiryHistory({
         </div>
       )}
 
-      <InquiryPhotoGallery
-        inquiry={inquiry}
-        siteId={siteId}
-        onPhotosUpdated={(photos) => onInquiryUpdate?.({ ...inquiry, photos })}
-      />
+      {/* Notiz/Info an den Vorgang hängen — funktioniert auch ohne Anfrage dahinter
+          (z.B. direkt angelegte Aufträge). Beispiel: nachgereichter Material-Link. */}
+      <div className="border border-steel rounded-lg bg-white px-4 py-3">
+        <div className="dd-eyebrow text-ink-mute mb-2">Notiz / Info zum Vorgang</div>
+        <div className="flex gap-2">
+          <textarea
+            value={noteText}
+            onChange={(e) => setNoteText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addNote(); } }}
+            rows={2}
+            placeholder="z.B. Material-Link, Telefonat, Absprache … (⌘/Strg+Enter speichert)"
+            className="flex-1 resize-none rounded-md border border-steel-line bg-bg-2 px-3 py-2 text-[13px] text-ink placeholder:text-ink-mute focus:outline-none focus:border-copper"
+          />
+        </div>
+        <div className="flex items-center justify-between mt-2">
+          <span className="font-mono text-[10px] text-ink-mute">
+            {inquiry ? "wird an den Verlauf gehängt" : "legt einen Verlauf für diesen Vorgang an"}
+          </span>
+          <button
+            onClick={addNote}
+            disabled={noteBusy || !noteText.trim()}
+            className="font-mono text-[11px] tracking-wider uppercase px-4 py-2 rounded-md bg-ink text-white disabled:opacity-40 hover:bg-copper transition-colors"
+          >
+            {noteBusy ? "speichert …" : "+ Notiz"}
+          </button>
+        </div>
+        {noteErr && <p className="mt-2 text-[12px] text-rust">{noteErr}</p>}
+      </div>
 
-      {inquiry.rawText && (
+      {inquiry && (
+        <InquiryPhotoGallery
+          inquiry={inquiry}
+          siteId={siteId}
+          onPhotosUpdated={(photos) => onInquiryUpdate?.({ ...inquiry, photos })}
+        />
+      )}
+
+      {inquiry?.rawText && (
         <details className="border border-steel rounded-lg bg-white px-4 py-3">
           <summary className="cursor-pointer dd-eyebrow text-ink-mute">
             Original-Nachricht ({inquiry.rawText.length.toLocaleString("de")} Zeichen)
