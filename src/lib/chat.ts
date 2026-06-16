@@ -24,6 +24,10 @@ export interface Message {
   createdAt: string;
   editedAt?: string;
   readAt?: string;
+  isTask?: boolean;
+  taskDone?: boolean;
+  taskDoneAt?: string;
+  taskDoneBy?: string;
 }
 
 function rowToMessage(r: any): Message {
@@ -38,10 +42,14 @@ function rowToMessage(r: any): Message {
     createdAt: r.created_at,
     editedAt: r.edited_at ?? undefined,
     readAt: r.read_at ?? undefined,
+    isTask: r.is_task ?? false,
+    taskDone: r.task_done ?? false,
+    taskDoneAt: r.task_done_at ?? undefined,
+    taskDoneBy: r.task_done_by ?? undefined,
   };
 }
 
-const COLS = "id, company_id, sender_id, receiver_id, content, attachments, card_id, created_at, edited_at, read_at";
+const COLS = "id, company_id, sender_id, receiver_id, content, attachments, card_id, created_at, edited_at, read_at, is_task, task_done, task_done_at, task_done_by";
 
 /** Alle Nachrichten zwischen mir und peer (chronologisch aufsteigend). */
 export async function listConversation(meId: string, peerId: string, limit = 200): Promise<Message[]> {
@@ -104,6 +112,43 @@ export async function sendMessage(input: {
     .single();
   if (error) throw error;
   return rowToMessage(data);
+}
+
+/** Markiert eine Nachricht als Aufgabe (oder hebt die Markierung auf).
+ *  Läuft über RPC, weil Teilnehmer fremde Nachrichten per RLS nicht ändern dürfen. */
+export async function markAsTask(messageId: string, on: boolean): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb.rpc("set_message_task", { p_message_id: messageId, p_is_task: on });
+  if (error) throw error;
+}
+
+/** Hakt eine Aufgabe ab (oder öffnet sie wieder). */
+export async function setTaskDone(messageId: string, done: boolean): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const { error } = await sb.rpc("set_task_done", { p_message_id: messageId, p_done: done });
+  if (error) throw error;
+}
+
+/** Alle als Aufgabe markierten Nachrichten, an denen ich beteiligt bin.
+ *  Offene zuerst, dann nach Datum absteigend. */
+export async function listTasks(meId: string, limit = 200): Promise<Message[]> {
+  if (!isBackendConnected() || !supabase) return [];
+  const sb: any = supabase;
+  const { data, error } = await sb
+    .from("messages")
+    .select(COLS)
+    .or(`sender_id.eq.${meId},receiver_id.eq.${meId}`)
+    .eq("is_task", true)
+    .order("task_done", { ascending: true })
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) {
+    console.warn("[chat] listTasks failed", error.message);
+    return [];
+  }
+  return (data ?? []).map(rowToMessage);
 }
 
 /** Komprimiert ein Bild client-seitig (max 1600 px, JPEG q=.85) und lädt es

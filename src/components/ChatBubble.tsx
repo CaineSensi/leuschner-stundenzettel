@@ -7,6 +7,7 @@ import type { Worker } from "../lib/types";
 import {
   listAllMyMessages, markConversationRead, sendMessage,
   subscribeToInbox, summarizeByPeer, uploadChatAttachment, attachmentUrl,
+  markAsTask, setTaskDone,
   type Message, type ChatAttachment
 } from "../lib/chat";
 import { startPresence, useOnlineUsers, isWorkerOnline } from "../lib/presence";
@@ -189,6 +190,19 @@ function ChatBubbleInner({ me }: { me: Worker }) {
     setActivePeerId(peerId);
     setOpen(true);
     setToast(null);
+  }
+
+  // Aufgaben: optimistisch lokal aktualisieren (eine markierte EMPFANGENE Nachricht
+  // pusht nicht via Realtime zurück — Inbox lauscht nur auf eigene Updates).
+  async function handleToggleTask(m: Message) {
+    const on = !m.isTask;
+    setMessages((prev) => prev.map((x) => x.id === m.id ? { ...x, isTask: on, taskDone: on ? x.taskDone : false } : x));
+    try { await markAsTask(m.id, on); } catch { refreshMessages(); }
+  }
+  async function handleToggleDone(m: Message) {
+    const done = !m.taskDone;
+    setMessages((prev) => prev.map((x) => x.id === m.id ? { ...x, taskDone: done } : x));
+    try { await setTaskDone(m.id, done); } catch { refreshMessages(); }
   }
 
   const summaries = useMemo(() => summarizeByPeer(messages, me.id), [messages, me.id]);
@@ -391,6 +405,8 @@ function ChatBubbleInner({ me }: { me: Worker }) {
           onDrop={handleDrop}
           uploadError={uploadError}
           onOpenLightbox={setLightboxUrl}
+          onToggleTask={handleToggleTask}
+          onToggleDone={handleToggleDone}
         />
       )}
 
@@ -472,10 +488,26 @@ function ChatModalView(props: {
   onSend: () => void;
   sending: boolean;
   streamRef: React.MutableRefObject<HTMLDivElement | null>;
+  onToggleTask: (m: Message) => void;
+  onToggleDone: (m: Message) => void;
 }) {
-  const { me, peers, summaries, activePeer, conversation, onClose, onSelectPeer, onRefreshPeers, draft, onDraftChange, onKey, onSend, sending, streamRef,
-          pendingAttachments, onRemoveAttachment, onPickFiles, onPaste, onDrop, uploadError, onOpenLightbox } = props;
+  const { me, peers, messages, summaries, activePeer, conversation, onClose, onSelectPeer, onRefreshPeers, draft, onDraftChange, onKey, onSend, sending, streamRef,
+          pendingAttachments, onRemoveAttachment, onPickFiles, onPaste, onDrop, uploadError, onOpenLightbox, onToggleTask, onToggleDone } = props;
   const peerOnline = activePeer ? isWorkerOnline(activePeer.id) : false;
+
+  // Aufgaben-Ansicht (lokal, rein darstellend) — aus allen meinen Nachrichten abgeleitet.
+  const [showTasks, setShowTasks] = useState(false);
+  const tasks = useMemo(() =>
+    messages.filter((m) => m.isTask)
+      .slice()
+      .sort((a, b) => Number(!!a.taskDone) - Number(!!b.taskDone) || b.createdAt.localeCompare(a.createdAt)),
+    [messages]);
+  const openTasks = tasks.filter((t) => !t.taskDone).length;
+  const peerName = (id: string) => {
+    if (id === me.id) return "Du";
+    const p = peers.find((w) => w.id === id);
+    return p ? p.firstName : "—";
+  };
 
   return (
     <>
@@ -486,7 +518,7 @@ function ChatModalView(props: {
         role="dialog"
         aria-modal="true"
         aria-label="Chat"
-        className="fixed z-[59] inset-0 md:inset-auto md:w-[820px] md:h-[600px] max-w-full overflow-hidden flex flex-col chat-prime-modal"
+        className="fixed z-[59] inset-0 md:inset-auto md:w-[1640px] md:h-[1200px] max-w-[95vw] max-h-[90vh] overflow-hidden flex flex-col chat-prime-modal"
         style={{
           background: "linear-gradient(180deg,#1A1C1E,#0E1012)",
           boxShadow: "0 40px 80px -16px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.06)",
@@ -524,6 +556,25 @@ function ChatModalView(props: {
                 ⌕ Suchen
               </div>
             </div>
+            {/* Aufgaben-Ordner */}
+            <button
+              onClick={() => setShowTasks(true)}
+              className={`w-full text-left flex gap-3 items-center px-4 py-3 border-b border-white/6 transition-colors border-l-[3px] ${
+                showTasks ? "border-copper bg-gradient-to-r from-copper/15 to-transparent" : "border-transparent hover:bg-white/4"
+              }`}
+            >
+              <span className="w-9 h-9 rounded-md grid place-items-center text-[16px] flex-shrink-0"
+                style={{ background: "rgba(220,110,45,.15)", border: "1px solid rgba(220,110,45,.3)" }}>✓</span>
+              <div className="flex-1 min-w-0">
+                <div className={`text-[13px] font-semibold ${showTasks ? "text-copper-bright" : "text-white"}`}>Aufgaben</div>
+                <div className="text-[11.5px] text-ink-mute truncate mt-0.5">
+                  {openTasks > 0 ? `${openTasks} offen` : tasks.length > 0 ? "alle erledigt" : "keine Aufgaben"}
+                </div>
+              </div>
+              {openTasks > 0 && (
+                <span className="bg-copper text-white text-[10px] font-bold rounded-full px-2 py-0.5">{openTasks}</span>
+              )}
+            </button>
             <div className="flex-1 overflow-y-auto board-scroll">
               {peers.length === 0 && (
                 <div className="px-4 py-6 text-center font-mono text-[11px] text-ink-mute space-y-3">
@@ -552,9 +603,9 @@ function ChatModalView(props: {
                 return (
                   <button
                     key={p.id}
-                    onClick={() => onSelectPeer(p.id)}
+                    onClick={() => { setShowTasks(false); onSelectPeer(p.id); }}
                     className={`w-full text-left flex gap-3 items-center px-4 py-3 transition-colors border-l-[3px] ${
-                      isActive
+                      isActive && !showTasks
                         ? "border-copper bg-gradient-to-r from-copper/15 to-transparent"
                         : "border-transparent hover:bg-white/4"
                     }`}
@@ -577,7 +628,39 @@ function ChatModalView(props: {
 
           {/* Chat-Stream */}
           <div className="flex-1 flex flex-col min-w-0" style={{ background: "linear-gradient(180deg,#15171A,#0E1012)" }}>
-            {activePeer ? (
+            {showTasks ? (
+              <>
+                <div className="flex items-center gap-3 px-5 py-3 border-b border-white/6 bg-white/2 flex-shrink-0">
+                  <span className="w-9 h-9 rounded-md grid place-items-center text-[16px]" style={{ background: "rgba(220,110,45,.15)", border: "1px solid rgba(220,110,45,.3)" }}>✓</span>
+                  <div>
+                    <div className="text-white font-bold text-[14px]">Aufgaben</div>
+                    <div className="text-[11px] font-mono uppercase tracking-wider text-ink-mute mt-0.5">{openTasks} offen · {tasks.length} gesamt</div>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-2 board-scroll">
+                  {tasks.length === 0 && (
+                    <div className="m-auto text-center text-ink-mute text-[12px] font-mono leading-relaxed">
+                      Noch keine Aufgaben.<br />Markiere eine Nachricht mit 📌, um sie hier zu sammeln.
+                    </div>
+                  )}
+                  {tasks.map((t) => {
+                    const other = t.senderId === me.id ? t.receiverId : t.senderId;
+                    return (
+                      <div key={t.id} className={`flex gap-3 items-start rounded-lg px-3 py-2.5 border ${t.taskDone ? "bg-white/3 border-white/6 opacity-60" : "bg-white/5 border-white/10"}`}>
+                        <button onClick={() => onToggleDone(t)} title={t.taskDone ? "wieder öffnen" : "erledigt"}
+                          className={`w-5 h-5 rounded-[6px] border flex-shrink-0 mt-0.5 grid place-items-center text-[11px] transition-colors ${t.taskDone ? "bg-moss border-moss text-white" : "border-white/30 text-transparent hover:border-copper"}`}>✓</button>
+                        <button onClick={() => { setShowTasks(false); onSelectPeer(other); }} className="flex-1 min-w-0 text-left">
+                          <div className={`text-[13px] text-white break-words ${t.taskDone ? "line-through opacity-70" : ""}`}>{t.content && t.content !== "📎" ? t.content : "📎 Anhang"}</div>
+                          <div className="font-mono text-[10px] text-ink-mute mt-1">{peerName(t.senderId)} → {peerName(t.receiverId)} · {fmtTime(t.createdAt)}</div>
+                        </button>
+                        <button onClick={() => onToggleTask(t)} title="Aufgaben-Markierung entfernen"
+                          className="text-[13px] flex-shrink-0 opacity-70 hover:opacity-100">📌</button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : activePeer ? (
               <>
                 {/* Konversations-Kopf */}
                 <div className="flex items-center gap-3 px-5 py-3 border-b border-white/6 bg-white/2 flex-shrink-0">
@@ -646,6 +729,18 @@ function ChatModalView(props: {
                                 m.readAt
                                   ? <span className="text-moss-bright">✓✓ gelesen</span>
                                   : <span className="text-ink-mute">✓</span>
+                              )}
+                              {!isPending && (
+                                <button
+                                  onClick={() => onToggleTask(m)}
+                                  title={m.isTask ? "Aufgaben-Markierung entfernen" : "als Aufgabe markieren"}
+                                  className={`leading-none transition-opacity ${m.isTask ? "opacity-100" : "opacity-40 hover:opacity-90"}`}
+                                >📌</button>
+                              )}
+                              {m.isTask && (
+                                <span className={m.taskDone ? "text-moss-bright" : "text-copper-bright"}>
+                                  {m.taskDone ? "✓ erledigt" : "Aufgabe"}
+                                </span>
                               )}
                             </div>
                           </div>
