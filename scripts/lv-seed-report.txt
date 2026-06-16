@@ -1,0 +1,278 @@
+LV-Seed-Report v2  11.6.2026
+======================================================================
+Arbeit-Positionen gesamt:  395
+LV-Einträge (Cluster):     214
+
+
+── ERD · Erdarbeiten (75) ───────────────────────────────────
+  ERD-100   69x  55–60 €             Bagger und Radladerarbeiten
+           └ 21x "Baggerarbeiten" · 1x "Auffahrt Ausbaggern"
+  ERD-101   23x  45–60 €             Brechsand verteilen und Verdichten
+           └ 1x "Grobschotter Verteilen, Verdichten und Planieren" · 1x "Brechsand Verteilen, Verdichten und Planieren" · 1x "ca 2m³ Brechsand einbauen" … +5
+  ERD-102   22x  10–45 €             Entsorgung
+           └ 4x "Entsorgung Bodenaushub" · 1x "Entsorgung Boden" · 1x "Entsorgung von defekten Rohren" … +2
+  ERD-103   18x  55–65 €             Schotter verteilen und Verdichten
+           └ 1x "ca. 44m³ Grobschotter einbauen" · 1x "ca 2m³ Rc Schotter einbauen und Verdichten" · 1x "Schotter Einbauen und Verdichten" … +2
+  ERD-104    9x  50–60 €             Füllsand verteilen und Verdichten
+           └ 3x "Füllsand Einbauen und Verdichten" · 1x "Füllmaterial einbauen, Verdichten und Nivillieren" · 1x "ca 9m³ Füllsand einbauen"
+  ERD-105    9x  20–397.9 €          Entsorgung Bauschutt
+           └ 2x "Bauschutt Entsorgung" · 2x "Entsorgung Bauschutt aus Container" · 1x "Entsorgung Holz und Übrige Materialien" … +1
+  ERD-106    9x  45–55 €             Rohre Ausgerichtet und Angeschlossen
+           └ 1x "Zusatzarbeiten: Rohre verlegen" · 1x "Rohre verlegen" · 1x "Rohre verlegen f. Aco drain und Dachrinne" … +5
+  ERD-107    6x  47.5–55 €           Aco Drain Rinne in Beton setzen und anschließen
+           └ 1x "Aco drain Rinne anlegen" · 1x "5m Aco drain rinne setzen in Beton" · 1x "Anschluss für Aco Drain erstellen"
+  ERD-108    6x  55–60 €             Mutterboden einbauen
+           └ 1x "120m³ Mutterboden auffüllen" · 1x "Mutterboden verteilen" · 1x "Mutterboden und Schotter verteilt" … +1
+  ERD-109    6x  40–55 €             Fundament Herstellen
+           └ 1x "Schalungssteine setzen" · 1x "Punktfundamente setzen 6x" · 1x "Einbauen von beton und bewähhrungsstahl" … +2
+  ERD-110    5x  19.5 €              Frachtkosten Fremd LKW
+           └ 1x "Frachtkosten" · 1x "Frachtkosten Fremd-LKW"
+  ERD-111    4x  47.5 €              Betonfundamente entfernen
+           └ 1x "Beton entfernen (grenzüberbauung)"
+  ERD-112    4x  50–90 €             Grabaushub / 2Mitarbeiter
+           └ 2x "Grabaushub / " Mitarbeiter 2"
+  ERD-113    4x  45–60 €             Entwässerung Herstellen in Kg Rohr + Ablauf
+           └ 1x "Zusatzarbeiten: Drainage Herstellen" · 1x "Drainage erstellen" · 1x "Drainage erstellt"
+  ERD-114    4x  48–55 €             Verdichten
+           └ 1x "Verdichten und Planieren" · 1x "Rohrgraben Verdichtet" · 1x "Weg verdichtet und wiederhergestellt"
+  ERD-115    3x  50 €                Kabelverlegearbeiten
+  ERD-116    3x  55 €                Kiesbeet Zurückgebaut
+  ERD-117    3x  –                   Entsorgungskosten Betonfundamente mit stahleinlage
+  ERD-118    3x  –                   Fundament erstellt für Gartenmauer
+  ERD-119    3x  –                   Zusatzarbeit: Drainage erstellen
+  ERD-120    3x  50–55 €             Rohrverstopfung Lokalisiert
+           └ 1x "Suchschachtung für Rohre" · 1x "Suchschachtung"
+  ERD-121    2x  –                   Zusatzarbeit: Rohre umgelegt
+  ERD-122    2x  45–60 €             Vlies Verlegen
+           └ 1x "Vlies eingebaut"
+  ERD-123    1x  90 €                Grabaushub / " Mitarbeiter
+  ERD-124    1x  45 €                Wasser Abpumpen
+  ERD-125    1x  45 €                Pumparbeiten
+  ERD-126    1x  50 €                Abwasserschacht setzen
+  ERD-127    1x  45 €                Gruben Geschlossen und verdichtet
+  ERD-128    1x  47.5 €              Stufe abbrechen und neu verkleben
+  ERD-129    1x  45 €                Fallrohre instandgesetzt
+  ERD-130    1x  45 €                L Borte setzen
+  ERD-131    1x  48 €                Stufe Herstellen (Mauern od. Kleben
+  ERD-132    1x  48 €                Mehraufwand L Borte
+  ERD-133    1x  48 €                Fundamente Für Carport Herstellen
+  ERD-134    1x  48 €                Stufe erstellen in beton
+  ERD-135    1x  48 €                Borte setzen in Beton
+  ERD-136    1x  120 €               Entsorgung Steinabfall
+  ERD-137    1x  30 €                sand entsorgen
+  ERD-138    1x  60 €                Baggerarbeit
+  ERD-139    1x  60 €                Weg verfüllen und verdichten
+  ERD-140    1x  55 €                Stufe entfernen
+  ERD-141    1x  55 €                Einspülen und ansähen
+  ERD-142    1x  55 €                auskoffern
+  ERD-143    1x  55 €                Parkplatz herstellen
+  ERD-144    1x  55 €                Fläche einebnen und auffüllen
+  ERD-145    1x  55 €                Aco Drain Rinne einbauen und anschließen
+  ERD-146    1x  55 €                Kabelkanäle in Beton geflext und Gestämmt
+  ERD-147    1x  55 €                Hofablauf unter Wasserhahn Hergestellt und an Gitterrost angepasst
+  ERD-148    1x  55 €                Rohr Freigestämmt in Schacht, Verrohrung hergestellt, lagenweise Verdichtet und Hofablauf angeschlossen
+  ERD-149    1x  800 €               Grasnabe Durchgefräst, Mutterboden Angefüllt,Angeglichen und Eingesäht
+  ERD-150    1x  55 €                Noppenbahn Anbringen
+  ERD-151    1x  55 €                Defekten Regenwasserablauf instandgesetzt
+  ERD-152    1x  150 €               Entsorgungskosten Sondermüll Rigips
+  ERD-153    1x  55 €                2 Abwasserschächte instandgesetzt
+  ERD-154    1x  55 €                Regenwasserschacht saniert und mit Beton vergossen, vorhandenen Deckel neu Aufgesetzt
+  ERD-155    1x  55 €                Neuen Schacht Eingebaut
+  ERD-156    1x  60 €                L Steine Gesetzt
+  ERD-157    1x  55 €                Kellerschacht zurückbauen
+  ERD-158    1x  55 €                Neuen Kellerschacht Montieren
+  ERD-159    1x  60 €                Fallrohr eingebaut
+  ERD-160    1x  55 €                Kanalschacht verschließen, rohre absanden
+  ERD-161    1x  60 €                Hochbeet erstellen
+  ERD-162    1x  60 €                Mehrarbeit Boden Auskoffern
+  ERD-163    1x  290 €               Container Erdaushub Lehmhaltiger Mischboden
+  ERD-164    1x  60 €                Zusatzarbeit: Stufe entfernt
+  ERD-165    1x  60 €                Zusatzarbeit: Gefälle verändern für Schmutzwasserschacht
+  ERD-166    1x  60 €                Zusatzarbeit: Stemmarbeiten
+  ERD-167    1x  97.48 €             Entsorgung Eternit
+  ERD-168    1x  243.7 €             Geschätze kosten zur Asbest entsorgung
+  ERD-169    1x  25.28 €             Stützenfuß auf Beton M 20 Höhe 310 mm höhenverstellbar, feuerverzinkt
+  ERD-170    1x  60 €                Rohrgraben Hergestellt
+  ERD-171    1x  30 €                Zusatzarbeit: Stemmarbeiten Fundament
+  ERD-172    1x  60 €                Hofablauf einbauen
+  ERD-173    1x  60 €                Steine Aufgenommen und Abtransportiert
+  ERD-174    1x  60 €                Stufe neu verfugen
+
+── PFL · Pflasterarbeiten (28) ───────────────────────────────────
+  PFL-100   84x  45–60 €             Pflasterarbeiten
+           └ 1x "Pflasterarbeiten Auffahrt" · 1x "Pflasterarbeiten ( Garten )" · 1x "Pflaster und Schneidarbeiten" … +18
+  PFL-101   39x  47.5–60 €           Rütteln, schneiden und einschlämmen
+           └ 3x "Schneiden, Rütteln und Einschlämmen" · 1x "Abrütteln, Schneiden und Einschlämmen" · 1x "Rütteln und Einschlämmarbeiten" … +1
+  PFL-102   31x  45–60 €             Borde setzen in Beton
+           └ 3x "Randsteine setzen in Beton" · 1x "Rasenbord in Beton Gesetzt" · 1x "ca. 18m Bord setzen" … +6
+  PFL-103    5x  48–57.5 €           Pflasterung aufnehmen und Rückbau
+           └ 1x "Ca 40m² Pflasterung aufnehmen" · 1x "Pflastersteine Aufnehmen" · 1x "Pflasterung aufnehmen" … +1
+  PFL-104    2x  –                   Zusatzarbeit: Steine u. Platten aufgenommen
+  PFL-105    2x  48–55 €             Demontage Terrasse
+           └ 1x "Terrassenplatten aufnehmen"
+  PFL-106    2x  55 €                Bordsteine entfernen
+           └ 1x "Randsteine Ausbauen"
+  PFL-107    1x  45 €                Steine u. Platten aufgenommen
+  PFL-108    1x  48 €                Planung f. Rasenbord herstellen
+  PFL-109    1x  47.5 €              Terrrassenplatten Verlegen
+  PFL-110    1x  50 €                Pflasterplanung erstellen
+  PFL-111    1x  55 €                Pflastersteine aufgenommen und Rohr freigelegt
+  PFL-112    1x  55 €                Pflastern (Klinker+ zierstreifen
+  PFL-113    1x  55 €                Pflaster aufnehmen und säubern
+  PFL-114    1x  55 €                Terrassenplatten einbauen
+  PFL-115    1x  55 €                Graben verfüllen und Pflasterung wiederherstellen
+  PFL-116    1x  55 €                Blumenbeet zurückgebaut und verkleinert, Randbefestigung in Naturstein Gesetzt
+  PFL-117    1x  55 €                Schadhafte stellen mit Beton ausgeglichen und Randbefestigung zu den Platten hergestellt
+  PFL-118    1x  55 €                Carport +60cm Verbreitern und Lichtplatten Befestigen
+  PFL-119    1x  55 €                Sandwichplatten Montieren und Verschrauben
+  PFL-120    1x  60 €                Betonplatten Ausbaggern
+  PFL-121    1x  60 €                Beet ausbaggern und für Pflasterfläche vorbereiten
+  PFL-122    1x  55 €                Steine u. Bordsteine aufgenommen
+  PFL-123    1x  60 €                Zusatzarbeit: Pflasterung aufgenommen und tiefer ausgekoffert
+  PFL-124    1x  60 €                Zusatzarbeit: Platten vom Nachbargrundstück mit angehoben auf Kundenwunsch
+  PFL-125    1x  14.23 €             Plattenbag f. Asbesthaltige Abfälle
+  PFL-126    1x  55 €                Rohre Freigelegt, Erneuert, Bodenaustausch, Verdichtet und Gepflastert
+  PFL-127    1x  12 €                Plattensack 30 cm Big Bag für Asbestentsorgung Asbestsymbol-Druck 2-farbig Umlaufende Schürze mit Schnürbandbefestigung SF 5:1 SWL: 1.500 kg
+
+── GTN · Gartenarbeiten (31) ───────────────────────────────────
+  GTN-100   19x  20–125 €            Grünabfall Entsorgung
+           └ 2x "Grünabfallentsorgung" · 1x "Entsorgung Schnitt und Sand" · 1x "Entsorgung Grünabfall" … +1
+  GTN-101    8x  50–180 €            Baumwurzelfräsen
+           └ 1x "Wurzelentsorgung" · 1x "Baumwurzeln Entfernen" · 1x "Heckenwurzeln ausbaggern" … +3
+  GTN-102    8x  45–4300 €           Jahresrückschnitt Hecken / Büsche / Kl. Bäume
+           └ 1x "Bepflanzung zurückschneiden" · 1x "Gartenjahresrückschnitt" · 1x "Gartenpflegearbeiten incl. Grünabfallentsorgung, Baggerarbeiten und Baumwurzelfräsen" … +3
+  GTN-103    5x  47.5–900 €          Hecke entfernen
+           └ 1x "Hecken Entfernung" · 1x "Zusatz Arbeiten Hecke entfernen" · 1x "Hecke entfernen inkl. Entsorgung"
+  GTN-104    5x  55–60 €             Rasenfläche angleichen
+           └ 1x "Rasensamen einsähen" · 1x "Rasenfläche durchpflügen und einebnen" · 1x "Abgeharkt Rasen angesäht" … +1
+  GTN-105    4x  45–55 €             Borte setzen
+           └ 1x "Borte setzen ca 25m"
+  GTN-106    4x  55–85 €             Dachrinnenreinigung
+           └ 1x "Dachrinnenreinigung/ 2 Mitarbeiter" · 1x "Dachrinnen Geräumt und Repariert"
+  GTN-107    4x  48–55 €             Baumschnitt
+           └ 1x "Baumfällarbeiten" · 1x "Baumschneidearbeiten" · 1x "Baumfäll und Fräsarbeiten"
+  GTN-108    3x  50–55 €             Rindenmulch verteilen, Blätter entfernen und Vlies auslegen
+           └ 1x "Verteilen von Rindenmulch" · 1x "Graben befestigt und Rindenmulch verteilt"
+  GTN-109    2x  55 €                Rasengittersteine Verlegen
+  GTN-110    1x  42.5 €              Aufräumarbeiten
+  GTN-111    1x  47.5 €              Rasenbort setzen in Beton
+  GTN-112    1x  320 €               Baumstumpfentfernung incl. entsorgung
+  GTN-113    1x  48 €                Borte Setzen und Richten
+  GTN-114    1x  48 €                Kies verteilen und Kunstrasen Verlegen
+  GTN-115    1x  45 €                Dachrinnenhalter Versetzen
+  GTN-116    1x  58 €                Entfernung Efeu
+  GTN-117    1x  58 €                Grünflächen Mähen und Graben ausheben
+  GTN-118    1x  3201.68 €           Grundstück einebnen incl. Wurzelfräsen
+  GTN-119    1x  2680.67 €           Abfallentsorgung
+  GTN-120    1x  55 €                Pinienrinde verteilt
+  GTN-121    1x  55 €                Pflanzen Ausgebaggert, Rasenrollschicht ausgebessert
+  GTN-122    1x  55 €                weitere Hecke und Diverse Pflanzen Entfernen und Entsorgen
+  GTN-123    1x  55 €                Boden im Wurzelbereich verdichten, ebnen und ggf. Anfüllen
+  GTN-124    1x  55 €                Baum hinter Garage Gefällt
+  GTN-125    1x  60 €                Mähkanten eingebaut, rasenfläche abgeharkt, begradigt, angesäht und Pflanzen eingepflanzt
+  GTN-126    1x  45 €                Gartenarbeiten, Bestehend aus: Pflanzen umgepflanzt und telweise Entfernt, Unkraut entfernt, Bauschutt und Grünabfall aufgeladen und abgefahren
+  GTN-127    1x  60 €                Bäume gefällt
+  GTN-128    1x  60 €                Wildkraut entfernt
+  GTN-129    1x  60 €                Mäh und Aufräumarbeiten
+  GTN-130    1x  60 €                Mäharbeiten
+
+── ZAU · Zaunarbeiten (30) ───────────────────────────────────
+  ZAU-100   22x  45–60 €             Doppelstabmattenzaun aufbauen
+           └ 2x "Zaunmontage" · 2x "Doppelstabmattenzaun aufstellen" · 2x "zaun aufbauen" … +5
+  ZAU-101    7x  38–60 €             Zaunfundamente herstellen
+           └ 1x "Zaunfundamente setzen" · 1x "Zaunpfosten Betonieren" · 1x "Boden Verdichten und Löcher für Pfosten erstellen" … +3
+  ZAU-102    6x  50–60 €             Einfädeln von Sichtschutzstreifen
+           └ 1x "Sichtschutz streifen Einfädeln" · 1x "Sichtschutzstreifen einfädeln" · 1x "Sichtschutz eingefädelt"
+  ZAU-103    3x  60 €                Zaun zurück gebaut
+  ZAU-104    2x  –                   Zusatzarbeit: Pfostenträger ausheben und betonieren
+  ZAU-105    2x  55 €                Zaun demontage
+           └ 1x "Doppelstabmattenzaun zurückbauen"
+  ZAU-106    1x  38 €                Zaun aufgestellt u. Tür gebaut
+  ZAU-107    1x  42.5 €              Terassenüberdachung herstellen und anpassen
+  ZAU-108    1x  42.5 €              Dach eingedeckt
+  ZAU-109    1x  47.5 €              7 Zaunpfosten in Beton setzen
+  ZAU-110    1x  48 €                Stufe aus Palisaden Herstellen
+  ZAU-111    1x  47.5 €              Carport pfeiler Abändern
+  ZAU-112    1x  55 €                Boden im Zaunbereich verdichten
+  ZAU-113    1x  55 €                12 Pfosten betonieren + zaun aufstellen
+  ZAU-114    1x  60 €                Entsorgung Alter Zaun
+  ZAU-115    1x  55 €                Tor Herstellen und Abschließende Arbeiten
+  ZAU-116    1x  55 €                Zusatzarbeit : Beton an Doppelstabmattenzaun Weggestämmt, Bordstein entfernt, Neues Bord gesetzt, Baumwurzel entfernt für Zaun
+  ZAU-117    1x  55 €                Carport Aufbauen
+  ZAU-118    1x  55 €                Platten Verlegen unter Zaun
+  ZAU-119    1x  55 €                Blechdach demontieren und entsorgen
+  ZAU-120    1x  55 €                Windfeder Montieren
+  ZAU-121    1x  50 €                Aufbau Überdachung
+  ZAU-122    1x  57.5 €              L Steine Gesetzt, Terrasse Gepflastert, Zaunpfosten mit einbetoniert
+  ZAU-123    1x  57.5 €              Zaun Aufgebaut und Tür Erstellt
+  ZAU-124    1x  60 €                Palisaden Gesetzt und Umrandung für Brunnen Hergestellt
+  ZAU-125    1x  55 €                Doppelstabmattenzaun versetzen
+  ZAU-126    1x  297.33 €            Ausheben und Betonieren der 3 Zusätzlichen Pfostenträger
+  ZAU-127    1x  12 €                Pfostenträger 12x100 zum Einbetonieren
+  ZAU-128    1x  30 €                Entsorgung Holzzaun
+  ZAU-129    1x  60 €                Borde und Pfostenträger setzen in Beton
+
+── VWG · Verwaltung (24) ───────────────────────────────────
+  VWG-100   42x  17.5–20 €           Transportpauschale f. fertigbeton
+           └ 3x "Transportpauschale Fertigbeton" · 3x "Transportpauschale für Beton" · 2x "Logistikpauschale Hesse" … +5
+  VWG-101   18x  15–25 €             Anfahrtspauschale
+           └ 3x "Anfahrpauschale" · 2x "Anfahrtspauschale Bunde" · 1x "Anfahrtpauschale" … +1
+  VWG-102    9x  50–60 €             Arbeitslohn
+           └ 1x "Arbeitslohn Für Stemm/ Nivillier und Bodenverlegearbeiten" · 1x "Arbeitzeit" · 1x "Arbeitslohn Für Mehraufwand/ Umplanung"
+  VWG-103    6x  30 €                Einsatz Motorerdbohrer
+           └ 1x "Erdbohrer einsatz"
+  VWG-104    6x  15–125 €            Frachtpauschale ab werk
+           └ 1x "Transportpauschale" · 1x "Transportpauschale Wertstoffhof" · 1x "Augustin Gestellungspauschale Abrollfahrzeug" … +1
+  VWG-105    5x  50 €                Baggergerätenutzung
+  VWG-106    4x  3.5 €               Europaletten anteilige Leihgebühr
+  VWG-107    4x  60–350 €            Abgesprochene Mehrarbeit
+           └ 1x "Mehrarbeiten durch Kartons Abspr. Andy Dressman" · 1x "Mehrarbeit durch Kartons Abspr. A. Dressman" · 1x "Mehrarbeit Gehweg Richten und Wiederherstellen"
+  VWG-108    3x  –                   Leihgebühr Microbagger
+  VWG-109    2x  –                   Container Stellpauschale Eilderts
+  VWG-110    2x  20–24.5 €           Transportpauschale für Sand
+           └ 1x "Transportpauschale Für Brechsand"
+  VWG-111    1x  38 €                Wartezeit V.D.Pütten
+  VWG-112    1x  48 €                Baustelle einrichten
+  VWG-113    1x  25 €                Einsatz Spirale
+  VWG-114    1x  60 €                Einsatz Nassschneider
+  VWG-115    1x  50 €                Anfahrtspauschale > 50km
+  VWG-116    1x  55 €                Planung erstellen
+  VWG-117    1x  50.42 €             Verbrauchsmaterialpauschale
+  VWG-118    1x  604.8 €             Entsorgung Altes Pflaster und container stellpauschale
+  VWG-119    1x  800 €               Handwerkerkosten
+  VWG-120    1x  148.8 €             Leihgebühr Radlader
+  VWG-121    1x  1800 €              Montagekosten
+  VWG-122    1x  159.66 €            Arbeitsbühne Selbstfahrend Benzin
+  VWG-123    1x  139 €               Einsatz Motorpfahlramme
+
+── UMZ · Umzug (4) ───────────────────────────────────
+  UMZ-001    8x  50–2750 €           Umzug
+           └ 1x "Umzug / 3 Umzugshelfer / LKW / Inkusiv Diesel" · 1x "Umzug / 2 Umzugshelfer" · 1x "Umzug / 2 Fahrer / LKW / Inkl.Diesel" … +3
+  UMZ-002    1x  1350 €              Umzug von 26842 nach 06779
+  UMZ-003    1x  3400 €              Umzug Bochum, 3 umzugshelfer auf- abbau
+  UMZ-004    1x  780 €               Umzug incl. Umzugshelfer auf und ab - bau
+
+── SON · Sonstige (22) ───────────────────────────────────
+  SON-001    3x  –                   Kabelverlegungsarbeiten
+  SON-002    2x  48–55 €             Ausbesserungsarbeiten
+           └ 1x "Ausbesserungsarbeiten Innenhof"
+  SON-003    1x  38 €                Reinigungen von Boxen
+  SON-004    1x  45 €                Hofentwässerung eingebaut
+  SON-005    1x  48 €                Schneidarbeiten
+  SON-006    1x  48 €                Rüttteln, schneiden und einschlämmen
+  SON-007    1x  2800 €              Fflasterarbeiten
+  SON-008    1x  55 €                Fugen ausgeflext und vorbereitet fürs Einfugen
+  SON-009    1x  55 €                Herstellen von 19 Löchern
+  SON-010    1x  30 €                Bauschutt entsorgen
+  SON-011    1x  55 €                Kvh holzunterkonstuktion anpassen und Montieren
+  SON-012    1x  169.75 €            Gemischte Bau und Abbruchabfälle
+  SON-013    1x  7.55 €              Montageschaum
+  SON-014    1x  55 €                Bodenverlegearbeiten
+  SON-015    1x  55 €                Duschwand Hergestellt
+  SON-016    1x  60 €                Abbruch der Rollschicht
+  SON-017    1x  14.49 €             Mea Universal Standardbefestigungsset
+  SON-018    1x  60 €                Befüllen und Ansähen
+  SON-019    1x  60 €                Terrrasse Hergestellt
+  SON-020    1x  60 €                Zusatzarbeit: Treppe gefliest
+  SON-021    1x  1200 €              Abbrucharbeiten
+  SON-022    1x  8.5 €               Grabenbefestigung aus Bongossi geflecht 0,4x3m

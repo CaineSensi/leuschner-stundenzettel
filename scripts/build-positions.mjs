@@ -34,6 +34,134 @@ function categorize(key) {
   return 'SON';
 }
 
+// ---------- Arbeitsposition-Erkennung ----------
+// true  = Arbeits-/Dienstleistungsposition (Lohn, Einbau, Service …)
+// false = Reine Materiallieferung (Schotter, KG-Rohr, Pflastersteine …)
+// VWG-Positionen (Pauschalen, Anfahrt, Lohn) sind immer Arbeit.
+// Funktioniert auf dem foldKey (normalisiert, ohne Umlaute).
+const ARBEIT_ROOTS = [
+  'arbeit',         // arbeiten, Arbeitslohn, Mehrarbeit
+  // Einbauen / Gebaut
+  'einbau',         // einbauen (Präfix vor "ge")
+  'gebaut',         // eingebaut, aufgebaut, zurückgebaut, Tür gebaut
+  'aufbau',         // Aufbau Überdachung (Substantiv als Arbeitsposition)
+  'aufstell',       // aufstellen
+  // Verlegen / Verteilen
+  'legen',          // verlegen, verlegt, Platten legen
+  'verteilen',
+  'verteilt',
+  // Verdichten / Planieren
+  'verdichten',
+  'verdichtet',
+  'planieren',
+  'planiert',
+  // Setzen
+  'setzen',
+  'gesetzt',
+  // Herstellen (Infin. vs. Partizip haben verschiedene Stämme!)
+  'herstell',       // herstellen
+  'hergestellt',    // hergestellt (ge-Präfix nach "her")
+  // Montage
+  'montage',
+  'montier',
+  // Entfernen / Rückbau / Demontage
+  'entfern',
+  'zuruckbau',      // zurückbauen (Infinitiv)
+  'demontage',
+  // Entsorgung (immer Dienstleistung)
+  'entsorgung',
+  'entsorgen',
+  // Erdarbeiten
+  'ausheben',
+  'aushub',
+  'auskoffern',
+  'ausgekoffert',
+  'auffullen',      // auffüllen (→ auffullen nach foldKey)
+  'anfullen',       // anfüllen
+  'einebnen',
+  'ausbagger',      // ausbaggern
+  'gebaggert',      // ausgebaggert (ge-Präfix in Wortmitte)
+  // Bepflanzung / Rasen / Baumarbeiten
+  'ansahen',        // ansähen
+  'einsahen',       // einsähen
+  'saht',           // angesäht, eingesäht
+  'hark',           // abharken, einharken, abgeharkt
+  'frasen',         // fräsen (→ frasen nach foldKey)
+  'schneid',        // schneiden, Schneidarbeiten, zurückschneiden
+  'schnitt',        // Rückschnitt, Baumschnitt, Gartenschnitt
+  'fallen',         // fällen (→ fallen nach foldKey)
+  'gefallt',        // gefällt (→ gefallt nach foldKey)
+  'abwalzen',
+  // Pflastern
+  'pflastern',
+  // Aufnehmen / Ausbauen / Freilegen
+  'aufnehmen',
+  'aufgenommen',
+  'ausbauen',
+  'freilegen',
+  'freigelegt',
+  'freigestammt',   // freigestämmt
+  // Sanieren / Reparieren / Ausbessern
+  'sanier',
+  'instandgesetzt',
+  'ausbess',        // ausgebessert
+  'repar',
+  // Anpassen / Ausrichten
+  'anpassen',
+  'angepasst',
+  'angleich',       // angleichen, angeglichen
+  'angeglichen',
+  'ausgerichtet',
+  'abander',        // abändern
+  // Techniken
+  'geflext',
+  'gestammt',       // gestämmt
+  'abpumpen',
+  'eingedeckt',
+  'befestig',       // befestigen, befestigt
+  'anbringen',
+  'einfadeln',      // einfädeln
+  'eingefadelt',    // eingefädelt
+  'abbruch',
+  'abgebrochen',
+  'kabelverleg',
+  'suchschachtung',
+  'rutteln',        // rütteln
+  'einschlammem',   // einschlämmen
+  'einschlammarbeit',
+  'betonier',       // betonieren, betoniert
+  'erstell',        // erstellen, erstellt
+  'anlegen',
+  'angeschloss',    // angeschlossen
+  'reinig',         // reinigen, Reinigung
+  'geraumt',        // geräumt
+  'gefliest',
+  'verfugen',
+  'gepflastert',
+  'verkleben',
+  'verschlies',     // verschließen
+  'absanden',
+  // Entsorgung / Logistik
+  'abfall',         // Grünabfall (Entsorgungsservice)
+  'abfahren',
+  'aufgeladen',
+  'frachtkosten',   // Frachtkosten (nicht "inclusive Fracht")
+  'frachtpauschale',
+  // Sonstiges
+  'umzug',
+  'wartezeit',
+  'pumparbeit',
+  'einrichten',     // Baustelle einrichten
+  'schachten',
+  'rohrgraben',
+  'lokalis',        // lokalisiert (z. B. Rohrverstopfung)
+  'handwerk',       // Handwerkerkosten
+];
+function isArbeitsposition(cat, key) {
+  if (cat === 'VWG') return true;
+  return ARBEIT_ROOTS.some((r) => key.includes(r));
+}
+
 // ---------- Rechnungen aufbereiten ----------
 const STATUS = { '100': 'Entwurf', '200': 'offen', '1000': 'bezahlt' };
 const TYPE = { RE: 'Rechnung', SR: 'Storno', AR: 'Abschlag', ER: 'Endrechnung', TR: 'Teilrechnung' };
@@ -107,6 +235,7 @@ const POSITIONEN = [...groups.values()].map((g) => {
   return {
     label,
     cat: g.cat,
+    isArbeit: isArbeitsposition(g.cat, g.key),
     anzahlRechnungen: g.invoiceIds.size,
     anzahlPositionen: g.rows.length,
     mengeProEinheit: perUnit,
@@ -298,6 +427,9 @@ function buildHtml(META, POSITIONEN, RECHNUNGEN) {
   <div class="note">Sortiert nach Häufigkeit (in wie vielen Rechnungen die Position vorkommt). Klick auf eine Zeile öffnet
     Details: alle Original-Schreibweisen der Gruppe und Beispiel-Rechnungen. Die <b>Kategorie</b> ist eine automatische
     Schätzung anhand von Stichwörtern und kann im Einzelfall abweichen.</div>
+  <div class="controls" style="margin-bottom:6px">
+    <div class="chips" id="viewtoggle"></div>
+  </div>
   <div class="controls">
     <input type="search" id="q" placeholder="Position suchen … (z. B. Pflaster, Bagger, Zaun)">
     <div class="chips" id="cats"></div>
@@ -361,6 +493,23 @@ document.getElementById('kpis').innerHTML = kpis.map(([l,v])=>
   '<div class="kpi"><div class="v">'+(typeof v==='number'?v.toLocaleString('de-DE'):esc(v))+'</div><div class="l">'+l+'</div></div>'
 ).join('');
 
+// ---- Ansicht-Toggle (Arbeit / Alle / Material) ----
+let viewMode = 'arbeit'; // Default: nur Arbeitspositionen
+const VIEW_MODES = [
+  ['arbeit', 'Nur Arbeit'],
+  ['all',    'Alle'],
+  ['mat',    'Nur Material'],
+];
+document.getElementById('viewtoggle').innerHTML = VIEW_MODES.map(([v,l])=>
+  '<span class="chip'+(v==='arbeit'?' on':'')+'" data-v="'+v+'">'+l+'</span>'
+).join('');
+document.getElementById('viewtoggle').addEventListener('click', e=>{
+  const ch = e.target.closest('.chip'); if(!ch) return;
+  viewMode = ch.dataset.v;
+  [...document.querySelectorAll('#viewtoggle .chip')].forEach(x=>x.classList.toggle('on', x.dataset.v===viewMode));
+  renderPos();
+});
+
 // ---- Kategorie-Filter ----
 let activeCat = 'ALL';
 const cats = ['ALL','ERD','PFL','GTN','ZAU','VWG','SON'];
@@ -422,6 +571,8 @@ let filtered = POSITIONEN;
 function renderPos(){
   const q = document.getElementById('q').value.trim().toLowerCase();
   filtered = POSITIONEN.filter(p=>{
+    if(viewMode==='arbeit' && !p.isArbeit) return false;
+    if(viewMode==='mat'    &&  p.isArbeit) return false;
     if(activeCat!=='ALL' && p.cat!==activeCat) return false;
     if(q){
       const hay = (p.label+' '+p.schreibweisen.map(s=>s.text).join(' ')).toLowerCase();
@@ -431,7 +582,10 @@ function renderPos(){
   });
   const body = document.getElementById('posbody');
   body.innerHTML = filtered.map((p,i)=>posRow(p,i)+detRow(p,i)).join('');
-  document.getElementById('poscount').textContent = filtered.length+' von '+POSITIONEN.length+' Gruppen';
+  const total = viewMode==='all'? POSITIONEN.length
+    : viewMode==='arbeit'? POSITIONEN.filter(p=>p.isArbeit).length
+    : POSITIONEN.filter(p=>!p.isArbeit).length;
+  document.getElementById('poscount').textContent = filtered.length+' von '+total+' Gruppen';
 }
 document.getElementById('q').addEventListener('input', renderPos);
 document.getElementById('posbody').addEventListener('click', e=>{

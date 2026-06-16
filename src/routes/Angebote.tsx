@@ -1924,8 +1924,12 @@ function prioStyle(p: string): React.CSSProperties {
 function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry | null }) {
   const name = inquiry?.customerName || card.customerName || "—";
   const phone = inquiry?.customerPhone;
+  const mobile = inquiry?.parsedJson?.phone_mobile as string | undefined;
   const email = inquiry?.customerEmail;
-  const ort = inquiry?.city || card.place;
+  const street = inquiry?.street;
+  const zip = inquiry?.zip;
+  const city = inquiry?.city || card.place;
+  const ort = [zip, city].filter(Boolean).join(" ") || undefined;
   const anliegen = inquiry?.description || card.description;
   const sub = [card.docNumber, ort].filter(Boolean).join(" · ");
 
@@ -1960,16 +1964,37 @@ function ContactCard({ card, inquiry }: { card: PipelineCard; inquiry: Inquiry |
 
       {/* Body: Feld-Zeilen */}
       <div className="px-4 py-1.5 [&>*:last-child]:border-b-0">
-        <div className="flex justify-between items-center py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
-          <span className="text-[11px] font-mono tracking-wide" style={{ color: "rgba(255,255,255,.4)" }}>Telefon</span>
-          {phone
-            ? <a href={`tel:${phone.replace(/\s/g, "")}`} className="font-mono text-[12px] font-bold no-underline" style={{ color: "#4ADE80" }}>{phone}</a>
-            : <span className="text-[12px]" style={{ color: "rgba(255,255,255,.3)" }}>nicht erfasst</span>}
-        </div>
+        {(phone || mobile) ? (
+          <>
+            {phone && (
+              <div className="flex justify-between items-center py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+                <span className="text-[11px] font-mono tracking-wide" style={{ color: "rgba(255,255,255,.4)" }}>Festnetz</span>
+                <a href={`tel:${phone.replace(/\s/g, "")}`} className="font-mono text-[12px] font-bold no-underline" style={{ color: "#4ADE80" }}>{phone}</a>
+              </div>
+            )}
+            {mobile && (
+              <div className="flex justify-between items-center py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+                <span className="text-[11px] font-mono tracking-wide" style={{ color: "rgba(255,255,255,.4)" }}>Mobil</span>
+                <a href={`tel:${mobile.replace(/\s/g, "")}`} className="font-mono text-[12px] font-bold no-underline" style={{ color: "#4ADE80" }}>{mobile}</a>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex justify-between items-center py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+            <span className="text-[11px] font-mono tracking-wide" style={{ color: "rgba(255,255,255,.4)" }}>Telefon</span>
+            <span className="text-[12px]" style={{ color: "rgba(255,255,255,.3)" }}>nicht erfasst</span>
+          </div>
+        )}
         {email && (
           <div className="flex justify-between items-center gap-3 py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
             <span className="text-[11px] font-mono tracking-wide flex-shrink-0" style={{ color: "rgba(255,255,255,.4)" }}>E-Mail</span>
             <a href={`mailto:${email}`} className="text-[12px] no-underline truncate" style={{ color: "#E8853F" }}>{email}</a>
+          </div>
+        )}
+        {street && (
+          <div className="flex justify-between items-center gap-3 py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>
+            <span className="text-[11px] font-mono tracking-wide flex-shrink-0" style={{ color: "rgba(255,255,255,.4)" }}>Straße</span>
+            <span className="text-[12px] font-medium truncate" style={{ color: "rgba(255,255,255,.85)" }}>{street}</span>
           </div>
         )}
         <div className="flex justify-between items-center py-[7px] text-[12.5px]" style={{ borderBottom: "1px solid rgba(255,255,255,.07)" }}>

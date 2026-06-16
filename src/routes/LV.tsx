@@ -67,6 +67,7 @@ export default function LV() {
   const [showNew, setShowNew] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [sortAZ, setSortAZ] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -119,7 +120,9 @@ export default function LV() {
     (p.shortText ?? "").toLowerCase().includes(q);
 
   /* Liste: aktive Kategorie + Suche. "ALLE" zeigt alles, Suche sucht über alles. */
-  const listItems = positions.filter((p) => (q !== "" || activeCat === "ALLE" || p.cat === activeCat) && matches(p));
+  const listItems = positions
+    .filter((p) => (q !== "" || activeCat === "ALLE" || p.cat === activeCat) && matches(p))
+    .sort(sortAZ ? (a, b) => a.name.localeCompare(b.name, "de") : undefined);
 
   const errPositions = positions.filter((p) => p.cat === "ERR");
   const activePos = positions.find((p) => p.id === activeId) ?? null;
@@ -183,6 +186,15 @@ export default function LV() {
     } finally {
       setSaving(false);
     }
+  }
+
+  /* Neue Zulage (ERR-Position) direkt aus dem Modal heraus anlegen */
+  async function handleCreateZulage(input: LvPositionInput): Promise<LvPosition> {
+    const created = await createLvPosition(input);
+    setPositions((prev) =>
+      [...prev, created].sort((a, b) => a.cat.localeCompare(b.cat) || a.id.localeCompare(b.id))
+    );
+    return created;
   }
 
   /* Position archivieren */
@@ -291,7 +303,21 @@ export default function LV() {
               {q !== "" ? "Suchtreffer" : LV_CATEGORIES[activeCat]?.label ?? activeCat}
               <span className="text-white/35 ml-1.5 normal-case tracking-normal">({listItems.length})</span>
             </span>
-            <span className="dd-eyebrow text-steel !text-[9px]" title="Netto-Einheitspreis">Netto-EP</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSortAZ((s) => !s)}
+                title={sortAZ ? "Zurück zur Standard-Reihenfolge (Kategorie + ID)" : "Alphabetisch nach Name sortieren"}
+                aria-pressed={sortAZ}
+                className={`font-mono text-[10px] font-bold tracking-wider px-2 py-1 rounded transition-colors !min-h-[28px] ${
+                  sortAZ
+                    ? "bg-copper text-white"
+                    : "bg-white/8 text-white/45 hover:bg-white/15 hover:text-white"
+                }`}
+              >
+                A–Z
+              </button>
+              <span className="dd-eyebrow text-steel !text-[9px]" title="Netto-Einheitspreis">Netto-EP</span>
+            </div>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto board-scroll">
             {loading ? (
@@ -307,30 +333,71 @@ export default function LV() {
             ) : (
               listItems.map((p) => {
                 const isActive = p.id === activeId;
+                const confirming = deleteConfirm === p.id;
                 return (
-                  <button
+                  <div
                     key={p.id}
-                    onClick={() => { setActiveId(p.id); setDeleteConfirm(null); }}
-                    aria-label={`Position ${p.id} anzeigen: ${p.name}`}
-                    aria-pressed={isActive}
-                    title="Klick: Detail im rechten Panel anzeigen"
-                    className={`w-full text-left px-4 py-3 border-b border-white/6 transition-colors flex items-baseline gap-3 ${
+                    className={`group w-full border-b border-white/6 transition-colors flex items-stretch ${
                       isActive ? "bg-white/10 border-l-2 border-l-copper" : "hover:bg-white/5"
                     }`}
                   >
-                    <span className="font-mono text-[11px] tracking-wider font-bold text-copper w-[62px] flex-shrink-0">
-                      {p.id}
-                    </span>
-                    <span className="flex-1 font-sans text-[13px] font-semibold text-white/85 leading-snug">
-                      {p.name}
-                      {q !== "" && (
-                        <span className="ml-1.5 font-mono text-[9.5px] text-white/35 uppercase">{p.cat}</span>
+                    {/* Klickbereich: Position auswählen */}
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => { setActiveId(p.id); setDeleteConfirm(null); }}
+                      onKeyDown={(e) => e.key === "Enter" && setActiveId(p.id)}
+                      aria-label={`Position ${p.id} anzeigen: ${p.name}`}
+                      aria-pressed={isActive}
+                      className="flex-1 text-left px-4 py-3 flex items-baseline gap-3 cursor-pointer min-w-0"
+                    >
+                      <span className="font-mono text-[11px] tracking-wider font-bold text-copper w-[62px] flex-shrink-0">
+                        {p.id}
+                      </span>
+                      <span className="flex-1 font-sans text-[13px] font-semibold text-white/85 leading-snug truncate">
+                        {p.name}
+                        {q !== "" && (
+                          <span className="ml-1.5 font-mono text-[9.5px] text-white/35 uppercase">{p.cat}</span>
+                        )}
+                      </span>
+                      <span className="font-mono text-[11px] text-white/50 whitespace-nowrap flex-shrink-0">
+                        {priceStr(p)}
+                      </span>
+                    </div>
+                    {/* Löschen-Aktion */}
+                    <div className="flex items-center flex-shrink-0 pr-2">
+                      {confirming ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleArchive(p.id)}
+                            disabled={saving}
+                            aria-label="Löschen bestätigen"
+                            title="Ja, Position löschen"
+                            className="font-mono text-[11px] font-bold px-2 py-1 rounded bg-rust text-white hover:bg-red-700 transition-colors disabled:opacity-50 !min-h-[28px]"
+                          >
+                            {saving ? "…" : "Ja"}
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirm(null)}
+                            aria-label="Abbrechen"
+                            title="Abbrechen"
+                            className="font-mono text-[11px] font-bold px-2 py-1 rounded bg-white/10 text-white/60 hover:bg-white/20 transition-colors !min-h-[28px]"
+                          >
+                            Nein
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setDeleteConfirm(p.id)}
+                          aria-label={`Position ${p.id} löschen`}
+                          title="Position löschen"
+                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 font-mono text-[13px] font-bold w-7 h-7 flex items-center justify-center rounded text-white/40 hover:bg-rust/20 hover:text-rust transition-all"
+                        >
+                          ×
+                        </button>
                       )}
-                    </span>
-                    <span className="font-mono text-[11px] text-white/50 whitespace-nowrap flex-shrink-0">
-                      {priceStr(p)}
-                    </span>
-                  </button>
+                    </div>
+                  </div>
                 );
               })
             )}
@@ -387,6 +454,7 @@ export default function LV() {
           saving={saving}
           saveError={saveError}
           onSave={handleCreate}
+          onCreateZulage={handleCreateZulage}
           onClose={() => { setShowNew(false); setSaveError(null); }}
         />
       )}
@@ -403,6 +471,7 @@ export default function LV() {
             saving={saving}
             saveError={saveError}
             onSave={(input) => handleUpdate(editId, input)}
+            onCreateZulage={handleCreateZulage}
             onClose={() => { setEditId(null); setSaveError(null); }}
           />
         );
@@ -603,6 +672,7 @@ interface PositionModalProps {
   saving: boolean;
   saveError: string | null;
   onSave: (input: LvPositionInput) => void;
+  onCreateZulage: (input: LvPositionInput) => Promise<LvPosition>;
   onClose: () => void;
 }
 
@@ -613,10 +683,29 @@ function PositionModal({
   saving,
   saveError,
   onSave,
+  onCreateZulage,
   onClose,
 }: PositionModalProps) {
   const [form, setForm] = useState<LvPositionInput>(initial);
   const isErr = form.cat === "ERR";
+
+  /* lokale Zulagen-Liste — wächst wenn neue angelegt werden */
+  const [localErr, setLocalErr] = useState<LvPosition[]>(errPositions);
+
+  /* Mini-Formular für neue Zulage */
+  const [showNewZ, setShowNewZ] = useState(false);
+  const [newZ, setNewZ] = useState({ id: "", name: "", surcharge: "" });
+  const [savingZ, setSavingZ] = useState(false);
+  const [errorZ, setErrorZ] = useState<string | null>(null);
+
+  /* nächste freie ERR-ID vorschlagen */
+  const nextErrId = (() => {
+    const nums = localErr
+      .map((e) => parseInt(e.id.replace(/\D/g, ""), 10))
+      .filter((n) => !isNaN(n));
+    const max = nums.length > 0 ? Math.max(...nums) : 0;
+    return `ERR-${String(max + 1).padStart(3, "0")}`;
+  })();
 
   function toggle(zulagenId: string) {
     setForm((prev) => ({
@@ -625,6 +714,32 @@ function PositionModal({
         ? prev.zulagen.filter((z) => z !== zulagenId)
         : [...(prev.zulagen ?? []), zulagenId],
     }));
+  }
+
+  async function handleSaveNewZulage() {
+    setSavingZ(true);
+    setErrorZ(null);
+    try {
+      const created = await onCreateZulage({
+        id: newZ.id.trim().toUpperCase(),
+        cat: "ERR",
+        name: newZ.name.trim(),
+        price: null,
+        unit: "",
+        surcharge: newZ.surcharge.trim(),
+        shortText: "",
+        longText: "",
+        zulagen: [],
+      });
+      setLocalErr((prev) => [...prev, created]);
+      setForm((prev) => ({ ...prev, zulagen: [...(prev.zulagen ?? []), created.id] }));
+      setShowNewZ(false);
+      setNewZ({ id: "", name: "", surcharge: "" });
+    } catch (err: unknown) {
+      setErrorZ(err instanceof Error ? err.message : "Fehler beim Anlegen.");
+    } finally {
+      setSavingZ(false);
+    }
   }
 
   function handleSubmit(e: React.FormEvent) {
@@ -787,39 +902,128 @@ function PositionModal({
         </label>
 
         {/* Zulagen (nur für Arbeits-Positionen) */}
-        {!isErr && errPositions.length > 0 && (
+        {!isErr && (
           <div className="mb-5">
-            <span className="font-sans text-[12.5px] font-bold text-ink-2 block mb-2">
-              Zulagen zuweisen <span className="text-ink-mute font-normal">welche Erschwernis-Aufschläge kommen in Frage?</span>
-            </span>
-            <div className="border border-steel-line/50 rounded-lg overflow-hidden bg-white">
-              {errPositions.map((err) => {
-                const checked = form.zulagen?.includes(err.id) ?? false;
-                return (
-                  <label
-                    key={err.id}
-                    className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b border-[#F0F1F2] last:border-0 transition-colors ${
-                      checked ? "bg-[#FFF8F3]" : "hover:bg-[#FAFAFA]"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => toggle(err.id)}
-                      aria-label={`Zulage ${err.id} aktivieren`}
-                      className="w-4 h-4 rounded border-steel text-copper focus:ring-copper/50"
-                    />
-                    <span className="font-mono text-[11px] tracking-wider text-copper w-[68px] flex-shrink-0 font-bold">
-                      {err.id}
-                    </span>
-                    <span className="flex-1 font-sans text-[13px] text-ink-body leading-snug">{err.name}</span>
-                    <span className="font-mono text-[11px] font-bold text-ink-2 whitespace-nowrap">
-                      {err.surcharge ?? "–"}
-                    </span>
-                  </label>
-                );
-              })}
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-sans text-[12.5px] font-bold text-ink-2">
+                Zulagen zuweisen{" "}
+                <span className="text-ink-mute font-normal">welche Erschwernis-Aufschläge kommen in Frage?</span>
+              </span>
+              {!showNewZ && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewZ({ id: nextErrId, name: "", surcharge: "" });
+                    setShowNewZ(true);
+                    setErrorZ(null);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-copper/10 text-copper border border-copper/25 font-display font-extrabold uppercase text-[10.5px] tracking-wide hover:bg-copper/20 transition-colors !min-h-[30px]"
+                >
+                  + Neue Zulage
+                </button>
+              )}
             </div>
+
+            {/* Mini-Formular: neue Zulage anlegen */}
+            {showNewZ && (
+              <div
+                onClick={(e) => e.stopPropagation()}
+                className="mb-2 rounded-lg border border-copper/30 bg-[#FFF8F3] px-4 py-3"
+              >
+                <div className="font-mono text-[10px] tracking-[.14em] uppercase text-copper font-bold mb-2.5">
+                  Neue Zulage anlegen
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <label className="block">
+                    <span className="font-sans text-[11.5px] font-bold text-ink-2 block mb-1">ID</span>
+                    <input
+                      type="text"
+                      value={newZ.id}
+                      onChange={(e) => setNewZ((p) => ({ ...p, id: e.target.value.toUpperCase() }))}
+                      required
+                      placeholder="ERR-010"
+                      className="w-full bg-white border border-steel rounded-md px-2.5 py-1.5 text-[13px] font-mono text-ink focus:outline-none focus:border-copper !min-h-[38px]"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="font-sans text-[11.5px] font-bold text-ink-2 block mb-1">Aufschlag</span>
+                    <input
+                      type="text"
+                      value={newZ.surcharge}
+                      onChange={(e) => setNewZ((p) => ({ ...p, surcharge: e.target.value }))}
+                      placeholder="+15 %"
+                      className="w-full bg-white border border-steel rounded-md px-2.5 py-1.5 text-[13px] font-mono text-ink focus:outline-none focus:border-copper !min-h-[38px]"
+                    />
+                  </label>
+                </div>
+                <label className="block mb-2">
+                  <span className="font-sans text-[11.5px] font-bold text-ink-2 block mb-1">Bezeichnung</span>
+                  <input
+                    type="text"
+                    value={newZ.name}
+                    onChange={(e) => setNewZ((p) => ({ ...p, name: e.target.value }))}
+                    required
+                    placeholder="z. B. Klei-/Torfboden"
+                    className="w-full bg-white border border-steel rounded-md px-2.5 py-1.5 text-[13px] text-ink focus:outline-none focus:border-copper !min-h-[38px]"
+                  />
+                </label>
+                {errorZ && (
+                  <p className="text-rust text-[11.5px] mb-2">{errorZ}</p>
+                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSaveNewZulage}
+                    disabled={savingZ}
+                    className="inline-flex items-center px-3.5 py-1.5 rounded-md bg-copper text-white font-display font-extrabold uppercase text-[11px] tracking-wide hover:bg-copper-bright transition-colors disabled:opacity-50 !min-h-[36px]"
+                  >
+                    {savingZ ? "Anlegen …" : "Anlegen + zuweisen"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setShowNewZ(false); setErrorZ(null); }}
+                    className="inline-flex items-center px-3 py-1.5 rounded-md bg-black/5 text-ink-2 font-sans text-[12px] hover:bg-black/10 transition-colors !min-h-[36px]"
+                  >
+                    Abbrechen
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {localErr.length > 0 ? (
+              <div className="border border-steel-line/50 rounded-lg overflow-hidden bg-white">
+                {localErr.map((err) => {
+                  const checked = form.zulagen?.includes(err.id) ?? false;
+                  return (
+                    <label
+                      key={err.id}
+                      className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer border-b border-[#F0F1F2] last:border-0 transition-colors ${
+                        checked ? "bg-[#FFF8F3]" : "hover:bg-[#FAFAFA]"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => toggle(err.id)}
+                        aria-label={`Zulage ${err.id} aktivieren`}
+                        className="w-4 h-4 rounded border-steel text-copper focus:ring-copper/50"
+                      />
+                      <span className="font-mono text-[11px] tracking-wider text-copper w-[68px] flex-shrink-0 font-bold">
+                        {err.id}
+                      </span>
+                      <span className="flex-1 font-sans text-[13px] text-ink-body leading-snug">{err.name}</span>
+                      <span className="font-mono text-[11px] font-bold text-ink-2 whitespace-nowrap">
+                        {err.surcharge ?? "–"}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="font-sans text-[12.5px] text-ink-mute italic">
+                Noch keine Zulagen angelegt. Mit „+ Neue Zulage" die erste erstellen.
+              </p>
+            )}
           </div>
         )}
 

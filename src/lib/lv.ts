@@ -8,7 +8,7 @@ function requireBackend(): NonNullable<typeof supabase> {
   return supabase;
 }
 
-export const LV_CAT_ORDER = ['ERD', 'PFL', 'GTN', 'ZAU', 'VWG', 'ERR'] as const;
+export const LV_CAT_ORDER = ['ERD', 'PFL', 'GTN', 'ZAU', 'VWG', 'UMZ', 'SON', 'ERR'] as const;
 
 export const LV_CATEGORIES: Record<string, { label: string }> = {
   ERD: { label: 'Erdarbeiten' },
@@ -16,6 +16,8 @@ export const LV_CATEGORIES: Record<string, { label: string }> = {
   GTN: { label: 'Gartenarbeiten' },
   ZAU: { label: 'Zaunarbeiten' },
   VWG: { label: 'Verwaltung' },
+  UMZ: { label: 'Umzug' },
+  SON: { label: 'Sonstige' },
   ERR: { label: 'Zulagen' },
 };
 
@@ -26,7 +28,9 @@ function rowToPosition(r: any): LvPosition {
     companyId:  r.company_id,
     cat:        r.cat,
     name:       r.name,
-    price:      r.price != null ? Number(r.price) : null,
+    price:      r.price    != null ? Number(r.price)     : null,
+    priceMin:   r.price_min != null ? Number(r.price_min) : null,
+    priceMax:   r.price_max != null ? Number(r.price_max) : null,
     unit:       r.unit ?? null,
     surcharge:  r.surcharge ?? null,
     shortText:  r.short_text ?? null,
@@ -107,11 +111,17 @@ export async function archiveLvPosition(id: string): Promise<void> {
   if (error) throw error;
 }
 
+function fmtNum(n: number): string {
+  return n % 1 === 0 ? `${n}` : n.toFixed(2).replace('.', ',');
+}
+
 export function priceStr(p: LvPosition): string {
   if (p.surcharge) return p.surcharge;
-  if (p.price === null) return '–';
-  const fmt = p.price % 1 === 0
-    ? `${p.price}`
-    : `${p.price.toFixed(2).replace('.', ',')}`;
-  return `${fmt} €/${p.unit ?? '?'}`;
+  if (p.price === null && p.priceMin === null) return '–';
+  const unit = p.unit ? `/${p.unit}` : '';
+  if (p.priceMin !== null && p.priceMax !== null && p.priceMin !== p.priceMax) {
+    return `${fmtNum(p.priceMin)}–${fmtNum(p.priceMax)} €${unit}`;
+  }
+  const val = p.price ?? p.priceMin ?? 0;
+  return `${fmtNum(val)} €${unit}`;
 }

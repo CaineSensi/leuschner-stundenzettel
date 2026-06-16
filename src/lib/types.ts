@@ -128,6 +128,8 @@ export interface LvPosition {
   cat: string;
   name: string;
   price: number | null;
+  priceMin: number | null;
+  priceMax: number | null;
   unit: string | null;
   surcharge: string | null;
   shortText: string | null;
