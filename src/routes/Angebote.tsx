@@ -13,7 +13,7 @@ import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContac
 import { useRealtime, useRefreshOnVisible, useRefreshOnAuth } from "../lib/realtime";
 import { currentUser } from "../lib/auth";
 import BackButton from "../components/BackButton";
-import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, uploadInquiryPhoto, uploadInquiryVideo, updateInquiryPhotos, updateInquiry, appendCardNote, upsertCardContact, SOURCE_ICON, SOURCE_LABEL, type Inquiry, type InquiryPhoto } from "../lib/inquiries";
+import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, uploadInquiryPhoto, uploadInquiryVideo, updateInquiryPhotos, updateInquiry, appendCardNote, upsertCardContact, deleteInquiryPhotoFile, SOURCE_ICON, SOURCE_LABEL, type Inquiry, type InquiryPhoto } from "../lib/inquiries";
 import { uploadSitePhoto, getCurrentCompanyId } from "../lib/photos";
 import { extractZipMedia, parseWhatsAppText, whatsAppSummary } from "../lib/zipImport";
 
@@ -1998,8 +1998,23 @@ function ContactCard({ card, inquiry, onInquiryUpdate }: { card: PipelineCard; i
           ) : (
             <CcBadge style={{ background: "rgba(140,110,69,.2)", color: "#D4A870", borderColor: "rgba(140,110,69,.35)" }}>🗂 sevDesk</CcBadge>
           )}
-          {inquiry?.status && <CcBadge style={statusStyle(inquiry.status)}>{inquiry.status}</CcBadge>}
-          {inquiry?.priority && <CcBadge style={prioStyle(inquiry.priority)}>{inquiry.priority}</CcBadge>}
+          {/* Status nur lesbar + nur wenn aussagekräftig (interne „wurde_zu_angebot"
+              = Verlaufs-Träger ausblenden). Priorität nur wenn ≠ normal. */}
+          {inquiry?.status && inquiry.status !== "wurde_zu_angebot" && (
+            <CcBadge style={statusStyle(inquiry.status)}>
+              {inquiry.status === "in_arbeit" ? "In Arbeit"
+                : inquiry.status === "offen" ? "Offen"
+                : inquiry.status === "verworfen" ? "Verworfen"
+                : inquiry.status}
+            </CcBadge>
+          )}
+          {inquiry?.priority && inquiry.priority !== "normal" && (
+            <CcBadge style={prioStyle(inquiry.priority)}>
+              {inquiry.priority === "hoch" ? "Priorität hoch"
+                : inquiry.priority === "niedrig" ? "Priorität niedrig"
+                : inquiry.priority}
+            </CcBadge>
+          )}
           {!editing && (
             <button onClick={startEdit} title="Kontaktdaten bearbeiten"
               className="mt-0.5 font-mono text-[10px] tracking-wider uppercase px-2 py-1 rounded-md"
@@ -2129,7 +2144,23 @@ function InquiryPhotoGallery({
   const [uploadErr, setUploadErr] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [zipProgress, setZipProgress] = useState<ZipProgress | null>(null);
+  const [pendingDel, setPendingDel] = useState<number | null>(null);
+  const [delBusy, setDelBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Einzelnes Medium komplett entfernen (aus der Liste + Storage-Datei).
+  async function deletePhoto(i: number) {
+    const photo = inquiry.photos?.[i];
+    if (!photo) return;
+    setDelBusy(true);
+    try {
+      const remaining = (inquiry.photos ?? []).filter((_, idx) => idx !== i);
+      await updateInquiryPhotos(inquiry.id, remaining);
+      onPhotosUpdated?.(remaining);
+      deleteInquiryPhotoFile(photo.path);  // Storage best effort
+      setPendingDel(null);
+    } finally { setDelBusy(false); }
+  }
 
   useEffect(() => {
     if (!inquiry.photos?.length) { setUrls([]); return; }
@@ -2323,25 +2354,45 @@ function InquiryPhotoGallery({
               const url = urls[i];
               const isVideo = photo.type === "video";
               return url ? (
-                <button key={i} type="button"
-                  onClick={() => setLightbox({ url, type: isVideo ? "video" : "image" })}
-                  className="group relative overflow-hidden rounded-md border border-steel-line/20 focus:outline-none focus:ring-2 focus:ring-copper w-24 h-24">
-                  {isVideo ? (
-                    <>
-                      <video src={url} className="w-full h-full object-cover" muted preload="metadata" />
-                      <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/20 transition-colors">
-                        <span className="text-white text-2xl drop-shadow-lg">▶</span>
+                <div key={i} className="group relative w-24 h-24">
+                  <button type="button"
+                    onClick={() => setLightbox({ url, type: isVideo ? "video" : "image" })}
+                    className="relative overflow-hidden rounded-md border border-steel-line/20 focus:outline-none focus:ring-2 focus:ring-copper w-full h-full block">
+                    {isVideo ? (
+                      <>
+                        <video src={url} className="w-full h-full object-cover" muted preload="metadata" />
+                        <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover:bg-black/20 transition-colors">
+                          <span className="text-white text-2xl drop-shadow-lg">▶</span>
+                        </div>
+                      </>
+                    ) : (
+                      <img src={url} alt={photo.name} className="w-full h-full object-cover group-hover:opacity-90 transition-opacity" loading="lazy" />
+                    )}
+                    {photo.at && (
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white font-mono text-[8px] px-1 py-0.5 text-center">
+                        {photo.at.slice(5, 10)}
                       </div>
-                    </>
-                  ) : (
-                    <img src={url} alt={photo.name} className="w-full h-full object-cover group-hover:opacity-90 transition-opacity" loading="lazy" />
-                  )}
-                  {photo.at && (
-                    <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white font-mono text-[8px] px-1 py-0.5 text-center">
-                      {photo.at.slice(5, 10)}
+                    )}
+                  </button>
+                  {/* Löschen — × immer sichtbar (auch mobil), kurze Bestätigung */}
+                  {pendingDel === i ? (
+                    <div className="absolute inset-0 bg-black/75 rounded-md flex flex-col items-center justify-center gap-1.5 z-10">
+                      <span className="text-white font-mono text-[10px]">Löschen?</span>
+                      <div className="flex gap-1.5">
+                        <button type="button" disabled={delBusy}
+                          onClick={(e) => { e.stopPropagation(); deletePhoto(i); }}
+                          className="font-mono text-[10px] px-2.5 py-1 rounded bg-rust text-white disabled:opacity-50">{delBusy ? "…" : "Ja"}</button>
+                        <button type="button"
+                          onClick={(e) => { e.stopPropagation(); setPendingDel(null); }}
+                          className="font-mono text-[10px] px-2.5 py-1 rounded bg-white/20 text-white">Nein</button>
+                      </div>
                     </div>
+                  ) : (
+                    <button type="button" title="Bild löschen"
+                      onClick={(e) => { e.stopPropagation(); setPendingDel(i); }}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-rust text-white text-[12px] leading-none flex items-center justify-center shadow-md opacity-80 hover:opacity-100 transition-opacity z-10">×</button>
                   )}
-                </button>
+                </div>
               ) : (
                 <div key={i} className="w-24 h-24 rounded-md border border-steel-line/20 bg-bg-2 animate-pulse" />
               );

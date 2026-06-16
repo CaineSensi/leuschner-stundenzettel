@@ -421,6 +421,14 @@ export async function updateInquiryPhotos(id: string, photos: InquiryPhoto[]): P
   if (error) throw error;
 }
 
+/** Löscht die Datei eines Anfrage-Mediums aus dem Storage (best effort).
+ *  Die Liste selbst wird separat über updateInquiryPhotos aktualisiert. */
+export async function deleteInquiryPhotoFile(path: string): Promise<void> {
+  if (!isBackendConnected() || !supabase || !path) return;
+  const sb: any = supabase;
+  try { await sb.storage.from("entry-photos").remove([path]); } catch { /* ignore */ }
+}
+
 /** Gibt eine signierte URL für ein Anfrage-Foto zurück (1h gültig). */
 export async function inquiryPhotoUrl(path: string): Promise<string | null> {
   if (!isBackendConnected() || !supabase) return null;
