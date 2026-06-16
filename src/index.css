@@ -176,6 +176,24 @@
   }
   .dd-drawer.on { transform: translateX(0); }
 
+  /* Ab Tablet/Desktop NICHT mehr seitlich, sondern zentriert öffnen
+     (Rick 16.06.: „alles sollte zentriert öffnen", wie das Chat-Modal).
+     Mobil bleibt es das gewohnte Vollbild-Panel von rechts. */
+  @media (min-width: 768px) {
+    .dd-drawer {
+      top: 50%; left: 50%; right: auto;
+      height: min(960px, 90vh);
+      width: min(1080px, 95vw);
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 40px 80px -16px rgba(0,0,0,.55), 0 0 0 1px rgba(0,0,0,.06);
+      transform: translate(-50%, -48%);
+      opacity: 0;
+      transition: transform .26s cubic-bezier(.22,1,.36,1), opacity .26s ease;
+    }
+    .dd-drawer.on { transform: translate(-50%, -50%); opacity: 1; }
+  }
+
   /* Dezente Scrollbar für Board-Spalten / Drawer */
   .board-scroll { scrollbar-width: thin; scrollbar-color: rgba(107,111,114,.45) transparent; }
   .board-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
