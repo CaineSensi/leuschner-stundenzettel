@@ -48,6 +48,11 @@ export interface Env {
    *  Als Cloudflare-Pages-Secret hinterlegt. Fehlt der Key, fällt die
    *  Pipeline automatisch auf Workers AI (70B) zurück. */
   GEMINI_API_KEY?: string;
+  /** Supabase-Verbindung für Post-Processing (LV-Matching, siehe
+   *  `applyLvMatching` unten). Beide Werte sind Cloudflare-Pages-Secrets;
+   *  fehlen sie, läuft die Pipeline einfach ohne Auto-LV-Match weiter. */
+  SUPABASE_URL?: string;
+  SUPABASE_SERVICE_KEY?: string;
 }
 
 /** Wie sicher ist Pipeline bei einem Feld bzw. der Gesamtaussage. */
@@ -87,6 +92,12 @@ interface Parsed {
      *  Wörtliche kurze Phrasen (1–8 Wörter), max 3 pro Leistung. Frontend
      *  färbt diese Stellen im Originaltext ein. */
     source_quotes?: string[];
+    /** M16: per Post-Processing zugeordnete LV-Position aus dem Master-LV
+     *  (z.B. "ERD-100"). Aliase werden zum Master aufgelöst. Undefined
+     *  wenn keine sichere Zuordnung möglich war. */
+    lv_position_id?: string;
+    /** Score (0..1) der besten LV-Zuordnung — fürs Debugging im Frontend. */
+    lv_match_score?: number;
   }[];
   mengen?: { wert: string; einheit?: string; was?: string }[];
   termin?: string;
@@ -194,7 +205,13 @@ Regeln:
 - Mengen mit Einheit (m, m², m³, lfm, Stk, t, Std — IMMER Standardform aus Glossar) und IMMER "was" füllen (was ist gemeint, z.B. "Zaun", "Pflasterfläche", "Mutterboden")
 - WICHTIG bei mehreren Gewerken: leistungen[] enthält JEDE einzelne Leistung mit ihrer eigenen mengen[]-Liste. leistung (Singular) ist dann leistungen[0].name. Das globale mengen[]-Array darf zusätzlich existieren als Gesamtübersicht, ist aber redundant.
 - GRANULARITÄT der leistungen[]: Ein Eintrag ist ein echtes GEWERK bzw. eine Arbeitsart (z.B. "Pflasterarbeiten", "Zaunbau", "Drainage", "Erdarbeiten", "Rasen anlegen", "Heckenschnitt"), NICHT ein einzelner Arbeitsort, ein Bauteil oder eine Teilaufgabe. Beispiel: "Ausbesserung am bestehenden Pflaster", "Führungsschienen der Poolabdeckung absenken", "Gartenhütte lasieren" sind KEINE drei Leistungen — das sind Teilaufgaben, die unter EIN passendes Gewerk gehören (hier "Pflaster-/Ausbesserungsarbeiten"). Lieber 1–2 saubere Gewerke mit mehreren source_quotes als viele Mini-Leistungen. Nur klar getrennte Gewerke (z.B. Zaun UND Pflaster) bekommen eigene Einträge.
-- MATERIAL-ERKENNUNG pro Leistung: Konkrete Material-Wünsche (Farbe wie "anthrazit"/"RAL 7016", Qualität wie "Schwer"/"8/6/8", Material-Art wie "Naturstein"/"Granit"/"Beton C30/37"/"Splitt 8/16", Sondermaß wie "183×250cm", Lieferant wie "Hesse") gehören in leistungen[].materialien[]. Jedes Material klar EINER Leistung zuordnen (z.B. anthrazit gehört zum Zaun, nicht zum Pflaster). Bei ALTERNATIVEN ("Naturstein oder Betonrandsteine") beide als separate Materialien aufnehmen + note="Alternativ-Wahl gewünscht" am ersten. Wenn ein konkretes Maß oder eine Menge zum Material genannt ist, in menge füllen (z.B. "Doppelstabmatte schwer 183×250 anthrazit" → spec="183×250", menge=null, name="Doppelstabmatte", weil Stückzahl woanders).
+- TRENNUNG Mengen vs. Material-Stückzahlen (KRITISCH):
+  • leistungen[i].mengen[] beschreibt das GEWERK selbst — wie groß, wie lang, wie hoch (z.B. "Zaun 30 m", "Pflasterfläche 45 m²", "Höhe 1,80 m", "Drainage 14 m", "Aufmaß 2 Std"). Niemals Stückzahlen von Pfosten, Beton-Säcken, Sichtschutzstreifen.
+  • leistungen[i].materialien[j].menge ist die STÜCKZAHL bzw. MENGE des konkreten Materials (z.B. "3 Stk Pfosten", "6 Stk Estrichbeton-Säcke", "18 Stk Sichtschutzstreifen", "1 Stk Hausanschlussschiene", "0,5 t Splitt"). Diese Mengen NIEMALS in leistungen[i].mengen einfügen.
+  • Faustregel: zählst du etwas, das du im Baumarkt aus dem Regal nehmen würdest → Material-Menge. Misst du das fertige Werk → Gewerk-Menge.
+  • Bei Zaun-Anfragen ist die ZAUNLÄNGE eine Gewerk-Menge (in m), die ZAUNHÖHE eine Gewerk-Menge (in cm/m), die Anzahl der PFOSTEN und SICHTSCHUTZSTREIFEN dagegen MATERIAL-Mengen.
+- MATERIAL-ERKENNUNG pro Leistung: Konkrete Material-Wünsche (Farbe wie "anthrazit"/"RAL 7016", Qualität wie "Schwer"/"8/6/8", Material-Art wie "Naturstein"/"Granit"/"Beton C30/37"/"Splitt 8/16", Sondermaß wie "183×250cm", Lieferant wie "Hesse") gehören in leistungen[].materialien[]. Jedes Material klar EINER Leistung zuordnen (z.B. anthrazit gehört zum Zaun, nicht zum Pflaster). Bei ALTERNATIVEN ("Naturstein oder Betonrandsteine") beide als separate Materialien aufnehmen + note="Alternativ-Wahl gewünscht" am ersten. Wenn ein konkretes Maß oder eine Menge zum Material genannt ist, in materialien[j].menge füllen (z.B. "3 pfosten 2400" → name="Pfosten", spec="2400 mm", menge={wert:"3", einheit:"Stk"}).
+- ARBEITSGEWERK ≠ MATERIAL-NAME: Wenn das Gewerk genauso heißt wie sein Haupt-Material (z.B. "Doppelstabmattenzaun" als Gewerk UND "Doppelstabmattenzaun-Matten" als Material), führe es ALS GEWERK an und die konkreten Matten zusätzlich als materialien[]-Eintrag mit spec (Höhe, Ausführung). Doppelnennung ist ok, weil Gewerks-Eintrag den Arbeitsteil bezeichnet, Material-Eintrag den Einkauf.
 - QUELLEN-ZITATE pro Leistung (source_quotes): Liste WÖRTLICHER kurzer Phrasen aus dem Originaltext (1–8 Wörter, max 3 Phrasen pro Leistung), die diese Leistung im Text belegen. ZWINGEND wörtlich (Zeichen-für-Zeichen, mit Umlauten und Satzzeichen wie im Original), damit das Frontend sie im Text wiederfinden und farbig markieren kann. Mengen-Angaben dürfen Teil der Quote sein. Beispiel: für "Pflasterung einer Terrasse, ca. 30 m²." gehören "Pflasterung einer Terrasse" und "ca. 30 m²" in source_quotes.
 - Telefon im Originalformat lassen
 - WICHTIG: Wenn zwei Telefonnummern im Text stehen, gehört die mit Mobil-Vorwahl
@@ -238,6 +255,15 @@ Eingabe:
 
 Ausgabe:
 {"vorgang":"material","customerName":"De Haan","firma":null,"phone":null,"phone_mobile":"015112345678","email":null,"street":null,"zip":null,"city":"Leer","description":"Lieferung Mutterboden ca. 70 m³ für neuen Garten. Liefertermin gesucht.","leistung":"Mutterboden","leistungen":[{"name":"Mutterboden","mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"materialien":[{"name":"Mutterboden","spec":null,"menge":{"wert":"70","einheit":"m³"},"note":"Bestellung Material, kein Verbau"}],"source_quotes":["mutterboden ca 70 kubik","fuern neuen garten"]}],"mengen":[{"wert":"70","einheit":"m³","was":"Mutterboden"}],"termin":"so schnell wie möglich","dringlichkeit":"hoch","source_guess":"whatsapp"}
+
+BEISPIEL 5 — Material-reich (Zaun mit vielen Material-Stückzahlen; ZEIGT TRENNUNG Gewerk-Menge vs. Material-Stückzahl)
+Eingabe:
+"Bastandskunde aus sevdesk Ramona Tirrel Zur Heide 29 ramona.tirrel@gmx.de 2 Doppelstabmattenzäune schwer 183 1x Hausanschlussschiene 3 pfosten 2400 6x remix estrichbeton 3x remix schnellbeton 18 sichtschutzstreifen anthrazit ppfaden. Montage. zusätzlich baumstumpffräsen 2 stunden"
+
+Ausgabe:
+{"vorgang":"angebot","customerName":"Ramona Tirrel","firma":null,"phone":null,"phone_mobile":null,"email":"ramona.tirrel@gmx.de","street":"Zur Heide 29","zip":null,"city":null,"description":"Angebot für zwei Doppelstabmattenzäune (schwer, 183 cm) inkl. Pfosten + Sichtschutz, plus Baumstumpffräsen 2 Std.","leistung":"Doppelstabmattenzaun","leistungen":[{"name":"Doppelstabmattenzaun","mengen":[{"wert":"2","einheit":"Stk","was":"Zaunsegmente"},{"wert":"183","einheit":"cm","was":"Höhe"}],"materialien":[{"name":"Doppelstabmatte","spec":"schwer 183","menge":{"wert":"2","einheit":"Stk"},"note":null},{"name":"Hausanschlussschiene","spec":null,"menge":{"wert":"1","einheit":"Stk"},"note":null},{"name":"Pfosten","spec":"2400 mm","menge":{"wert":"3","einheit":"Stk"},"note":null},{"name":"Remix Estrichbeton","spec":null,"menge":{"wert":"6","einheit":"Stk"},"note":"Säcke"},{"name":"Remix Schnellbeton","spec":null,"menge":{"wert":"3","einheit":"Stk"},"note":"Säcke"},{"name":"Sichtschutzstreifen","spec":"anthrazit, PP","menge":{"wert":"18","einheit":"Stk"},"note":null}],"source_quotes":["2 Doppelstabmattenzäune schwer 183","3 pfosten 2400","18 sichtschutzstreifen anthrazit"]},{"name":"Baumstumpffräsen","mengen":[{"wert":"2","einheit":"Std","was":"Fräs-Arbeit"}],"materialien":[],"source_quotes":["baumstumpffräsen 2 stunden"]}],"mengen":[{"wert":"2","einheit":"Stk","was":"Zaunsegmente"},{"wert":"183","einheit":"cm","was":"Höhe"},{"wert":"2","einheit":"Std","was":"Fräs-Arbeit"}],"termin":null,"dringlichkeit":"normal","source_guess":"other"}
+
+Beachte: Die 3 Pfosten und 18 Sichtschutzstreifen stehen NICHT in leistungen[0].mengen (das wäre falsch — sie zählen Material, nicht das Gewerk). Sie stehen in leistungen[0].materialien[*].menge. leistungen[0].mengen beschreibt nur das Werk an sich: 2 Zaunsegmente, 183 cm Höhe.
 
 BEISPIEL 4 — Komplexe Mehr-Gewerk-Anfrage (informell; zeigt kanonische Gewerksnamen, Telefon-Trennung, PLZ ≠ Vorwahl, Material-Alternative)
 Eingabe:
@@ -684,6 +710,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
         if (shouldSelfCheck(rawText, body?.selfCheck) && env.AI) {
           merged.meta = { ...(merged.meta ?? {}), review_hints: await selfCheck(rawText, merged, env.AI) };
         }
+        await applyLvMatching(merged, env);
         return jsonResponse(merged, debug);
       }
       debug.aiError = 'gemini: ' + (g.error ?? 'unknown') + ' | ';
@@ -699,6 +726,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
         if (shouldSelfCheck(rawText, body?.selfCheck)) {
           merged.meta = { ...(merged.meta ?? {}), review_hints: await selfCheck(rawText, merged, env.AI) };
         }
+        await applyLvMatching(merged, env);
         return jsonResponse(merged, debug);
       }
       debug.aiError = primaryModel + ': ' + (wa70.error ?? 'unknown');
@@ -710,6 +738,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
         const merged = mergeCrossValidate(wa8.parsed, heur, rawText);
         attachPrecleanMeta(merged, pre);
         // Self-Check beim 8B-Fallback skippen — 8B als Self-Check ist zu unzuverlässig.
+        await applyLvMatching(merged, env);
         return jsonResponse(merged, debug);
       }
       debug.aiError += ' | 8b: ' + (wa8.error ?? 'unknown');
@@ -722,6 +751,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
         debug.aiPath = 'anthropic-haiku';
         const merged = mergeCrossValidate(an, heur, rawText);
         attachPrecleanMeta(merged, pre);
+        await applyLvMatching(merged, env);
         return jsonResponse(merged, debug);
       }
     }
@@ -729,6 +759,7 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
     // 4) Heuristik (Notfall ohne externe Calls)
     debug.aiPath = 'heuristic-only';
     attachPrecleanMeta(heur, pre);
+    await applyLvMatching(heur, env);
     return jsonResponse(heur, debug);
   } catch (err: any) {
     return new Response(JSON.stringify({ error: String(err?.message ?? err), debug }), { status: 500 });
@@ -965,6 +996,17 @@ async function streamResponse(request: Request, env: Env): Promise<Response> {
         } else {
           step('selfcheck', 'skipped', { info: 'aus (auf Wunsch per Button zuschaltbar)' });
         }
+
+        // 5b) LV-Matching (Post-Processing): Leistungen gegen Master-LV abgleichen.
+        //     Schreibt lv_position_id pro Leistung, fällt still durch, wenn keine
+        //     Supabase-Credentials da sind oder der DB-Call scheitert.
+        step('lv-match', 'start');
+        const lvBefore = (merged.leistungen ?? []).length;
+        await applyLvMatching(merged, env);
+        const lvMatched = (merged.leistungen ?? []).filter((l) => !!l.lv_position_id).length;
+        step('lv-match', 'done', {
+          info: lvBefore ? `${lvMatched}/${lvBefore} Leistungen zugeordnet` : 'keine Leistungen',
+        });
 
         // 6) Done
         step('done', 'done', { totalMs: Date.now() - t0, path: usedPath });
@@ -1221,4 +1263,216 @@ function scoreConfidence(
   }
 
   return out;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   M16 · LV-Auto-Matching (Post-Processing nach Parse)
+   ────────────────────────────────────────────────────────────────────────
+   Für jede vom LLM erkannte Leistung versuchen wir, die passende Position
+   aus dem Master-LV (Tabelle `lv_positions`) nachzuschlagen und schreiben
+   die gefundene ID in `leistung.lv_position_id`. Aliase (Tabelle
+   `lv_position_aliases`) werden zum Master aufgelöst.
+
+   Strategie pro Leistung (Top-1 mit Score-Differenz-Check):
+     1) Exakt-Match (lowercase, trim) → Score 1.0
+     2) Substring-Match (kürzerer Name ≥ 10 Zeichen) → Score 0.8
+     3) Jaccard-Token-Overlap ohne Stopwords → Score = |∩| / |∪|
+
+   Schwellen:
+     - Score < 0.6 → kein Match
+     - Top-2-Differenz < 0.05 → zu unsicher, kein Match
+     - Einheits-Mismatch (m vs m²/m³, etc.) → Treffer verworfen
+
+   Defensiv: jeder Fehler (kein Service-Key, DB unreachable, Auth-Fehler)
+   führt zum stillen No-Op — `lv_position_id` bleibt undefined und das
+   System läuft normal weiter.
+   ──────────────────────────────────────────────────────────────────────── */
+
+// Deutsche Stopwörter + GaLaBau-Füllwörter, die für die Token-Ähnlichkeit
+// keinen Aussagewert haben. Bewusst klein gehalten — zu viele Stopwörter
+// machen kurze LV-Namen ("Bagger Stundenlohn") zu Token-leer.
+const LV_STOPWORDS = new Set<string>([
+  'der','die','das','den','dem','des','ein','eine','einen','einer','eines','und','oder','mit','ohne','im','in','am','an','auf','aus','bei','für','pro','zur','zum','vom','von','je','ca','ggf','nach','bis','sowie','etc',
+  // GaLaBau-spezifische generische Begriffe (kommen in fast jedem Namen vor)
+  'arbeiten','arbeit','leistung','herstellen','einbauen','liefern','lieferung','setzen','verlegen','montieren','ausführen',
+]);
+
+// Einheits-Kompatibilität: was darf gegeneinander matchen? "Std" und "h"
+// sind das Gleiche (siehe domain.ts EINHEITEN_ALIAS) — wir kanonisieren
+// hier nochmal, falls das LV legacy `h` enthält.
+function canonUnit(u: string | undefined | null): string {
+  if (!u) return '';
+  const lc = u.trim().toLowerCase();
+  if (lc === 'h' || lc === 'std' || lc === 'stunde' || lc === 'stunden') return 'std';
+  if (lc === 'm2' || lc === 'qm') return 'm²';
+  if (lc === 'm3' || lc === 'cbm' || lc === 'kubik') return 'm³';
+  if (lc === 'stk' || lc === 'stück' || lc === 'stueck') return 'stk';
+  if (lc === 'lfm') return 'm'; // laufender Meter ist Längen-Meter
+  return lc;
+}
+
+/** Beide Einheiten dürfen matchen wenn:
+ *   - eine Seite leer ist (LV oder Leistung ohne Einheit → kein Hinderungsgrund)
+ *   - beide identisch nach Kanonisierung
+ *   - Sonderfall „m" vs „m²/m³" ist EXPLIZIT NICHT kompatibel. */
+function unitsCompatible(a: string | undefined, b: string | undefined): boolean {
+  const ca = canonUnit(a);
+  const cb = canonUnit(b);
+  if (!ca || !cb) return true;
+  return ca === cb;
+}
+
+function tokenize(s: string): string[] {
+  return s
+    .toLowerCase()
+    .replace(/[äöüß]/g, (c) => ({ä:'ae',ö:'oe',ü:'ue',ß:'ss'} as Record<string,string>)[c] ?? c)
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 3 && !LV_STOPWORDS.has(t));
+}
+
+function jaccard(aTokens: string[], bTokens: string[]): number {
+  if (!aTokens.length || !bTokens.length) return 0;
+  const a = new Set(aTokens);
+  const b = new Set(bTokens);
+  let inter = 0;
+  for (const t of a) if (b.has(t)) inter++;
+  const union = a.size + b.size - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+interface LvRow { id: string; name: string; unit: string | null }
+interface LvAliasRow { alias_id: string; master_id: string }
+
+/** Lädt aktive LV-Positionen + Aliase via Supabase REST. Bei jedem Fehler
+ *  (kein Key, Netzwerk, 4xx/5xx) → `null` zurück — Aufrufer macht dann nichts. */
+async function fetchLvCatalog(env: Env): Promise<{ positions: LvRow[]; aliasMap: Map<string,string> } | null> {
+  const key = env.SUPABASE_SERVICE_KEY;
+  if (!key) return null;
+  const base = (env.SUPABASE_URL || 'https://vejhsyrxpveunygyhqlo.supabase.co').replace(/\/$/, '');
+  const headers = {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    'Content-Type': 'application/json',
+  };
+  try {
+    // Beide Tabellen parallel — spart einen Round-Trip.
+    const [posResp, aliasResp] = await Promise.all([
+      fetch(`${base}/rest/v1/lv_positions?select=id,name,unit&archived_at=is.null`, { headers }),
+      fetch(`${base}/rest/v1/lv_position_aliases?select=alias_id,master_id`, { headers }),
+    ]);
+    if (!posResp.ok) {
+      console.warn('[lv-match] lv_positions fetch failed', posResp.status);
+      return null;
+    }
+    const positions = (await posResp.json()) as LvRow[];
+    const aliasMap = new Map<string, string>();
+    if (aliasResp.ok) {
+      const rows = (await aliasResp.json()) as LvAliasRow[];
+      for (const r of rows) aliasMap.set(r.alias_id, r.master_id);
+    } else {
+      console.warn('[lv-match] lv_position_aliases fetch failed', aliasResp.status);
+    }
+    return { positions, aliasMap };
+  } catch (e: any) {
+    console.warn('[lv-match] catalog fetch threw', String(e?.message ?? e).slice(0, 200));
+    return null;
+  }
+}
+
+/** Bestimmt die LV-Einheit pro Leistung aus deren `mengen[]` (erstes mit
+ *  Einheit) — zur Einheits-Plausibilitätsprüfung gegen die LV-Position. */
+function leistungUnitHint(l: NonNullable<Parsed['leistungen']>[number]): string | undefined {
+  const m = (l.mengen ?? []).find((x) => x.einheit && x.einheit.trim());
+  return m?.einheit;
+}
+
+/** Für eine einzelne Leistung den besten LV-Treffer suchen. Liefert
+ *  `{ id, score }` oder `null` (kein sicherer Match). */
+function findBestLvMatch(
+  name: string,
+  unitHint: string | undefined,
+  catalog: LvRow[],
+): { id: string; score: number } | null {
+  const needleRaw = name.trim();
+  if (needleRaw.length < 3) return null;
+  const needle = needleRaw.toLowerCase();
+  const needleTokens = tokenize(needleRaw);
+
+  type Scored = { id: string; score: number; unit: string | null };
+  const scored: Scored[] = [];
+
+  for (const lv of catalog) {
+    const lvNameRaw = lv.name ?? '';
+    if (!lvNameRaw) continue;
+    const lvName = lvNameRaw.toLowerCase();
+
+    // Einheits-Filter VOR der Score-Berechnung: spart Arbeit und schließt
+    // sofort den klassischen „m vs m²"-Fehlgriff aus.
+    if (!unitsCompatible(unitHint, lv.unit ?? undefined)) continue;
+
+    // 1) Exakt
+    if (lvName === needle) {
+      scored.push({ id: lv.id, score: 1.0, unit: lv.unit });
+      continue;
+    }
+
+    // 2) Substring (kürzerer ≥ 10 Zeichen)
+    let subScore = 0;
+    const shorter = lvName.length <= needle.length ? lvName : needle;
+    const longer = lvName.length <= needle.length ? needle : lvName;
+    if (shorter.length >= 10 && longer.includes(shorter)) {
+      // Je näher die Längen, desto höher der Score (0.8..0.95).
+      subScore = 0.8 + 0.15 * (shorter.length / longer.length);
+    }
+
+    // 3) Jaccard-Token-Overlap
+    const lvTokens = tokenize(lvNameRaw);
+    const jac = jaccard(needleTokens, lvTokens);
+
+    const best = Math.max(subScore, jac);
+    if (best > 0) scored.push({ id: lv.id, score: best, unit: lv.unit });
+  }
+
+  if (scored.length === 0) return null;
+  scored.sort((a, b) => b.score - a.score);
+
+  const top = scored[0];
+  if (top.score < 0.6) return null;
+
+  // Top-2-Differenz: bei knappen Rennen lieber NICHT auto-matchen
+  // (gleicher Score = mehrdeutig = User-Entscheidung).
+  if (scored.length > 1) {
+    const second = scored[1];
+    if (top.score - second.score < 0.05 && top.score < 1.0) return null;
+  }
+  return { id: top.id, score: top.score };
+}
+
+/** Schreibt für jede Leistung in `parsed.leistungen[]` die passende
+ *  `lv_position_id` (+ optional `lv_match_score`). Aliase werden zum
+ *  Master aufgelöst. Bei fehlender DB / Fehler stilles No-Op. */
+async function applyLvMatching(parsed: Parsed, env: Env): Promise<Parsed> {
+  const leistungen = parsed.leistungen;
+  if (!leistungen?.length) return parsed;
+
+  const cat = await fetchLvCatalog(env);
+  if (!cat) {
+    // Kein Service-Key oder DB unreachable — nichts tun. Kein Throw.
+    return parsed;
+  }
+
+  let matched = 0;
+  for (const l of leistungen) {
+    const hint = leistungUnitHint(l);
+    const m = findBestLvMatch(l.name, hint, cat.positions);
+    if (!m) continue;
+    // Alias → Master auflösen
+    const resolvedId = cat.aliasMap.get(m.id) ?? m.id;
+    l.lv_position_id = resolvedId;
+    l.lv_match_score = Math.round(m.score * 100) / 100;
+    matched++;
+  }
+
+  console.log(`[lv-match] ${matched}/${leistungen.length} Leistungen zugeordnet (${cat.positions.length} LV-Positionen geladen)`);
+  return parsed;
 }

@@ -111,6 +111,233 @@ export async function archiveLvPosition(id: string): Promise<void> {
   if (error) throw error;
 }
 
+/* ====================================================================
+ * Aliases · Master-Merger (16.06.2026)
+ *   alias_id  → master_id (siehe public.lv_position_aliases)
+ *   Wenn jemand eine alte ID („ERD-138") sucht, wird automatisch der
+ *   Master („ERD-100") geliefert.
+ * ==================================================================== */
+
+export interface LvAlias {
+  aliasId:   string;
+  masterId:  string;
+  reason:    string | null;
+  createdAt: string;
+}
+
+/** Alle Aliasse der eigenen Company. Form: aliasId → masterId. */
+export async function listAliases(): Promise<LvAlias[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  const { data, error } = await sb
+    .from('lv_position_aliases')
+    .select('alias_id, master_id, reason, created_at')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []).map((r: any) => ({
+    aliasId: r.alias_id, masterId: r.master_id, reason: r.reason, createdAt: r.created_at,
+  }));
+}
+
+/** Lookup-Map alias_id → master_id (für Frontend-Resolves). */
+export async function getAliasMap(): Promise<Map<string, string>> {
+  const rows = await listAliases();
+  const m = new Map<string, string>();
+  for (const r of rows) m.set(r.aliasId, r.masterId);
+  return m;
+}
+
+/** Alle Aliasse, die auf ein bestimmtes Master verweisen. */
+export function aliasesOf(masterId: string, all: LvAlias[]): string[] {
+  return all.filter((a) => a.masterId === masterId).map((a) => a.aliasId);
+}
+
+/** Resolvet eine LV-ID: wenn Alias bekannt → Master, sonst Original. */
+export function resolveLvId(maybeAlias: string, map: Map<string, string>): string {
+  return map.get(maybeAlias) ?? maybeAlias;
+}
+
+/** Mergt eine Position in einen Master: archiviert die Position weich,
+ *  legt einen Alias-Eintrag an, hebt den Master-Preis auf MAX falls die
+ *  archivierte Position teurer war (Rick-Regel: „immer höchsten Preis"). */
+export async function mergePositionIntoMaster(
+  aliasId: string, masterId: string, reason?: string,
+): Promise<void> {
+  if (aliasId === masterId) throw new Error('Alias und Master dürfen nicht identisch sein.');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+
+  // 1) Beide Positionen laden (Preisvergleich + company_id)
+  const { data: rows, error: re } = await sb
+    .from('lv_positions')
+    .select('id, price, company_id, archived_at')
+    .in('id', [aliasId, masterId]);
+  if (re) throw re;
+  const alias = rows.find((r: { id: string }) => r.id === aliasId);
+  const master = rows.find((r: { id: string }) => r.id === masterId);
+  if (!alias) throw new Error(`Position ${aliasId} existiert nicht.`);
+  if (!master) throw new Error(`Master ${masterId} existiert nicht.`);
+  if (master.archived_at) throw new Error(`Master ${masterId} ist archiviert.`);
+
+  // 2) Master-Preis auf MAX heben (wenn Alias teurer)
+  const aliasPrice  = alias.price  != null ? Number(alias.price)  : null;
+  const masterPrice = master.price != null ? Number(master.price) : null;
+  if (aliasPrice != null && (masterPrice == null || aliasPrice > masterPrice)) {
+    const { error: pe } = await sb.from('lv_positions')
+      .update({ price: aliasPrice, updated_at: new Date().toISOString() })
+      .eq('id', masterId);
+    if (pe) throw pe;
+  }
+
+  // 3) Alias archivieren
+  if (!alias.archived_at) {
+    const { error: ae } = await sb.from('lv_positions')
+      .update({ archived_at: new Date().toISOString() })
+      .eq('id', aliasId);
+    if (ae) throw ae;
+  }
+
+  // 4) Alias-Eintrag schreiben
+  const { error: ie } = await sb.from('lv_position_aliases').insert({
+    alias_id: aliasId,
+    master_id: masterId,
+    company_id: master.company_id,
+    reason: reason ?? 'manuell gemergt',
+  });
+  if (ie && ie.code !== '23505') throw ie; // 23505 = unique_violation (alias schon da → ignorieren)
+}
+
+/** Entfernt einen Alias-Eintrag und entarchiviert die alte Position
+ *  (Rückgängig-Funktion für versehentliche Merges). */
+export async function unmergePosition(aliasId: string): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  const { error: de } = await sb.from('lv_position_aliases').delete().eq('alias_id', aliasId);
+  if (de) throw de;
+  const { error: ue } = await sb.from('lv_positions')
+    .update({ archived_at: null, updated_at: new Date().toISOString() })
+    .eq('id', aliasId);
+  if (ue) throw ue;
+}
+
+/* ====================================================================
+ * Preis-Historie (16.06.2026)
+ *   Automatischer Trigger-Log in public.lv_price_history.
+ * ==================================================================== */
+
+export interface LvPriceHistoryEntry {
+  id:        number;
+  lvId:      string;
+  oldPrice:  number | null;
+  newPrice:  number | null;
+  changedAt: string;
+  reason:    string | null;
+}
+
+export async function getPriceHistory(lvId: string): Promise<LvPriceHistoryEntry[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  const { data, error } = await sb
+    .from('lv_price_history')
+    .select('id, lv_id, old_price, new_price, changed_at, reason')
+    .eq('lv_id', lvId)
+    .order('changed_at', { ascending: false });
+  if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []).map((r: any) => ({
+    id: r.id, lvId: r.lv_id,
+    oldPrice: r.old_price != null ? Number(r.old_price) : null,
+    newPrice: r.new_price != null ? Number(r.new_price) : null,
+    changedAt: r.changed_at, reason: r.reason,
+  }));
+}
+
+/* ====================================================================
+ * Used-By · welche Anfragen referenzieren diese Position?
+ *   Heuristik via name-match in pipeline_cards.positions (jsonb).
+ *   Liefert nur die Anzahl — Details bei Bedarf nachladen.
+ * ==================================================================== */
+
+export interface LvUsageEntry {
+  cardId:       string;
+  docNumber:    string | null;
+  customerName: string;
+  positionName: string;
+  stage:        string;
+}
+
+/** Map<lv_id, usage_count> für alle aktiven LV-Positionen einer Company.
+ *  Implementierung: ein Round-Trip, lädt alle pipeline_cards.positions
+ *  und matcht im Frontend (kein RPC nötig). Für ~250 Karten OK. */
+export async function getUsageCounts(positions: LvPosition[]): Promise<Map<string, number>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  const { data, error } = await sb
+    .from('pipeline_cards')
+    .select('positions');
+  if (error) throw error;
+  const counts = new Map<string, number>();
+  const lvByLower = new Map<string, string>();
+  for (const p of positions) lvByLower.set(p.name.trim().toLowerCase(), p.id);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of (data ?? []) as any[]) {
+    const pos = Array.isArray(row.positions) ? row.positions : [];
+    for (const it of pos) {
+      const n = String(it?.name ?? '').trim().toLowerCase();
+      if (!n) continue;
+      // Exakt-Match auf LV-Name (häufigster Fall — sevDesk-Sync übernimmt Name 1:1)
+      const exact = lvByLower.get(n);
+      if (exact) {
+        counts.set(exact, (counts.get(exact) ?? 0) + 1);
+        continue;
+      }
+      // Substring-Match: LV-Name als Teil des Position-Namens
+      for (const [lvLower, lvId] of lvByLower) {
+        if (lvLower.length > 8 && n.includes(lvLower)) {
+          counts.set(lvId, (counts.get(lvId) ?? 0) + 1);
+          break;
+        }
+      }
+    }
+  }
+  return counts;
+}
+
+/** Details der Anfragen, die eine bestimmte Position referenzieren (Drill-Down). */
+export async function getUsageDetail(lvId: string, positions: LvPosition[]): Promise<LvUsageEntry[]> {
+  const target = positions.find((p) => p.id === lvId);
+  if (!target) return [];
+  const tn = target.name.trim().toLowerCase();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  const { data, error } = await sb
+    .from('pipeline_cards')
+    .select('id, doc_number, customer_name, stage, positions');
+  if (error) throw error;
+  const out: LvUsageEntry[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const row of (data ?? []) as any[]) {
+    const pos = Array.isArray(row.positions) ? row.positions : [];
+    for (const it of pos) {
+      const n = String(it?.name ?? '').trim().toLowerCase();
+      if (!n) continue;
+      if (n === tn || (tn.length > 8 && n.includes(tn))) {
+        out.push({
+          cardId: row.id,
+          docNumber: row.doc_number,
+          customerName: row.customer_name,
+          positionName: it.name,
+          stage: row.stage,
+        });
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 function fmtNum(n: number): string {
   return n % 1 === 0 ? `${n}` : n.toFixed(2).replace('.', ',');
 }

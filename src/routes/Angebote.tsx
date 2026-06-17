@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import {
   STAGES, listCards, createCard, updateCardStage, deleteCard,
   archiveCard, unarchiveCard, linkOrCreateSiteForCard, FOLLOWUP_DAYS,
-  reviewPosition, releaseCard, revokeRelease,
+  releaseCard, revokeRelease,
   cancelCard, uncancelCard,
-  sevPositionsToPipeline, syncCardFromSevdesk,
-  type PipelineCard, type Stage, type ReviewStatus, type PipelinePosition
+  sevPositionsToPipeline, syncCardFromSevdesk, setCardPositions,
+  type PipelineCard, type Stage, type PipelinePosition
 } from "../lib/pipeline";
 import { sevdeskGetOrderSnapshot, sevdeskFindOrdersForName, type SevOrderSnapshot, type SevOrderRef } from "../lib/sevdesk";
 import { getCustomerBySevdeskContactId, findCustomerByName, updateCustomerContact, createCustomerLocal, listCustomers, type Customer } from "../lib/customers";
@@ -637,6 +637,299 @@ export default function Angebote() {
   );
 }
 
+/** Konvertiert die vom LLM erkannten Leistungen einer Anfrage in zwei getrennte
+ *  Listen: Arbeitspositionen (die Gewerke selbst) und Material (alle Materialien
+ *  flach gemappt, jeweils mit „aus"-Quelle als Anker zum Gewerk).
+ *  Rick-Vorgabe 16.06.: „Material und Arbeitspositionen klar getrennt". */
+type InquiryLeistung = {
+  name: string;
+  mengen?: Array<{ wert?: string; einheit?: string; was?: string }>;
+  materialien?: Array<{ name?: string; spec?: string; note?: string; menge?: { wert?: string; einheit?: string } }>;
+};
+function splitInquiryPositions(inquiry: Inquiry | null): {
+  work: PipelinePosition[];
+  material: PipelinePosition[];
+} {
+  const list = inquiry?.parsedJson?.leistungen as InquiryLeistung[] | undefined;
+  if (!Array.isArray(list) || list.length === 0) return { work: [], material: [] };
+  const work: PipelinePosition[] = [];
+  const material: PipelinePosition[] = [];
+  list.forEach((l, idx) => {
+    const mengenStr = (l.mengen ?? [])
+      .map((m) => `${m.wert ?? ""}${m.einheit ? " " + m.einheit : ""}${m.was ? " " + m.was : ""}`.trim())
+      .filter(Boolean)
+      .join(" · ");
+    work.push({
+      pos: idx + 1,
+      name: l.name,
+      quantity: mengenStr || "offen",
+      unitPrice: "offen",
+      sum: 0,
+      source: "anfrage-arbeit",
+    });
+    (l.materialien ?? []).forEach((m) => {
+      const baseName = [m.name, m.spec].filter(Boolean).join(" · ");
+      const qty = m.menge
+        ? `${m.menge.wert ?? ""}${m.menge.einheit ? " " + m.menge.einheit : ""}`.trim()
+        : "offen";
+      material.push({
+        pos: material.length + 1,
+        name: baseName || "unbenanntes Material",
+        quantity: qty,
+        unitPrice: "offen",
+        sum: 0,
+        source: `anfrage-material:${idx + 1}`,
+        // Note kommt aus der LLM-Auswertung; wir blenden sie als comment ein,
+        // damit der Bezug zum Gewerk + ggf. Hinweis sichtbar bleibt.
+        review: m.note ? { status: "offen", comment: `${l.name}: ${m.note}` } : undefined,
+      } as PipelinePosition);
+    });
+  });
+  return { work, material };
+}
+
+/** Liefert die im Positionen-Tab anzuzeigenden Positionen + die Quelle.
+ *  - Wenn die Karte schon `positions` hat (z. B. aus sevDesk-Sync): die zeigen.
+ *  - Sonst: die LLM-erkannten Leistungen aus der Anfrage, aufgeteilt in
+ *    Arbeit und Material. */
+/** Klassifiziert eine PipelinePosition anhand des source-Markers in Arbeit
+ *  oder Material. sevDesk-Positionen (kein source-Marker) gelten als Arbeit. */
+function isMaterialPosition(p: PipelinePosition): boolean {
+  const s = (p.source ?? "").toLowerCase();
+  return s.startsWith("material") || s.startsWith("manuell-material") || s.startsWith("anfrage-material");
+}
+
+function effectivePositions(
+  card: PipelineCard, inquiry: Inquiry | null,
+): {
+  fromInquiry: boolean;
+  positions: PipelinePosition[]; // alle (für Migration beim Add)
+  work: PipelinePosition[];
+  material: PipelinePosition[];
+} {
+  // Eigene Positionen der Karte (sevDesk-Sync oder manuell gepflegt) haben
+  // Vorrang. Sie werden nach source-Marker in Arbeit/Material gesplittet.
+  if (card.positions && card.positions.length > 0) {
+    const work = card.positions.filter((p) => !isMaterialPosition(p));
+    const material = card.positions.filter((p) => isMaterialPosition(p));
+    return { positions: card.positions, work, material, fromInquiry: false };
+  }
+  // Sonst: LLM-erkannte Anfrage-Positionen (read-only-Stand, werden bei Edit
+  // automatisch migriert).
+  const split = splitInquiryPositions(inquiry);
+  return {
+    positions: [...split.work, ...split.material],
+    work: split.work,
+    material: split.material,
+    fromInquiry: split.work.length > 0 || split.material.length > 0,
+  };
+}
+
+/** Inline-Formular zum manuellen Hinzufügen ODER Bearbeiten einer Position
+ *  einer Karte. Rick-Vorgabe 16.06.: schon im Anfrage-Drawer Positionen
+ *  pflegen können, getrennt nach Arbeit/Material, editierbar + löschbar.
+ *  Speichert per setCardPositions. */
+function PositionAdder({
+  card, inquiry, defaultKind, initial, onSaved, onCancel, alwaysOpen,
+}: {
+  card: PipelineCard;
+  inquiry?: Inquiry | null;
+  defaultKind?: "arbeit" | "material";
+  /** Wenn gesetzt: Edit-Modus für eine existierende Position (am gleichen Index ersetzen). */
+  initial?: { index: number; name: string; quantity: string; unitPrice: string; kind: "arbeit" | "material" } | null;
+  onSaved: (positions: PipelinePosition[], valueEur: number) => void;
+  onCancel?: () => void;
+  /** Wenn true: Form ist immer offen (Edit-Modus); kein „+ Hinzufügen"-Knopf. */
+  alwaysOpen?: boolean;
+}) {
+  const isEdit = !!initial;
+  const [open, setOpen] = useState(isEdit || !!alwaysOpen);
+  const [kind, setKind] = useState<"arbeit" | "material">(initial?.kind ?? defaultKind ?? "arbeit");
+  const [name, setName] = useState(initial?.name ?? "");
+  const [qty, setQty] = useState(initial?.quantity ?? "");
+  const [price, setPrice] = useState(initial?.unitPrice && initial.unitPrice !== "offen" ? initial.unitPrice : "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  function parsePrice(s: string): number {
+    const cleaned = s.trim().replace(/[€\s]/g, "").replace(",", ".");
+    const n = parseFloat(cleaned);
+    return Number.isFinite(n) ? n : 0;
+  }
+  function parseQty(s: string): number {
+    const m = s.trim().match(/^([0-9]+[.,]?[0-9]*)/);
+    if (!m) return 1;
+    const n = parseFloat(m[1].replace(",", "."));
+    return Number.isFinite(n) ? n : 1;
+  }
+
+  async function save() {
+    setErr(null);
+    if (!name.trim()) { setErr("Bitte einen Namen für die Position eintragen."); return; }
+    setBusy(true);
+    try {
+      const ep = parsePrice(price);
+      const q  = parseQty(qty);
+      const sum = +(ep * q).toFixed(2);
+      // Wenn die Karte noch keine eigenen Positionen hat, aber die Anfrage
+      // LLM-erkannte Leistungen mitbringt: erst Arbeit+Material migrieren,
+      // damit nichts verloren geht. Danach Edit/Add anwenden.
+      const inquirySplit = splitInquiryPositions(inquiry ?? null);
+      const base = (card.positions && card.positions.length > 0)
+        ? [...card.positions]
+        : [...inquirySplit.work, ...inquirySplit.material];
+      const sourceMarker = kind === "material" ? "manuell-material" : "manuell-arbeit";
+      const newPos: PipelinePosition = {
+        pos: 0, // wird unten neu nummeriert
+        name: name.trim(),
+        quantity: qty.trim() || "1",
+        unitPrice: price.trim() || (ep > 0 ? ep.toFixed(2).replace(".", ",") : "offen"),
+        sum,
+        source: sourceMarker,
+      };
+      let next: PipelinePosition[];
+      if (isEdit && initial && initial.index >= 0 && initial.index < base.length) {
+        // Behalte review/meta vom Original, ersetze nur die editierten Felder
+        const old = base[initial.index];
+        next = base.slice();
+        next[initial.index] = { ...old, ...newPos, pos: old.pos };
+      } else {
+        next = [...base, newPos];
+      }
+      // Neu-Nummerierung (pos 1..N) — robust gegen Lücken
+      next = next.map((p, i) => ({ ...p, pos: i + 1 }));
+      const valueEur = +next.reduce((t, p) => t + (p.sum || 0), 0).toFixed(2);
+      await setCardPositions(card.id, next, valueEur);
+      onSaved(next, valueEur);
+      if (!isEdit) {
+        setName(""); setQty(""); setPrice("");
+        setOpen(false);
+      }
+    } catch (e: any) {
+      setErr(e?.message ?? "Speichern fehlgeschlagen");
+    } finally { setBusy(false); }
+  }
+
+  if (!open) {
+    return (
+      <div className="mt-3">
+        <button
+          onClick={() => setOpen(true)}
+          className="w-full border-2 border-dashed border-copper/45 hover:border-copper text-copper font-display font-extrabold uppercase tracking-wider text-[12px] py-3 rounded-lg transition-colors"
+        >
+          ＋ Position hinzufügen
+        </button>
+      </div>
+    );
+  }
+
+  const kindLabel = kind === "material" ? "Material" : "Arbeit";
+  return (
+    <div className={`mt-3 border-2 ${kind === "material" ? "border-[#3A8CE8]/60" : "border-copper/55"} bg-bg-2 rounded-lg p-3.5 space-y-2.5`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className={`font-display font-extrabold uppercase text-[12px] tracking-widest ${kind === "material" ? "text-[#3A8CE8]" : "text-copper"}`}>
+          {isEdit ? "Position bearbeiten" : "Neue Position"} · {kindLabel}
+        </div>
+        {/* Kind-Toggle: nur im Add-Modus änderbar; im Edit-Modus zeigt es nur an */}
+        <div className="inline-flex rounded-md bg-white border border-steel-line/45 overflow-hidden text-[11px] font-mono">
+          <button
+            type="button"
+            onClick={() => !isEdit && setKind("arbeit")}
+            className={`px-3 py-1.5 ${kind === "arbeit" ? "bg-copper text-white" : "text-ink-2 hover:text-copper"} ${isEdit ? "cursor-not-allowed opacity-70" : ""}`}
+            disabled={isEdit}
+          >🛠 Arbeit</button>
+          <button
+            type="button"
+            onClick={() => !isEdit && setKind("material")}
+            className={`px-3 py-1.5 ${kind === "material" ? "bg-[#3A8CE8] text-white" : "text-ink-2 hover:text-[#3A8CE8]"} ${isEdit ? "cursor-not-allowed opacity-70" : ""}`}
+            disabled={isEdit}
+          >📦 Material</button>
+        </div>
+      </div>
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder={kind === "material" ? "Bezeichnung · z.B. Doppelstabmatten 1830 mm anthrazit" : "Bezeichnung · z.B. Zaunmontage"}
+        className="w-full bg-white border border-steel-line/55 rounded px-3 py-2 text-[13px] font-sans focus:outline-none focus:border-copper"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <input
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          placeholder={kind === "material" ? "Menge · z.B. 13 Stk" : "Menge · z.B. 28 Std oder 200 m²"}
+          className="bg-white border border-steel-line/55 rounded px-3 py-2 text-[13px] font-sans focus:outline-none focus:border-copper"
+        />
+        <input
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          placeholder="Einzelpreis € · z.B. 65,00"
+          inputMode="decimal"
+          className="bg-white border border-steel-line/55 rounded px-3 py-2 text-[13px] font-mono focus:outline-none focus:border-copper"
+        />
+      </div>
+      {err && <div className="text-rust text-[12px] font-mono">⚠ {err}</div>}
+      <div className="flex items-center justify-between pt-1">
+        <span className="font-mono text-[10.5px] text-ink-mute">
+          Summe wird aus Menge × Preis berechnet
+        </span>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setErr(null); if (alwaysOpen || isEdit) { onCancel?.(); } else { setOpen(false); } }}
+            className="font-mono text-[11px] text-ink-2 px-2 py-1.5 hover:text-ink"
+          >abbrechen</button>
+          <button
+            onClick={save}
+            disabled={busy || !name.trim()}
+            className="btn-primary !min-h-[36px] !px-4 text-[12px] disabled:opacity-50"
+          >{busy ? "speichere …" : "Position speichern"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Schmaler Icon-Streifen links im Detail-Drawer (Mockup-Variante 08 · 16.06.2026).
+ *  Klick auf ein Icon WECHSELT den aktiven Tab — es wird nur der Inhalt
+ *  der jeweiligen Sektion gezeigt (echtes Tab-Verhalten, nicht Scroll-Anker).
+ *  Rick-Vorgabe 16.06.: „unter den Tabs nur die entsprechenden Informationen sehen". */
+function DrawerSideNav({
+  sections, activeId, onSelect,
+}: {
+  sections: { id: string; icon: string; label: string; show: boolean }[];
+  activeId: string;
+  onSelect: (id: string) => void;
+}) {
+  const visible = sections.filter((s) => s.show);
+  return (
+    <nav
+      className="hidden md:flex flex-col bg-bg-deep border-r border-white/10 py-2 flex-shrink-0"
+      style={{ width: 72 }}
+      aria-label="Drawer-Sektionen"
+    >
+      {visible.map((s) => {
+        const isActive = activeId === s.id;
+        return (
+          <button
+            key={s.id}
+            onClick={() => onSelect(s.id)}
+            title={s.label}
+            aria-label={s.label}
+            aria-current={isActive ? "true" : undefined}
+            className={`relative flex flex-col items-center justify-center gap-1 py-3 text-[17px] transition-colors ${
+              isActive ? "text-copper bg-copper/10" : "text-ink-mute hover:text-white hover:bg-white/4"
+            }`}
+            style={{ borderLeft: `3px solid ${isActive ? "#DC6E2D" : "transparent"}` }}
+          >
+            <span aria-hidden>{s.icon}</span>
+            <span className="font-mono text-[9px] tracking-wider uppercase leading-none">{s.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
 function Kpi({ label, value, tone }: { label: string; value: string; tone?: "rust" }) {
   return (
     <div className="text-right">
@@ -816,12 +1109,10 @@ function CardView({
   );
 }
 
-const REVIEW_META: Record<ReviewStatus, { dot: string; label: string }> = {
-  offen:     { dot: "#A9AEB3", label: "offen" },
-  ok:        { dot: "#1F7A3D", label: "OK" },
-  kommentar: { dot: "#DC6E2D", label: "Kommentar" },
-  aenderung: { dot: "#B45309", label: "Unsicher" }
-};
+// REVIEW_META + Position-Review-Buttons (✓ OK / 💬 / ? Unsicher) wurden
+// am 16.06.2026 entfernt — Rick-Vorgabe: in der Angebote-Tabelle sollen
+// Werte direkt editierbar sein (✎ / 🗑), kein Review-Workflow pro Zeile.
+// Die Chef-Freigabe ("Alles freigeben") bleibt als separater Knopf.
 
 function DetailDrawer({
   card, onClose, onPrev, onNext, onArchive, onUnarchive, onDelete, onCancel, onUncancel, onUpdate, reviewerOnly
@@ -841,9 +1132,48 @@ function DetailDrawer({
   const [busy, setBusy] = useState(false);
   const [revErr, setRevErr] = useState<string | null>(null);
   const [showLog, setShowLog] = useState(false);
-  // Inline-Editor für Position-Kommentare (ersetzt window.prompt, das in
-  // PWA-Standalone — iOS-Home-Screen — unzuverlässig ist)
-  const [commenting, setCommenting] = useState<{ pos: number; status: "kommentar" | "aenderung"; text: string } | null>(null);
+  // Aktiver Tab im Side-Nav (Rick-Vorgabe 16.06.: nur Inhalt des aktiven
+  // Tabs anzeigen, kein Long-Scroll mehr). Default „Übersicht".
+  const [activeSec, setActiveSec] = useState<string>("sec-uebersicht");
+  // Edit-Status für die Positions-Tabellen (Edit/Delete je Zeile). Index
+  // bezieht sich nach Migration auf card.positions.
+  const [editPosIdx, setEditPosIdx] = useState<number | null>(null);
+  const [addKind, setAddKind] = useState<"arbeit" | "material" | null>(null);
+  // Beim Wechsel der Card zurück auf Übersicht (sonst hängt z. B. Positionen-Tab
+  // auf einer neuen Anfrage ohne Positionen leer).
+  useEffect(() => { setActiveSec("sec-uebersicht"); setEditPosIdx(null); setAddKind(null); }, [card.id]);
+
+  /** Hilfsfunktion: ggf. Inquiry-Positionen nach card.positions migrieren und
+   *  zurückliefern (sodass anschließend Edit/Delete auf echten Indizes arbeitet). */
+  async function ensureMigrated(): Promise<PipelinePosition[]> {
+    if (card.positions && card.positions.length > 0) return card.positions;
+    const split = splitInquiryPositions(inquiry);
+    const merged = [...split.work, ...split.material].map((p, i) => ({ ...p, pos: i + 1 }));
+    if (merged.length === 0) return [];
+    const valueEur = +merged.reduce((t, p) => t + (p.sum || 0), 0).toFixed(2);
+    await setCardPositions(card.id, merged, valueEur);
+    onUpdate({ positions: merged, valueEur });
+    return merged;
+  }
+
+  async function handleDeletePos(p: PipelinePosition) {
+    if (!confirm(`Position „${p.name}" löschen?`)) return;
+    const positions = await ensureMigrated();
+    const next = positions
+      .filter((pp) => !(pp.name === p.name && pp.quantity === p.quantity && (pp.source ?? "") === (p.source ?? "")))
+      .map((pp, i) => ({ ...pp, pos: i + 1 }));
+    const valueEur = +next.reduce((t, p) => t + (p.sum || 0), 0).toFixed(2);
+    await setCardPositions(card.id, next, valueEur);
+    onUpdate({ positions: next, valueEur });
+  }
+
+  async function handleEditPos(p: PipelinePosition) {
+    const positions = await ensureMigrated();
+    const idx = positions.findIndex(
+      (pp) => pp.name === p.name && pp.quantity === p.quantity && (pp.source ?? "") === (p.source ?? "")
+    );
+    if (idx >= 0) setEditPosIdx(idx);
+  }
   // Original-Anfrage hinter der Karte (Rohtext + Verlauf + Bilder)
   const [inquiry, setInquiry] = useState<Inquiry | null>(null);
   // sevDesk-Abgleich: Schnappschuss des Live-Belegs für den Vorschau-Dialog
@@ -979,29 +1309,6 @@ function DetailDrawer({
   const released = !!card.freigabe?.releasedAt;
   const history = card.freigabe?.history ?? [];
 
-  /** Wird für „ok" und „offen" (Reset) direkt aufgerufen, ohne Kommentar-Eingabe. */
-  async function saveReview(posNr: number, status: ReviewStatus, comment?: string) {
-    setBusy(true); setRevErr(null);
-    try {
-      const r = await reviewPosition(card, posNr, { status, comment }, reviewerName);
-      onUpdate({ positions: r.positions, freigabe: r.freigabe });
-      setCommenting(null);
-    } catch (e: any) {
-      setRevErr(e?.message ?? "Speichern fehlgeschlagen");
-    } finally { setBusy(false); }
-  }
-
-  /** Klick auf Status-Button — bei „kommentar"/„aenderung" öffnet Inline-Editor. */
-  function setReview(posNr: number, status: ReviewStatus) {
-    if (status === "kommentar" || status === "aenderung") {
-      const existing = card.positions?.find((p) => p.pos === posNr)?.review;
-      const prefill = existing?.status === status ? (existing.comment ?? "") : "";
-      setCommenting({ pos: posNr, status, text: prefill });
-      return;
-    }
-    saveReview(posNr, status);
-  }
-
   async function doRelease() {
     setBusy(true); setRevErr(null);
     try {
@@ -1024,7 +1331,13 @@ function DetailDrawer({
 
   const i = STAGES.indexOf(card.stage);
   // Nachfass-Schnipsel nur in „Versendet" zeigen (gilt nicht mehr ab „Auftrag").
+  // Position-Namen der Karte — wird genutzt, um redundante Klärungen automatisch
+  // herauszufiltern (Bullets, die exakt einen Positions-Namen wiederholen).
+  // Rick-Vorgabe 16.06.2026: bei bereits angelegten Anfragen darf die Klärungs-
+  // Liste nicht denselben Inhalt zeigen wie die Positionen darunter.
+  const positionNamesLower = (card.positions ?? []).map((p) => p.name.trim().toLowerCase());
   const klärungen = (card.openPoints ? card.openPoints.split(" · ") : [])
+    .filter((k) => !positionNamesLower.includes(k.trim().toLowerCase()))
     .filter((p) => !(/nachfass/i.test(p) && card.stage !== "Versendet"));
   const value = card.valueEur ?? card.planEur;
 
@@ -1077,66 +1390,355 @@ function DetailDrawer({
           </div>
         )}
 
-        <div className="flex-1 overflow-y-auto px-5 lg:px-8 py-6 board-scroll">
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start">
+        {/* Mockup-Variante 08 · schmale Icon-Nav links + Content rechts.
+            Klick auf ein Icon scrollt smooth zur Sektion via Anchor-ID.
+            Sektionen sind die existierenden Blöcke mit data-section markiert. */}
+        <div className="flex-1 flex min-h-0">
+          <DrawerSideNav
+            sections={[
+              { id: "sec-uebersicht", icon: "▤", label: "Vorgang",  show: true },
+              { id: "sec-kontakt",    icon: "👤", label: "Kontakt",  show: true },
+              { id: "sec-verlauf",    icon: "🕐", label: "Verlauf",  show: true },
+            ]}
+            activeId={activeSec}
+            onSelect={setActiveSec}
+          />
+        <div data-drawer-scroll className="flex-1 overflow-y-auto px-5 lg:px-8 py-6 board-scroll">
+          <div className="space-y-5">
 
-            {/* LINKS · Eckdaten, Leistung, Klärungen */}
-            <div className="space-y-5">
-              {card.description && !descIsJustDocNumber(card.description) && (
-                <div>
-                  <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
-                    Leistung
+            {/* Tab: Vorgang — Volumen + Klärungen + Description (nur wenn keine
+                strukturierten Positionen) + Arbeit/Material-Tabellen + Adder.
+                Rick-Vorgabe 16.06.: Übersicht und Positionen verschmolzen. */}
+            {activeSec === "sec-uebersicht" && (() => {
+              const { positions: shownPositions, work, material, fromInquiry } = effectivePositions(card, inquiry);
+              const hasStructuredPositions = shownPositions.length > 0;
+              return (
+                <>
+                  {/* 1) Volumen */}
+                  <div className="flex items-center justify-between gap-3 px-4 py-4 rounded-lg surface-steel">
+                    <span className="font-sans text-[13px] text-steel">
+                      {fromInquiry
+                        ? "Anfrage-Stand · noch nicht beziffert"
+                        : card.actualEur != null
+                          ? "Plan · Ist"
+                          : "Volumen netto · 0 % USt (§19)"}
+                    </span>
+                    {fromInquiry ? (
+                      <span className="font-display font-black text-[20px] text-white tabular-nums">—</span>
+                    ) : card.actualEur != null ? (
+                      <span className="font-display font-black text-[20px] text-white tabular-nums">
+                        {eur(card.planEur)} · {eur(card.actualEur)}
+                      </span>
+                    ) : (
+                      <span className="font-display font-black text-[24px] text-white tabular-nums">
+                        {value != null ? eur(value) : "noch offen"}
+                      </span>
+                    )}
                   </div>
-                  <p className="font-sans text-[14.5px] text-ink-body leading-relaxed">{card.description}</p>
-                </div>
-              )}
 
-              <div className="flex items-center justify-between gap-3 px-4 py-4 rounded-lg surface-steel">
-                <span className="font-sans text-[13px] text-steel">
-                  {card.actualEur != null ? "Plan · Ist" : "Volumen netto · 0 % USt (§19)"}
-                </span>
-                {card.actualEur != null ? (
-                  <span className="font-display font-black text-[20px] text-white tabular-nums">
-                    {eur(card.planEur)} · {eur(card.actualEur)}
-                  </span>
-                ) : (
-                  <span className="font-display font-black text-[24px] text-white tabular-nums">
-                    {value != null ? eur(value) : "noch offen"}
-                  </span>
-                )}
-              </div>
+                  {/* 2) Klärungen — bei Anfragen (fromInquiry) ausgeblendet, weil
+                      dort die Gewerks-Tags identisch zur Positionen-Sektion unten
+                      sind (Rick-Vorgabe 16.06.2026: keine Dopplung). Bei sevDesk-
+                      Karten mit echten manuellen Klärungen bleibt der Block. */}
+                  {klärungen.length > 0 && !fromInquiry && (
+                    <div className="bg-[#FBF3E9] border border-[#E0C49C] border-l-4 border-l-bronze rounded-lg px-4 py-3.5">
+                      <div className="font-display font-extrabold uppercase text-[12px] tracking-wider text-[#7A5E2E] mb-2">
+                        Offene Klärungen / Status
+                      </div>
+                      <ul className="flex flex-col gap-2">
+                        {klärungen.map((k, idx) => (
+                          <li key={idx} className="font-sans text-[13.5px] text-[#5A4521] leading-snug pl-4 relative">
+                            <span className="absolute left-0 text-bronze">▸</span>{k}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
 
-              {klärungen.length > 0 && (
-                <div className="bg-[#FBF3E9] border border-[#E0C49C] border-l-4 border-l-bronze rounded-lg px-4 py-3.5">
-                  <div className="font-display font-extrabold uppercase text-[12px] tracking-wider text-[#7A5E2E] mb-2">
-                    Offene Klärungen / Status
-                  </div>
-                  <ul className="flex flex-col gap-2">
-                    {klärungen.map((k, idx) => (
-                      <li key={idx} className="font-sans text-[13.5px] text-[#5A4521] leading-snug pl-4 relative">
-                        <span className="absolute left-0 text-bronze">▸</span>{k}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+                  {/* 3) Beschreibung — die LLM-Zusammenfassung des Anliegens. IMMER
+                      zeigen wenn vorhanden, auch wenn unten strukturierte Positionen
+                      stehen: die Prosa enthält oft Wünsche/Termine/Kontext, der nicht
+                      in der Positions-Liste landet (Rick-Vorgabe 16.06.: keine Daten
+                      verloren gehen lassen). */}
+                  {card.description && !descIsJustDocNumber(card.description) && (
+                    <div>
+                      <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
+                        Anliegen · Kurzfassung
+                      </div>
+                      <p className="font-sans text-[14.5px] text-ink-body leading-relaxed">{card.description}</p>
+                    </div>
+                  )}
 
-            {/* RECHTS · Anfrage + Beleg-Positionen */}
-            <div className="space-y-5">
+                  {/* 4) Positionen — bei Anfragen mit klarer Arbeit/Material-Trennung,
+                      bei sevDesk-Belegen als einheitliche Tabelle. */}
+                  {fromInquiry ? (
+                    <>
+                      <div className="flex items-center justify-between gap-2 mt-2">
+                        <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink">
+                          Erkannt aus Anfrage
+                        </div>
+                        <span className="font-mono text-[10px] uppercase tracking-wider text-bronze bg-[#FBF3E9] border border-[#E0C49C] px-2 py-0.5 rounded">
+                          noch nicht beziffert
+                        </span>
+                      </div>
+
+                      {/* Arbeit */}
+                      <div>
+                        <div className="font-display font-extrabold uppercase text-[11px] tracking-widest text-copper mb-1.5 flex items-center gap-2">
+                          <span className="inline-block w-2 h-2 rounded-full bg-copper" />
+                          Arbeit · {work.length} {work.length === 1 ? "Gewerk" : "Gewerke"}
+                        </div>
+                        {work.length === 0 ? (
+                          <div className="text-[12px] text-ink-mute font-mono px-2 py-3 italic">kein Gewerk erkannt</div>
+                        ) : (
+                          <div className="border border-steel rounded-lg overflow-hidden bg-white">
+                            <table className="w-full border-collapse text-[13.5px]">
+                              <thead>
+                                <tr className="bg-bg-deep text-bg-2">
+                                  <th className="w-8 text-center font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2">#</th>
+                                  <th className="text-left font-mono font-medium text-[10.5px] uppercase tracking-wide px-3 py-2">Gewerk</th>
+                                  <th className="text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2">Mengen</th>
+                                  {!released && !reviewerOnly && (
+                                    <th className="w-[88px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2"></th>
+                                  )}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {work.map((p) => {
+                                  // Index in card.positions für Edit/Delete (kann -1 sein, wenn noch virtuell)
+                                  const posIdx = (card.positions ?? []).findIndex(
+                                    (pp) => pp.name === p.name && pp.quantity === p.quantity && (pp.source ?? "") === (p.source ?? "")
+                                  );
+                                  if (editPosIdx !== null && posIdx === editPosIdx) {
+                                    // Inline-Edit-Form anstelle der Zeile
+                                    return (
+                                      <tr key={`edit-${p.pos}`} className="bg-[#FFF8F0]">
+                                        <td colSpan={!released && !reviewerOnly ? 4 : 3} className="px-2 py-2">
+                                          <PositionAdder
+                                            card={card}
+                                            inquiry={inquiry}
+                                            alwaysOpen
+                                            initial={{ index: posIdx, name: p.name, quantity: p.quantity, unitPrice: p.unitPrice ?? "", kind: "arbeit" }}
+                                            onSaved={(positions, valueEur) => { onUpdate({ positions, valueEur }); setEditPosIdx(null); }}
+                                            onCancel={() => setEditPosIdx(null)}
+                                          />
+                                          <div className="text-right mt-1">
+                                            <button onClick={() => setEditPosIdx(null)} className="font-mono text-[11px] text-ink-mute hover:text-ink-2 underline">abbrechen</button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  }
+                                  return (
+                                    <tr key={p.pos} className="border-b border-[#E2E4E7] last:border-0 even:bg-[#F6F7F8]">
+                                      <td className="text-center font-mono text-ink-2 text-[12px] px-2 py-2 align-top">{p.pos}</td>
+                                      <td className="text-ink text-[13.5px] leading-snug px-3 py-2 align-top break-words">{p.name}</td>
+                                      <td className="text-right font-mono text-[12px] text-ink-2 px-2 py-2 align-top whitespace-nowrap">{p.quantity}</td>
+                                      {!released && !reviewerOnly && (
+                                        <td className="text-right whitespace-nowrap px-2 py-2 align-top">
+                                          <button
+                                            onClick={() => handleEditPos(p)}
+                                            title="Position bearbeiten"
+                                            className="text-ink-mute hover:text-copper px-1.5 py-1 rounded transition-colors"
+                                          >✎</button>
+                                          <button
+                                            onClick={() => handleDeletePos(p)}
+                                            title="Position löschen"
+                                            className="text-ink-mute hover:text-rust px-1.5 py-1 rounded transition-colors"
+                                          >🗑</button>
+                                        </td>
+                                      )}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Material */}
+                      <div>
+                        <div className="font-display font-extrabold uppercase text-[11px] tracking-widest text-[#3A8CE8] mb-1.5 flex items-center gap-2">
+                          <span className="inline-block w-2 h-2 rounded-full" style={{ background: "#3A8CE8" }} />
+                          Material · {material.length} {material.length === 1 ? "Position" : "Positionen"}
+                        </div>
+                        {material.length === 0 ? (
+                          <div className="text-[12px] text-ink-mute font-mono px-2 py-3 italic">kein Material in der Anfrage erkannt</div>
+                        ) : (
+                          <div className="border border-steel rounded-lg overflow-hidden bg-white">
+                            <table className="w-full border-collapse text-[13.5px]">
+                              <thead>
+                                <tr className="bg-bg-deep text-bg-2">
+                                  <th className="w-8 text-center font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2">#</th>
+                                  <th className="text-left font-mono font-medium text-[10.5px] uppercase tracking-wide px-3 py-2">Material</th>
+                                  <th className="text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2">Menge</th>
+                                  {!released && !reviewerOnly && (
+                                    <th className="w-[88px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2"></th>
+                                  )}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {material.map((p) => {
+                                  const gewerkRef = (p.source ?? "").startsWith("anfrage-material:")
+                                    ? `Gewerk ${(p.source ?? "").split(":")[1]}` : null;
+                                  const posIdx = (card.positions ?? []).findIndex(
+                                    (pp) => pp.name === p.name && pp.quantity === p.quantity && (pp.source ?? "") === (p.source ?? "")
+                                  );
+                                  if (editPosIdx !== null && posIdx === editPosIdx) {
+                                    return (
+                                      <tr key={`edit-${p.source}-${p.pos}`} className="bg-[#F0F6FF]">
+                                        <td colSpan={!released && !reviewerOnly ? 4 : 3} className="px-2 py-2">
+                                          <PositionAdder
+                                            card={card}
+                                            inquiry={inquiry}
+                                            alwaysOpen
+                                            initial={{ index: posIdx, name: p.name, quantity: p.quantity, unitPrice: p.unitPrice ?? "", kind: "material" }}
+                                            onSaved={(positions, valueEur) => { onUpdate({ positions, valueEur }); setEditPosIdx(null); }}
+                                            onCancel={() => setEditPosIdx(null)}
+                                          />
+                                          <div className="text-right mt-1">
+                                            <button onClick={() => setEditPosIdx(null)} className="font-mono text-[11px] text-ink-mute hover:text-ink-2 underline">abbrechen</button>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  }
+                                  return (
+                                    <tr key={`${p.source}-${p.pos}`} className="border-b border-[#E2E4E7] last:border-0 even:bg-[#F6F7F8]">
+                                      <td className="text-center font-mono text-ink-2 text-[12px] px-2 py-2 align-top">{p.pos}</td>
+                                      <td className="text-ink text-[13.5px] leading-snug px-3 py-2 align-top">
+                                        <div className="break-words">{p.name}</div>
+                                        {(gewerkRef || p.review?.comment) && (
+                                          <div className="mt-0.5 font-mono text-[10px] text-ink-mute">
+                                            {gewerkRef && <span>↳ {gewerkRef}</span>}
+                                            {p.review?.comment && <span className="ml-2 italic">„{p.review.comment}"</span>}
+                                          </div>
+                                        )}
+                                      </td>
+                                      <td className="text-right font-mono text-[12px] text-ink-2 px-2 py-2 align-top whitespace-nowrap">{p.quantity}</td>
+                                      {!released && !reviewerOnly && (
+                                        <td className="text-right whitespace-nowrap px-2 py-2 align-top">
+                                          <button
+                                            onClick={() => handleEditPos(p)}
+                                            title="Position bearbeiten"
+                                            className="text-ink-mute hover:text-[#3A8CE8] px-1.5 py-1 rounded transition-colors"
+                                          >✎</button>
+                                          <button
+                                            onClick={() => handleDeletePos(p)}
+                                            title="Position löschen"
+                                            className="text-ink-mute hover:text-rust px-1.5 py-1 rounded transition-colors"
+                                          >🗑</button>
+                                        </td>
+                                      )}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </div>
+
+                      {!released && !reviewerOnly && (
+                        addKind ? (
+                          <PositionAdder
+                            card={card}
+                            inquiry={inquiry}
+                            defaultKind={addKind}
+                            alwaysOpen
+                            onSaved={(positions, valueEur) => { onUpdate({ positions, valueEur }); setAddKind(null); }}
+                            onCancel={() => setAddKind(null)}
+                          />
+                        ) : (
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => setAddKind("arbeit")}
+                              className="border-2 border-dashed border-copper/45 hover:border-copper text-copper font-display font-extrabold uppercase tracking-wider text-[12px] py-3 rounded-lg transition-colors"
+                            >＋ Arbeit-Position</button>
+                            <button
+                              onClick={() => setAddKind("material")}
+                              className="border-2 border-dashed border-[#3A8CE8]/45 hover:border-[#3A8CE8] text-[#3A8CE8] font-display font-extrabold uppercase tracking-wider text-[12px] py-3 rounded-lg transition-colors"
+                            >＋ Material-Position</button>
+                          </div>
+                        )
+                      )}
+                    </>
+                  ) : hasStructuredPositions ? (
+                    /* sevDesk-Beleg-Positionen — wird weiter unten im alten Block gerendert
+                       (Tabelle mit Review-Buttons + Net-Summe + Chef-Freigabe). */
+                    null
+                  ) : (
+                    /* Keine Positionen, keine Anfrage-Leistungen → Add-Block */
+                    <div className="border border-dashed border-steel rounded-lg px-5 py-6 bg-white/60">
+                      <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2">
+                        Noch keine Positionen
+                      </div>
+                      <p className="font-sans text-[13px] text-ink-2 leading-relaxed mb-3">
+                        {card.docNumber
+                          ? `Positionen zu ${card.docNumber} werden aus sevDesk gespiegelt, sobald der Abgleich gelaufen ist — oder du fügst sie hier direkt hinzu.`
+                          : "Sammle hier schon Positionen, bevor das Angebot erstellt wird (Material, Stunden, Pauschalen)."}
+                      </p>
+                      {!reviewerOnly && (
+                        addKind ? (
+                          <PositionAdder
+                            card={card}
+                            inquiry={inquiry}
+                            defaultKind={addKind}
+                            alwaysOpen
+                            onSaved={(positions, valueEur) => { onUpdate({ positions, valueEur }); setAddKind(null); }}
+                            onCancel={() => setAddKind(null)}
+                          />
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2">
+                            <button
+                              onClick={() => setAddKind("arbeit")}
+                              className="border-2 border-dashed border-copper/45 hover:border-copper text-copper font-display font-extrabold uppercase tracking-wider text-[12px] py-3 rounded-lg transition-colors"
+                            >＋ Arbeit-Position</button>
+                            <button
+                              onClick={() => setAddKind("material")}
+                              className="border-2 border-dashed border-[#3A8CE8]/45 hover:border-[#3A8CE8] text-[#3A8CE8] font-display font-extrabold uppercase tracking-wider text-[12px] py-3 rounded-lg transition-colors"
+                            >＋ Material-Position</button>
+                          </div>
+                        )
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+
+            {/* Tab: Kontakt */}
+            {activeSec === "sec-kontakt" && (
               <ContactCard card={card} inquiry={inquiry} onInquiryUpdate={setInquiry} />
+            )}
+
+            {/* Tab: Verlauf */}
+            {activeSec === "sec-verlauf" && (
               <InquiryHistory
                 card={card}
                 inquiry={inquiry}
                 siteId={card.siteId}
                 onInquiryUpdate={setInquiry}
               />
-              {card.positions && card.positions.length > 0 ? (
+            )}
+
+            {/* sevDesk-Belegtabelle — wird im Übersicht-Tab gerendert, wenn die
+                Karte echte sevDesk-Positionen hat (kein fromInquiry-Pfad).
+                Der frühere separate „Positionen"-Tab ist 16.06.2026 mit der
+                Übersicht verschmolzen worden. */}
+            {activeSec === "sec-uebersicht" && (() => {
+              const { positions: shownPositions, fromInquiry } = effectivePositions(card, inquiry);
+              // Nur den sevDesk-Pfad rendern; den Anfrage-Fall hat der erste Block oben
+              if (fromInquiry || shownPositions.length === 0) return null;
+              return (
                 <>
-                  <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
-                    {card.docNumber?.startsWith("RE")
-                      ? "Schlussrechnung · Positionen"
-                      : "Angebot · Positionen"}
+                  <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5 flex items-center justify-between gap-2">
+                    <span>
+                      {card.docNumber?.startsWith("RE")
+                        ? "Schlussrechnung · Positionen"
+                        : "Angebot · Positionen"}
+                    </span>
                   </div>
                   <div className="border border-steel rounded-lg overflow-hidden bg-white">
                     <table className="w-full border-collapse text-[13.5px]">
@@ -1147,87 +1749,58 @@ function DetailDrawer({
                           <th className="w-[72px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2.5">Menge</th>
                           <th className="w-[78px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2.5">EP €</th>
                           <th className="w-[96px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-3 py-2.5">Summe</th>
+                          {!released && !reviewerOnly && (
+                            <th className="w-[88px] text-right font-mono font-medium text-[10.5px] uppercase tracking-wide px-2 py-2.5"></th>
+                          )}
                         </tr>
                       </thead>
                       <tbody>
-                        {card.positions.map((p) => {
-                          const rv = p.review;
-                          const rm = REVIEW_META[rv?.status ?? "offen"];
+                        {shownPositions.map((p) => {
+                          // Index in card.positions zur Identifikation für Edit/Delete
+                          const posIdx = (card.positions ?? []).findIndex(
+                            (pp) => pp.name === p.name && pp.quantity === p.quantity && (pp.source ?? "") === (p.source ?? "")
+                          );
+                          if (editPosIdx !== null && posIdx === editPosIdx) {
+                            // Inline-Edit-Form anstelle der Zeile (sevDesk-Belegtabelle).
+                            // kind auf "arbeit" als Default — der Toggle ist im Edit-Modus
+                            // sowieso disabled, weil die Position bereits klassifiziert ist.
+                            const editKind: "arbeit" | "material" = isMaterialPosition(p) ? "material" : "arbeit";
+                            return (
+                              <tr key={`edit-${p.pos}`} className="bg-[#FFF8F0]">
+                                <td colSpan={!released && !reviewerOnly ? 6 : 5} className="px-2 py-2">
+                                  <PositionAdder
+                                    card={card}
+                                    inquiry={inquiry}
+                                    alwaysOpen
+                                    initial={{ index: posIdx, name: p.name, quantity: p.quantity, unitPrice: p.unitPrice ?? "", kind: editKind }}
+                                    onSaved={(positions, valueEur) => { onUpdate({ positions, valueEur }); setEditPosIdx(null); }}
+                                    onCancel={() => setEditPosIdx(null)}
+                                  />
+                                </td>
+                              </tr>
+                            );
+                          }
                           return (
                           <tr key={p.pos} className="border-b border-[#E2E4E7] last:border-0 even:bg-[#F6F7F8]">
                             <td className="text-center font-mono text-ink-2 text-[12px] px-2 py-2.5 align-top">{p.pos}</td>
-                            <td className="text-ink text-[13.5px] leading-snug px-3 py-2.5 align-top">
-                              <div className="flex items-start gap-2">
-                                <span className="mt-1.5 w-2 h-2 rounded-full flex-shrink-0"
-                                      style={{ background: rm.dot }} title={`Review: ${rm.label}`} />
-                                <span className="break-words">{p.name}</span>
-                              </div>
-                              {rv?.comment && (
-                                <div className="mt-1 ml-4 font-sans text-[12px] text-copper italic leading-snug">
-                                  „{rv.comment}"
-                                </div>
-                              )}
-                              {!released && commenting?.pos !== p.pos && (
-                                <div className="mt-1.5 ml-4 flex items-center gap-1">
-                                  <button onClick={() => setReview(p.pos, "ok")} disabled={busy}
-                                    className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "ok" ? "bg-good text-white border-good" : "border-steel text-ink-2 hover:border-good hover:text-good"}`}
-                                    title="Position freigeben">✓ OK</button>
-                                  <button onClick={() => setReview(p.pos, "kommentar")} disabled={busy}
-                                    className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "kommentar" ? "bg-copper text-white border-copper" : "border-steel text-ink-2 hover:border-copper hover:text-copper"}`}
-                                    title="Kommentar">💬</button>
-                                  <button onClick={() => setReview(p.pos, "aenderung")} disabled={busy}
-                                    className={`text-[11px] font-mono px-2 py-0.5 rounded border ${rv?.status === "aenderung" ? "bg-amber text-white border-amber" : "border-steel text-ink-2 hover:border-amber hover:text-amber"}`}
-                                    style={rv?.status === "aenderung" ? { background: "#B45309", borderColor: "#B45309", color: "#fff" } : undefined}
-                                    title="Unsicher · noch klären / nachfragen">? Unsicher</button>
-                                  {rv && rv.status !== "offen" && (
-                                    <button onClick={() => setReview(p.pos, "offen")} disabled={busy}
-                                      className="text-[11px] font-mono px-1.5 py-0.5 rounded text-ink-mute hover:text-ink"
-                                      title="Zurücksetzen">↺</button>
-                                  )}
-                                </div>
-                              )}
-                              {!released && commenting?.pos === p.pos && (
-                                <div className="mt-2 ml-4 bg-bg-2 border border-copper/40 rounded-md p-2.5">
-                                  <div className="dd-eyebrow text-copper mb-1.5">
-                                    {commenting.status === "kommentar" ? "💬 Kommentar zu dieser Position" : "? Was bist du dir unsicher?"}
-                                  </div>
-                                  <textarea
-                                    value={commenting.text}
-                                    onChange={(e) => setCommenting({ ...commenting, text: e.target.value })}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Escape") { e.preventDefault(); setCommenting(null); }
-                                      if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && commenting.text.trim()) {
-                                        e.preventDefault();
-                                        saveReview(p.pos, commenting.status, commenting.text.trim());
-                                      }
-                                    }}
-                                    autoFocus
-                                    rows={3}
-                                    placeholder={commenting.status === "kommentar" ? "z.B. Höhe bitte 183 statt 163" : "z.B. Maße prüfen · Hesse-Preis nachfragen · noch ohne Aufmaß"}
-                                    className="w-full bg-white border border-steel-line/45 rounded px-2 py-1.5 text-[12.5px] font-sans focus:outline-none focus:border-copper resize-y"
-                                  />
-                                  <div className="mt-1.5 flex items-center justify-between gap-2">
-                                    <span className="font-mono text-[10px] text-ink-mute">
-                                      Strg+↵ speichert · Esc bricht ab
-                                    </span>
-                                    <div className="flex gap-1.5">
-                                      <button
-                                        onClick={() => setCommenting(null)}
-                                        className="text-[11px] font-mono px-2 py-1 rounded text-ink-2 hover:text-ink"
-                                      >abbrechen</button>
-                                      <button
-                                        onClick={() => saveReview(p.pos, commenting.status, commenting.text.trim() || undefined)}
-                                        disabled={busy}
-                                        className="text-[11px] font-mono px-2.5 py-1 rounded bg-copper text-white hover:bg-copper-bright disabled:opacity-50"
-                                      >{busy ? "speichere …" : "speichern"}</button>
-                                    </div>
-                                  </div>
-                                </div>
-                              )}
-                            </td>
+                            <td className="text-ink text-[13.5px] leading-snug px-3 py-2.5 align-top break-words">{p.name}</td>
                             <td className="text-right font-mono text-[12.5px] text-ink-2 px-2 py-2.5 align-top whitespace-nowrap">{p.quantity}</td>
                             <td className="text-right font-mono text-[12.5px] text-ink-2 px-2 py-2.5 align-top whitespace-nowrap">{p.unitPrice}</td>
                             <td className="text-right font-mono font-bold text-[12.5px] text-ink px-3 py-2.5 align-top whitespace-nowrap tabular-nums">{eur(p.sum)}</td>
+                            {!released && !reviewerOnly && (
+                              <td className="text-right whitespace-nowrap px-2 py-2.5 align-top">
+                                <button
+                                  onClick={() => handleEditPos(p)}
+                                  title="Position bearbeiten"
+                                  className="text-ink-mute hover:text-copper px-1.5 py-1 rounded transition-colors"
+                                >✎</button>
+                                <button
+                                  onClick={() => handleDeletePos(p)}
+                                  title="Position löschen"
+                                  className="text-ink-mute hover:text-rust px-1.5 py-1 rounded transition-colors"
+                                >🗑</button>
+                              </td>
+                            )}
                           </tr>
                           );
                         })}
@@ -1235,14 +1808,40 @@ function DetailDrawer({
                     </table>
                   </div>
                   <div className="flex items-center justify-between gap-3 mt-3 px-4 py-4 rounded-lg surface-steel">
-                    <span className="font-sans text-[13px] text-steel">Netto-Gesamt · 0 % USt (§19)</span>
+                    <span className="font-sans text-[13px] text-steel">
+                      {fromInquiry ? "Anfrage-Stand · noch nicht beziffert" : "Netto-Gesamt · 0 % USt (§19)"}
+                    </span>
                     <span className="font-display font-black text-[22px] text-white tabular-nums">
-                      {eur(card.positions.reduce((t, p) => t + (p.sum || 0), 0))}
+                      {fromInquiry ? "—" : eur(shownPositions.reduce((t, p) => t + (p.sum || 0), 0))}
                     </span>
                   </div>
 
+                  {!released && !reviewerOnly && (
+                    addKind ? (
+                      <PositionAdder
+                        card={card}
+                        inquiry={inquiry}
+                        defaultKind={addKind}
+                        alwaysOpen
+                        onSaved={(positions, valueEur) => { onUpdate({ positions, valueEur }); setAddKind(null); }}
+                        onCancel={() => setAddKind(null)}
+                      />
+                    ) : (
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button
+                          onClick={() => setAddKind("arbeit")}
+                          className="border-2 border-dashed border-copper/45 hover:border-copper text-copper font-display font-extrabold uppercase tracking-wider text-[12px] py-3 rounded-lg transition-colors"
+                        >＋ Arbeit-Position</button>
+                        <button
+                          onClick={() => setAddKind("material")}
+                          className="border-2 border-dashed border-[#3A8CE8]/45 hover:border-[#3A8CE8] text-[#3A8CE8] font-display font-extrabold uppercase tracking-wider text-[12px] py-3 rounded-lg transition-colors"
+                        >＋ Material-Position</button>
+                      </div>
+                    )
+                  )}
+
                   {/* Chef-Freigabe */}
-                  <div className="mt-5">
+                  <div id="sec-freigabe" data-section style={{ scrollMarginTop: 16 }} className="mt-5">
                     <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
                       Freigabe
                     </div>
@@ -1292,27 +1891,23 @@ function DetailDrawer({
                     )}
                   </div>
                 </>
-              ) : !inquiry ? (
-                <div className="border border-dashed border-steel rounded-lg px-5 py-8 text-center bg-white/50">
-                  <p className="font-sans text-[13px] text-ink-2 leading-relaxed">
-                    {card.docNumber
-                      ? `Positionen zu ${card.docNumber} werden aus sevDesk gespiegelt, sobald der Abgleich gelaufen ist.`
-                      : "Noch kein sevDesk-Beleg verknüpft."}
-                  </p>
-                </div>
-              ) : null}
-            </div>
-
+              );
+            })()}
           </div>
         </div>
+        </div>{/* /flex-1 flex min-h-0 (Side-Nav-Wrapper) — Bugfix 16.06.2026:
+                  sevDesk-Sync/Link-Banner waren bisher INNERHALB dieses
+                  Flex-Containers → align-items:stretch hat sie vertikal auf
+                  volle Drawer-Höhe gezogen (riesige leere weiße Fläche bei
+                  bereits angelegten Anfragen). Jetzt korrekt unterhalb. */}
 
         {canSync && (
-          <div className="flex-shrink-0 px-5 lg:px-6 pt-3 pb-1 bg-[#E2E4E7] border-t border-steel">
+          <div className="flex-shrink-0 px-5 lg:px-6 pt-2.5 pb-2.5 bg-[#E2E4E7] border-t border-steel">
             <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={doSync}
                 disabled={syncBusy}
-                className="btn-ghost !min-h-[44px] !px-4 text-[12px] !text-copper !border-copper/50 inline-flex items-center gap-2 disabled:opacity-50"
+                className="btn-ghost !min-h-[40px] !px-4 text-[12px] !text-copper !border-copper/50 inline-flex items-center gap-2 disabled:opacity-50"
                 title={`Positionen, Summe und Status aus dem sevDesk-Beleg ${card.docNumber ?? ""} holen und vergleichen (sevDesk wird nur gelesen)`}
               >
                 {syncBusy ? "↻ sevDesk wird gelesen …" : "↻ Daten mit sevDesk abgleichen"}
@@ -1328,12 +1923,12 @@ function DetailDrawer({
         )}
 
         {canLink && (
-          <div className="flex-shrink-0 px-5 lg:px-6 pt-3 pb-1 bg-[#E2E4E7] border-t border-steel">
+          <div className="flex-shrink-0 px-5 lg:px-6 pt-2.5 pb-2.5 bg-[#E2E4E7] border-t border-steel">
             <div className="flex items-center gap-3 flex-wrap">
               <button
                 onClick={doFindOrders}
                 disabled={linkBusy}
-                className="btn-ghost !min-h-[44px] !px-4 text-[12px] !text-copper !border-copper/50 inline-flex items-center gap-2 disabled:opacity-50"
+                className="btn-ghost !min-h-[40px] !px-4 text-[12px] !text-copper !border-copper/50 inline-flex items-center gap-2 disabled:opacity-50"
                 title={`In sevDesk nach einem Beleg für „${card.customerName}" suchen und mit dieser Karte verknüpfen`}
               >
                 {linkBusy ? "🔗 sevDesk wird durchsucht …" : "🔗 sevDesk-Beleg suchen & verknüpfen"}

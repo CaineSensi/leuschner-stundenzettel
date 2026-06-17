@@ -592,6 +592,22 @@ export async function updateCard(
   if (error) throw error;
 }
 
+/** Schreibt das positions-Array (+ optional valueEur) zurück auf die Karte.
+ *  Wird genutzt vom Anfrage-Drawer, um manuell Positionen zu pflegen ohne
+ *  durch den AngebotNeu-Wizard zu müssen (Rick-Vorgabe 16.06.2026). */
+export async function setCardPositions(
+  id: string,
+  positions: PipelinePosition[],
+  valueEur?: number | null,
+): Promise<void> {
+  if (!isBackendConnected() || !supabase) return;
+  const sb: any = supabase;
+  const row: Record<string, unknown> = { positions };
+  if (valueEur !== undefined) row.value_eur = valueEur ?? null;
+  const { error } = await sb.from("pipeline_cards").update(row).eq("id", id);
+  if (error) throw error;
+}
+
 export async function deleteCard(id: string): Promise<void> {
   if (!isBackendConnected() || !supabase) return;
   const sb: any = supabase;

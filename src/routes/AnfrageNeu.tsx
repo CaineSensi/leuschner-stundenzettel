@@ -463,18 +463,13 @@ export default function AnfrageNeu() {
       }
       updateStep("anmeldung", { status: "done", detail: "OK" });
 
-      // openPoints für die Pipeline-Karte aus den erkannten Eckdaten anreichern
+      // openPoints für die Pipeline-Karte: NUR echte „offene Klärungen" rein
+      // (Termin, Notizen). Die erkannten Gewerke werden NICHT mehr als
+      // Bullet-Tags reingeschrieben, weil sie 1:1 in den strukturierten
+      // Positionen unter parsedJson.leistungen stehen — Rick-Vorgabe 16.06.:
+      // „Doppelt sich, kann weg." Genauso werden Mengen-Zähler weggelassen.
       const place = [zip, city].filter(Boolean).join(" ").trim() || street || undefined;
       const tags: string[] = [];
-      if (parsed?.leistungen && parsed.leistungen.length > 0) {
-        parsed.leistungen.slice(0, 4).forEach((l) => {
-          const meng = l.mengen?.map((m) => `${m.wert}${m.einheit ? m.einheit : ""}`).join("+");
-          tags.push(meng ? `${l.name} (${meng})` : l.name);
-        });
-      } else if (parsed?.leistung) {
-        parsed.leistung.split(/,\s*/).slice(0, 3).forEach((l) => { if (l.trim()) tags.push(l.trim()); });
-      }
-      if (parsed?.mengen?.length) tags.push(`${parsed.mengen.length} Positionen`);
       if (parsed?.termin) tags.push(`Termin: ${parsed.termin}`);
       if (notes.trim()) tags.push(notes.trim());
 
