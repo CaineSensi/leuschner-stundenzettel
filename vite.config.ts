@@ -1,14 +1,30 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
+import { execSync } from "node:child_process";
 
 // Auf GitHub Pages liegt die App unter https://<user>.github.io/<repo>/
 // Setze VITE_BASE_PATH im GitHub-Action-Secret, z.B. "/leuschner-app/"
 // Bei Custom-Domain (z.B. app.galabauleuschner.de) bleibt es "/".
 const base = process.env.VITE_BASE_PATH ?? "/";
 
+// Build-Stempel für das Diagnose-Log (app_version war bisher leer → man sah
+// bei einer Regression nicht, SEIT WANN/welche Version betroffen ist).
+// Format: YYYY-MM-DD+<git-short-hash>, Fallback nur Datum.
+function buildVersion(): string {
+  const date = new Date().toISOString().slice(0, 10);
+  let hash = "";
+  try { hash = execSync("git rev-parse --short HEAD", { cwd: process.cwd() }).toString().trim(); }
+  catch { /* git evtl. nicht verfügbar (Stick) — Datum reicht */ }
+  return hash ? `${date}+${hash}` : date;
+}
+const APP_VERSION = process.env.VITE_APP_VERSION ?? buildVersion();
+
 export default defineConfig({
   base,
+  define: {
+    __APP_VERSION__: JSON.stringify(APP_VERSION),
+  },
   plugins: [
     react(),
     VitePWA({

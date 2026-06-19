@@ -37,8 +37,13 @@ interface DiagPayload {
   context?: Record<string, unknown>;
 }
 
+// Build-Stempel: wird in vite.config.ts via `define` zur Buildzeit ersetzt
+// (Datum+Commit). Fallback auf VITE_APP_VERSION bzw. leer für Dev/Tests.
+declare const __APP_VERSION__: string | undefined;
 const APP_VERSION =
-  ((import.meta as any).env?.VITE_APP_VERSION as string | undefined) ?? "";
+  (typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : undefined) ??
+  ((import.meta as any).env?.VITE_APP_VERSION as string | undefined) ??
+  "";
 
 // ── Browser/OS einmalig bestimmen ───────────────────────────────────────
 let UA: { browser: string; family: string; os: string } | null = null;
@@ -224,6 +229,66 @@ export async function listDiagEvents(opts?: { sinceIso?: string; limit?: number 
   const { data, error } = await q;
   if (error || !data) return [];
   return data.map(mapRow);
+}
+
+// ── Frühwarnung (Ebene 2): Alarme aus diag_alerts ───────────────────────
+export interface DiagAlert {
+  id: string;
+  ts: string;
+  level: DiagLevel;
+  title: string;
+  message: string;
+  count: number;
+  windowMinutes: number;
+  acknowledged: boolean;
+}
+
+function mapAlert(r: any): DiagAlert {
+  return {
+    id: r.id,
+    ts: r.ts,
+    level: r.level ?? "timeout",
+    title: r.title ?? "Hinweis",
+    message: r.message ?? "",
+    count: r.count ?? 0,
+    windowMinutes: r.window_minutes ?? 60,
+    acknowledged: r.acknowledged ?? false,
+  };
+}
+
+/** Offene (nicht quittierte) Alarme — Admin-only via RLS. */
+export async function listOpenAlerts(): Promise<DiagAlert[]> {
+  if (!supabase) return [];
+  const sb: any = supabase;
+  const { data, error } = await sb
+    .from("diag_alerts")
+    .select("*")
+    .eq("acknowledged", false)
+    .order("ts", { ascending: false })
+    .limit(20);
+  if (error || !data) return [];
+  return data.map(mapAlert);
+}
+
+/** Quittiert einen Alarm (verschwindet bei allen Admins via Realtime). */
+export async function acknowledgeAlert(id: string): Promise<void> {
+  if (!supabase) return;
+  const sb: any = supabase;
+  await sb.from("diag_alerts")
+    .update({ acknowledged: true, acknowledged_at: new Date().toISOString() })
+    .eq("id", id);
+}
+
+/** Lauscht auf neue Alarme (INSERT). Callback bekommt den Alarm. */
+export function subscribeToAlerts(onNew: (a: DiagAlert) => void): () => void {
+  if (!supabase) return () => {};
+  const sb: any = supabase;
+  const ch = sb.channel("diag-alerts")
+    .on("postgres_changes",
+      { event: "INSERT", schema: "public", table: "diag_alerts" },
+      (payload: any) => onNew(mapAlert(payload.new)))
+    .subscribe();
+  return () => { try { sb.removeChannel(ch); } catch { /* ignore */ } };
 }
 
 export interface DiagPattern {

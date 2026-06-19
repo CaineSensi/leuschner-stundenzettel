@@ -27,6 +27,7 @@ import InstallPrompt from "./components/InstallPrompt";
 import UpdatePrompt from "./components/UpdatePrompt";
 import AdminPushBanner from "./components/AdminPushBanner";
 import ChatBubble from "./components/ChatBubble";
+import DiagAlertBanner from "./components/DiagAlertBanner";
 import { currentUser, isOnboarded, syncWorkerFromSession, enforceValidSession, logout } from "./lib/auth";
 import { supabase } from "./lib/supabase";
 import { syncPending } from "./lib/sync";
@@ -78,6 +79,7 @@ export default function App() {
   return (
     <div className="grain min-h-full">
       <div className="print:hidden">
+        <DiagAlertBanner />
         <AdminPushBanner />
         <OfflineIndicator />
         <InstallPrompt />

@@ -15,7 +15,54 @@ const FALLBACK_URL = "https://vejhsyrxpveunygyhqlo.supabase.co";
 const ALLOWED_LEVELS = new Set(["timeout", "error", "crash", "warn", "info"]);
 const MAX_EVENTS = 100;
 
-type Ctx = { request: Request; env: Env };
+// ── Frühwarnung (Ebene 2) ───────────────────────────────────────────────
+// Schlägt Alarm, wenn sich Timeouts häufen, statt dass es wochenlang
+// unbemerkt im Log steht. Self-triggering: Timeouts erzeugen genau die
+// Events, die diesen Check anstoßen — es braucht keinen Cron/Scheduler.
+const SPIKE_THRESHOLD = 12;   // Timeouts im Fenster → Alarm
+const SPIKE_WINDOW_MIN = 60;  // Beobachtungsfenster (Minuten)
+const ALERT_DEDUP_HOURS = 6;  // nicht öfter als alle 6 h alarmieren
+
+type Ctx = { request: Request; env: Env; waitUntil?: (p: Promise<unknown>) => void };
+
+async function maybeRaiseAlert(base: string, key: string): Promise<void> {
+  try {
+    const h = { apikey: key, Authorization: `Bearer ${key}` };
+    // 1) Timeouts im Fenster zählen (exakter Count via content-range)
+    const since = new Date(Date.now() - SPIKE_WINDOW_MIN * 60_000).toISOString();
+    const cntResp = await fetch(
+      `${base}/rest/v1/diag_events?select=id&level=eq.timeout&ts=gte.${encodeURIComponent(since)}`,
+      { headers: { ...h, Prefer: "count=exact", Range: "0-0" } }
+    );
+    const range = cntResp.headers.get("content-range") || "";   // z.B. "0-0/37"
+    const count = Number(range.split("/")[1] || 0);
+    if (!Number.isFinite(count) || count < SPIKE_THRESHOLD) return;
+
+    // 2) Dedup: gab es kürzlich schon einen Alarm?
+    const dedupSince = new Date(Date.now() - ALERT_DEDUP_HOURS * 3600_000).toISOString();
+    const recent = await fetch(
+      `${base}/rest/v1/diag_alerts?select=id&ts=gte.${encodeURIComponent(dedupSince)}&limit=1`,
+      { headers: h }
+    );
+    const recentRows = recent.ok ? await recent.json() : [];
+    if (Array.isArray(recentRows) && recentRows.length > 0) return;
+
+    // 3) Alarm anlegen → die App zeigt ihn per Realtime als Banner
+    await fetch(`${base}/rest/v1/diag_alerts`, {
+      method: "POST",
+      headers: { ...h, "Content-Type": "application/json", Prefer: "return=minimal" },
+      body: JSON.stringify({
+        level: "timeout",
+        title: "Häufung von Timeouts",
+        message: `${count} Timeouts in den letzten ${SPIKE_WINDOW_MIN} Minuten — die App hängt vermutlich wieder beim Laden/Senden. Bitte Diagnose-Tab prüfen.`,
+        count,
+        window_minutes: SPIKE_WINDOW_MIN,
+      }),
+    });
+  } catch (err: any) {
+    console.warn("[/api/log] alert-check failed", String(err?.message ?? err).slice(0, 200));
+  }
+}
 
 function clamp(v: unknown, max: number): string | null {
   if (v == null) return null;
@@ -23,7 +70,7 @@ function clamp(v: unknown, max: number): string | null {
   return s.length > max ? s.slice(0, max) : s;
 }
 
-export const onRequestPost = async ({ request, env }: Ctx) => {
+export const onRequestPost = async ({ request, env, waitUntil }: Ctx) => {
   // Body defensiv lesen — kaputtes JSON darf keinen 500 erzeugen.
   let payload: any = null;
   try {
@@ -86,6 +133,12 @@ export const onRequestPost = async ({ request, env }: Ctx) => {
       return new Response(JSON.stringify({ stored: false, status: resp.status }), {
         status: 200, headers: { "content-type": "application/json" },
       });
+    }
+    // Frühwarnung nur prüfen, wenn dieser Batch Timeouts enthält — dann im
+    // Hintergrund (waitUntil), damit die /api/log-Antwort schnell bleibt.
+    if (rows.some((r) => r.level === "timeout")) {
+      const check = maybeRaiseAlert(base, key);
+      if (waitUntil) waitUntil(check); else await check;
     }
     return new Response(null, { status: 204 });
   } catch (err: any) {
