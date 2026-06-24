@@ -223,7 +223,9 @@ export async function enforceValidSession(): Promise<string | null> {
 export async function syncWorkerFromSession(): Promise<Worker | null> {
   if (!supabase) return null;
 
-  const { data: { session } } = await supabase.auth.getSession();
+  const { data: { session } } = await withTimeout(
+    supabase.auth.getSession(), 8000, "syncWorker-getSession"
+  ).catch(() => ({ data: { session: null } }));
   if (!session?.user) return null;
 
   const sb: any = supabase;

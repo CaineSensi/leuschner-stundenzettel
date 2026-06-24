@@ -1,69 +1,50 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { listEntries, listSites } from "../lib/api";
 import { listEntryPhotos } from "../lib/photos";
-import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
+import { useRealtime } from "../lib/realtime";
+import { useLiveData } from "../lib/live";
 import { currentUser } from "../lib/auth";
 import PhotoStrip from "../components/PhotoStrip";
-import { attendanceEndMin, effectivePauseMin, fmtHours, fmtTime, shortDate, withTimeout, workMinutes } from "../lib/utils";
-import { isWorkEntry, type Entry, type EntryPhoto, type Site } from "../lib/types";
+import {
+  attendanceEndMin, effectivePauseMin, fmtHours, fmtTime,
+  isEntryActiveOn, shortDate, workMinutes
+} from "../lib/utils";
+import { isWorkEntry, type EntryPhoto } from "../lib/types";
 
 export default function Day() {
   const { date } = useParams<{ date: string }>();
   const me = currentUser();
 
-  const [entry, setEntry] = useState<Entry | null>(null);
-  const [site, setSite] = useState<Site | null>(null);
-  const [photos, setPhotos] = useState<EntryPhoto[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // ── Daten aus zentralem Context ──────────────────────────────────────────
+  const { entries, sites, isLoaded } = useLiveData();
 
-  const [refreshKey, setRefreshKey] = useState(0);
+  // Eintrag für diesen Tag (unterstützt mehrtägige Abwesenheiten via isEntryActiveOn)
+  const entry = date ? (entries.find((e) => isEntryActiveOn(e, date)) ?? null) : null;
+  const site = (entry && isWorkEntry(entry))
+    ? (sites.find((s) => s.id === entry.siteId) ?? null)
+    : null;
+
+  // ── Fotos: lokal laden (nicht im Context) ────────────────────────────────
+  const [photos, setPhotos] = useState<EntryPhoto[]>([]);
 
   useEffect(() => {
-    if (!me || !date) { setLoading(false); return; }
+    if (!entry?.id) { setPhotos([]); return; }
     let cancelled = false;
-    setLoading(true);
-    (async () => {
-      console.log("[day] load start", date);
-      try {
-        const [entries, sites] = await Promise.all([
-          withTimeout(listEntries(me.id, date, date), 6000, "Eintrag laden")
-            .catch((e) => { console.warn("[day] entries fail", e); return [] as Entry[]; }),
-          withTimeout(listSites(), 6000, "Baustellen")
-            .catch((e) => { console.warn("[day] sites fail", e); return [] as Site[]; })
-        ]);
-        if (cancelled) return;
-        const e = entries[0] ?? null;
-        setEntry(e);
-        if (e && isWorkEntry(e)) {
-          setSite(sites.find((s) => s.id === e.siteId) ?? null);
-        } else {
-          setSite(null);
-        }
-        // Fotos für diesen Eintrag laden
-        if (e) {
-          listEntryPhotos(e.id)
-            .then((ps) => { if (!cancelled) setPhotos(ps); })
-            .catch((err) => console.warn("[day] photos fail", err));
-        }
-        console.log("[day] load ok", { hasEntry: !!e });
-      } catch (err: any) {
-        console.error("[day] load FAIL", err);
-        if (!cancelled) setError(err?.message ?? "Fehler beim Laden");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
+    listEntryPhotos(entry.id)
+      .then((ps) => { if (!cancelled) setPhotos(ps); })
+      .catch((err) => console.warn("[day] photos fail", err));
     return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date, me?.id, refreshKey]);
+  }, [entry?.id]);
 
-  useRealtime(`day-${date}`, ["entries", "entry_photos"], () => setRefreshKey((k) => k + 1));
-  useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
-  useRefreshOnAuth(() => setRefreshKey((k) => k + 1));
+  // Fotos live halten (entry_photos-Tabelle), Entries kommen bereits aus dem Context
+  useRealtime(`day-photos-${date}`, ["entry_photos"], () => {
+    if (entry?.id) {
+      listEntryPhotos(entry.id).then(setPhotos).catch(console.warn);
+    }
+  });
 
-  if (loading) {
+  // ── Lade-Zustand ─────────────────────────────────────────────────────────
+  if (!isLoaded) {
     return (
       <main className="on-dark min-h-screen flex items-center justify-center">
         <div className="h-mono text-ink-2 text-[12px]">Wird geladen …</div>
@@ -71,16 +52,7 @@ export default function Day() {
     );
   }
 
-  if (error) {
-    return (
-      <main className="on-dark min-h-screen flex flex-col items-center justify-center px-6 text-center max-w-md mx-auto">
-        <p className="text-rust text-sm">{error}</p>
-        <Link to="/" className="btn-ghost mt-4">Zurück zur Woche</Link>
-      </main>
-    );
-  }
-
-  if (!entry || !date) {
+  if (!me || !date || !entry) {
     return (
       <main className="on-dark min-h-screen flex flex-col items-center justify-center px-6 text-center max-w-md mx-auto">
         <p className="h-mono text-ink-2">Kein Eintrag für diesen Tag.</p>
@@ -89,11 +61,11 @@ export default function Day() {
     );
   }
 
-  const d = new Date(date);
-  const dayLabel = d.toLocaleDateString("de-DE", {
+  const dayLabel = new Date(date).toLocaleDateString("de-DE", {
     weekday: "long", day: "2-digit", month: "2-digit", year: "numeric"
   });
 
+  // ── Abwesenheits-Ansicht ──────────────────────────────────────────────────
   if (!isWorkEntry(entry)) {
     const meta = ABSENCE_META[entry.type];
     return (
@@ -108,15 +80,18 @@ export default function Day() {
           <div className="dd-eyebrow text-copper-bright">{dayLabel}</div>
           <h1 className="font-display font-black uppercase text-3xl text-white mt-1">{meta.title}</h1>
           {entry.endDate && entry.endDate !== entry.date && (
-            <p className="font-sans text-steel text-[12px] mt-1">
-              bis {shortDate(entry.endDate)}
-            </p>
+            <p className="font-sans text-steel text-[12px] mt-1">bis {shortDate(entry.endDate)}</p>
           )}
         </section>
 
         <ul className="px-6 py-4 divide-y divide-ink/10">
           <Row label="Typ" value={meta.title} sub={meta.sub} />
-          <Row label="Zeitraum" value={entry.endDate ? `${shortDate(entry.date)} bis ${shortDate(entry.endDate)}` : `Nur ${shortDate(entry.date)}`} />
+          <Row
+            label="Zeitraum"
+            value={entry.endDate
+              ? `${shortDate(entry.date)} bis ${shortDate(entry.endDate)}`
+              : `Nur ${shortDate(entry.date)}`}
+          />
           {entry.note && <Row label="Notiz" value={entry.note} />}
         </ul>
 
@@ -129,7 +104,7 @@ export default function Day() {
     );
   }
 
-  // Work entry
+  // ── Arbeits-Ansicht ───────────────────────────────────────────────────────
   const min = workMinutes(entry);
 
   return (
@@ -144,7 +119,9 @@ export default function Day() {
         {site?.projectNumber && (
           <div className="font-mono text-steel text-[11px] mt-1">Auftrag {site.projectNumber}</div>
         )}
-        <h1 className="font-display font-black uppercase text-3xl text-white mt-1 leading-tight">{site?.name ?? "Baustelle (gelöscht)"}</h1>
+        <h1 className="font-display font-black uppercase text-3xl text-white mt-1 leading-tight">
+          {site?.name ?? "Baustelle (gelöscht)"}
+        </h1>
         {site && (
           <p className="font-sans text-steel text-[12px] mt-1">{site.street} · {site.city}</p>
         )}
@@ -162,8 +139,14 @@ export default function Day() {
             ? `${fmtHours(min)} h bezahlt · inkl. ${effectivePauseMin(entry)} min Pause (unbezahlt, §4 ArbZG)`
             : `${fmtHours(min)} h bezahlt · keine Pause (≤ 6 h)`}
         />
-        {entry.weather && <Row label="Wetter" value={WEATHER_LABEL[entry.weather]} sub={entry.note ?? "keine Notiz"} />}
-        <Row label="Standort" value={entry.geoVerified ? "GPS bestätigt" : "Manuell eingetragen"} sub={entry.geoVerified ? "± wenige Meter" : "Kein Geo-Match"} />
+        {entry.weather && (
+          <Row label="Wetter" value={WEATHER_LABEL[entry.weather]} sub={entry.note ?? "keine Notiz"} />
+        )}
+        <Row
+          label="Standort"
+          value={entry.geoVerified ? "GPS bestätigt" : "Manuell eingetragen"}
+          sub={entry.geoVerified ? "± wenige Meter" : "Kein Geo-Match"}
+        />
       </ul>
 
       {photos.length > 0 && (
@@ -187,11 +170,14 @@ function Row({ label, value, sub }: { label: string; value: string; sub?: string
   );
 }
 
-const DISCIPLINE_NAME = { PFL: "Pflasterarbeiten", GTN: "Gartenarbeiten", ZAU: "Zaunbau", VWG: "Verwaltung", KUN: "Kunststoff-Vermahlung" } as const;
+const DISCIPLINE_NAME = {
+  PFL: "Pflasterarbeiten", GTN: "Gartenarbeiten", ZAU: "Zaunbau",
+  VWG: "Verwaltung", KUN: "Kunststoff-Vermahlung"
+} as const;
 const WEATHER_LABEL = { sun: "Sonnig", cloud: "Bewölkt", rain: "Regen", snow: "Schnee" } as const;
 
 const ABSENCE_META = {
-  sick:     { emoji: "🏥", title: "Krankheit", sub: "Krankschreibung",       gradient: "bg-gradient-to-br from-rust/20 to-transparent" },
-  vacation: { emoji: "🏖", title: "Urlaub",    sub: "Geplant oder spontan",  gradient: "bg-gradient-to-br from-moss/25 to-transparent" },
-  holiday:  { emoji: "🎉", title: "Feiertag",  sub: "Gesetzlicher Feiertag", gradient: "bg-gradient-to-br from-bronze/20 to-transparent" }
+  sick:     { emoji: "🏥", title: "Krankheit", sub: "Krankschreibung" },
+  vacation: { emoji: "🏖", title: "Urlaub",    sub: "Geplant oder spontan" },
+  holiday:  { emoji: "🎉", title: "Feiertag",  sub: "Gesetzlicher Feiertag" }
 } as const;

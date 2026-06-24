@@ -345,7 +345,7 @@ function ChatBubbleInner({ me }: { me: Worker }) {
         <button
           onClick={() => openWithPeer(toast.msg.senderId)}
           aria-label="Neue Nachricht öffnen"
-          className="fixed z-[58] right-[108px] bottom-9 max-w-[300px] text-left bg-white border-l-[5px] border-copper rounded-lg shadow-2xl px-4 py-3 animate-[slidein_.5s_ease] hover:shadow-[0_30px_60px_-12px_rgba(0,0,0,.8)] transition-shadow"
+          className="fixed z-[100] right-[108px] bottom-9 max-w-[300px] text-left bg-white border-l-[5px] border-copper rounded-lg shadow-2xl px-4 py-3 animate-[slidein_.5s_ease] hover:shadow-[0_30px_60px_-12px_rgba(0,0,0,.8)] transition-shadow"
           style={{ boxShadow: "0 22px 48px -12px rgba(0,0,0,.65)" }}
         >
           <div className="flex items-center gap-2.5 mb-1">
@@ -361,7 +361,7 @@ function ChatBubbleInner({ me }: { me: Worker }) {
       <button
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? "Chat schließen" : `Chat öffnen${totalUnread ? `, ${totalUnread} ungelesen` : ""}`}
-        className="fixed z-[57] right-5 bottom-5 w-[68px] h-[68px] rounded-full text-white text-3xl flex items-center justify-center cursor-pointer border-2 border-white/20 transition-transform hover:scale-105 active:scale-95"
+        className="fixed z-[100] right-5 bottom-5 w-[68px] h-[68px] rounded-full text-white text-3xl flex items-center justify-center cursor-pointer border-2 border-white/20 transition-transform hover:scale-105 active:scale-95"
         style={{
           background: "linear-gradient(180deg,#E8853F,#C95F22)",
           boxShadow: "0 18px 36px -10px rgba(220,110,45,.65), inset 0 1px 0 rgba(255,255,255,.3)",
@@ -425,7 +425,7 @@ function ChatBubbleInner({ me }: { me: Worker }) {
 
       {lightboxUrl && (
         <div
-          className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center cursor-zoom-out"
+          className="fixed inset-0 z-[110] bg-black/90 flex items-center justify-center cursor-zoom-out"
           onClick={() => setLightboxUrl(null)}
         >
           <img src={lightboxUrl} alt="" className="max-w-[92vw] max-h-[92vh] object-contain shadow-2xl" />
@@ -512,13 +512,13 @@ function ChatModalView(props: {
   return (
     <>
       {/* Backdrop: dezent abgedunkelt + Blur, Klick schließt */}
-      <div className="fixed inset-0 z-[58] bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="fixed inset-0 z-[101] bg-black/55 backdrop-blur-[2px]" onClick={onClose} />
 
       <aside
         role="dialog"
         aria-modal="true"
         aria-label="Chat"
-        className="fixed z-[59] inset-0 md:inset-auto md:w-[1640px] md:h-[1200px] max-w-[95vw] max-h-[90vh] overflow-hidden flex flex-col chat-prime-modal"
+        className="fixed z-[102] inset-0 md:inset-auto md:w-[1640px] md:h-[1200px] max-w-[95vw] max-h-[90vh] overflow-hidden flex flex-col chat-prime-modal"
         style={{
           background: "linear-gradient(180deg,#1A1C1E,#0E1012)",
           boxShadow: "0 40px 80px -16px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.06)",

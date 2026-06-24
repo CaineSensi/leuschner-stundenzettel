@@ -73,6 +73,11 @@ export interface PipelinePosition {
     worstAccM?: number;
     closeErrM?: number;
     photo_id?: string | null;
+    /** LV-Auflagen-Herkunft: Diese Position wurde automatisch ergänzt,
+     *  weil eine Auflage der Hauptposition (derivedFrom = baseLvId) aktiviert
+     *  wurde. optionKey = der Auflagen-Key (z. B. "entsorgen"). */
+    derivedFrom?: string;
+    optionKey?: string;
   } | null;
   created_at?: string;
 }

@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { LiveDataProvider } from "./lib/live";
 import { initDiag, reportEvent } from "./lib/diag";
 import "./index.css";
 
@@ -32,7 +33,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
       <ErrorBoundary>
-        <App />
+        <LiveDataProvider>
+          <App />
+        </LiveDataProvider>
       </ErrorBoundary>
     </BrowserRouter>
   </React.StrictMode>

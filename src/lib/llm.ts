@@ -122,27 +122,46 @@ export type StreamEvent =
 
 /** Streamt die Strukturierung Schritt für Schritt. `onEvent` wird für jedes
  *  SSE-Event aufgerufen. Resolved mit dem finalen `ParsedInquiry` sobald
- *  das `result`-Event eintrifft. Wirft bei `error`-Event. */
+ *  das `result`-Event eintrifft. Wirft bei `error`-Event.
+ *
+ *  Hänger-Schutz (16.06.2026): AbortController + harte Gesamt-Grenze (90s)
+ *  + Idle-Timeout (20s zwischen Bytes). Davor lief der Stream-Reader ewig,
+ *  wenn der Server kein result-Event mehr schickte — Frontend drehte
+ *  endlos beim „Anfrage anlegen". */
 export async function llmStructureStream(
   text: string,
   onEvent: (e: StreamEvent) => void,
 ): Promise<ParsedInquiry> {
-  const r = await fetch('/api/llm/structure', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
-    body: JSON.stringify({ text }),
-  });
-  if (!r.ok || !r.body) throw new Error(`Structure-Stream fehlgeschlagen (${r.status})`);
+  const ctrl = new AbortController();
+  const TOTAL_MS = 90_000;
+  const IDLE_MS  = 20_000;
+  const totalT = setTimeout(() => ctrl.abort(new Error(`Strukturieren überschritt ${TOTAL_MS / 1000}s — abgebrochen`)), TOTAL_MS);
+  let idleT: ReturnType<typeof setTimeout> | null = null;
+  const resetIdle = () => {
+    if (idleT) clearTimeout(idleT);
+    idleT = setTimeout(() => ctrl.abort(new Error(`Strukturieren ohne Lebenszeichen ${IDLE_MS / 1000}s — abgebrochen`)), IDLE_MS);
+  };
+  resetIdle();
 
-  const reader = r.body.getReader();
-  const decoder = new TextDecoder();
-  let buf = '';
-  let finalResult: ParsedInquiry | null = null;
+  try {
+    const r = await fetch('/api/llm/structure', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'text/event-stream' },
+      body: JSON.stringify({ text }),
+      signal: ctrl.signal,
+    });
+    if (!r.ok || !r.body) throw new Error(`Structure-Stream fehlgeschlagen (${r.status})`);
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    let finalResult: ParsedInquiry | null = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      resetIdle();
+      buf += decoder.decode(value, { stream: true });
 
     // SSE-Frames sind durch \n\n getrennt
     let nl: number;
@@ -171,8 +190,12 @@ export async function llmStructureStream(
     }
   }
 
-  if (!finalResult) throw new Error('Stream endete ohne result-Event');
-  return finalResult;
+    if (!finalResult) throw new Error('Stream endete ohne result-Event');
+    return finalResult;
+  } finally {
+    clearTimeout(totalT);
+    if (idleT) clearTimeout(idleT);
+  }
 }
 
 function parseSseFrame(frame: string): { event: string; data: string } | null {

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { listAssignments, listEntries, listSites, submitWeek } from "../lib/api";
+import { submitWeek } from "../lib/api";
 import { getHoliday, isHoliday } from "../lib/holidays";
-import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
+import { useLiveData } from "../lib/live";
 import {
   dayName, fmtDateLong, fmtHours, fmtTime, isEntryActiveOn, isoWeek, shortDate, todayIso,
   weekDays, workMinutes
@@ -21,58 +21,24 @@ export default function Home() {
   const days = weekDays(year, week).slice(0, 5); // Mo–Fr
   const me = currentUser();
 
-  // Ohne eingeloggten Worker: zurück zum Onboarding/Login (kein Mock-Fallback mehr)
   useEffect(() => {
     if (!me) navigate("/onboarding", { replace: true });
   }, [me, navigate]);
   if (!me) return null;
 
-  const [myEntries, setMyEntries] = useState<Entry[]>([]);
-  const [weekAssignments, setWeekAssignments] = useState<Assignment[]>([]);
-  const [allSites, setAllSites] = useState<Site[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
+  // ── Daten aus dem zentralen LiveDataContext (kein eigener Fetch mehr) ──
+  const { entries, assignments, sites: allSites, isLoaded, refresh } = useLiveData();
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [entries, assignments, sites] = await Promise.all([
-          listEntries(me.id, days[0], days[days.length - 1]).catch((e) => {
-            console.warn("[home] listEntries failed", e); return [] as Entry[];
-          }),
-          listAssignments(me.id, days[0], days[days.length - 1]).catch((e) => {
-            console.warn("[home] listAssignments failed", e); return [] as Assignment[];
-          }),
-          listSites().catch((e) => {
-            console.warn("[home] listSites failed", e); return [] as Site[];
-          })
-        ]);
-        if (cancelled) return;
-        setMyEntries(entries);
-        setWeekAssignments(assignments);
-        setAllSites(sites);
-      } catch (err) {
-        console.error("[home] load error", err);
-      }
-    })();
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [me.id, today, refreshKey, days[0], days[days.length - 1]]);
+  // Nur Einträge dieser Woche anzeigen
+  const myEntries = entries.filter((e) => days.some((d) => isEntryActiveOn(e, d)));
+  const weekAssignments = assignments.filter((a) => days.includes(a.date));
 
   const todayAssignment = weekAssignments.find((a) => a.date === today) ?? null;
   const assignmentSite = todayAssignment
     ? allSites.find((s) => s.id === todayAssignment.siteId) ?? null
     : null;
 
-  // Echtzeit: bei Änderungen an meinen Einträgen oder meiner Tageszuweisung neu laden
-  useRealtime(`home-${me.id}`, ["assignments", "entries", "sites"], () => setRefreshKey((k) => k + 1));
-  // Beim Wieder-Aufrufen aus Hintergrund / Home-Bildschirm: frisch laden
-  useRefreshOnVisible(() => setRefreshKey((k) => k + 1));
-  // Auth-Session ready / Token refresh: nachladen, falls erster Fetch noch ohne Token lief
-  useRefreshOnAuth(() => setRefreshKey((k) => k + 1));
-
   const totalMin = myEntries.reduce((s, e) => s + workMinutes(e), 0);
-  // Wochensoll: 40h minus 8h pro Feiertag in der Woche
   const holidayDays = days.filter((d) => isHoliday(d)).length;
   const sollMin = (40 - holidayDays * 8) * 60;
 
@@ -80,14 +46,10 @@ export default function Home() {
   const todayInWeek = days.includes(today);
   const hasToday = myEntries.some((e) => isEntryActiveOn(e, today));
 
-  // Reminder: nach 1.5s automatisch Hinweis senden, wenn aktiviert
   useEffect(() => {
     if (!notifReady || !todayInWeek || hasToday) return;
     const t = setTimeout(() => {
-      notify(
-        "Heute noch nichts erfasst",
-        "Plus-Knopf öffnen, dauert keine zwei Minuten."
-      );
+      notify("Heute noch nichts erfasst", "Plus-Knopf öffnen, dauert keine zwei Minuten.");
     }, 1500);
     return () => clearTimeout(t);
   }, [notifReady, todayInWeek, hasToday]);
@@ -101,7 +63,7 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   function handleRefresh() {
     setRefreshing(true);
-    setRefreshKey((k) => k + 1);
+    refresh();
     setTimeout(() => setRefreshing(false), 800);
   }
 
@@ -111,7 +73,7 @@ export default function Home() {
     setSubmitting(true);
     try {
       await submitWeek(me.id, days[0], days[days.length - 1]);
-      setRefreshKey((k) => k + 1);
+      refresh();
     } catch (err) {
       console.error("[home] submitWeek failed", err);
     } finally {
@@ -119,10 +81,12 @@ export default function Home() {
     }
   }
 
-  // Feiertage zählen NICHT als offen — Mitarbeiter muss da nichts eintragen
-  const offen = days.filter((iso) =>
-    iso <= today && !myEntries.some((e) => isEntryActiveOn(e, iso)) && !isHoliday(iso)
-  );
+  // Feiertage zählen NICHT als offen — aber erst zeigen wenn Daten geladen sind
+  const offen = isLoaded
+    ? days.filter((iso) =>
+        iso <= today && !myEntries.some((e) => isEntryActiveOn(e, iso)) && !isHoliday(iso)
+      )
+    : [];
 
   const isWeekSubmitted = myEntries.length > 0 && myEntries.some((e) => e.submittedAt != null);
 
@@ -166,7 +130,6 @@ export default function Home() {
         <Stat label="Tagessoll" value="8,0 h" sub="40 h / Woche" />
       </section>
 
-      {/* Notification opt-in */}
       {notificationsSupported() && !notifReady && (
         <button
           onClick={handleEnableNotif}
@@ -181,7 +144,6 @@ export default function Home() {
         </button>
       )}
 
-      {/* Heute geplant — Assignment-Card */}
       {todayAssignment && !hasToday && todayInWeek && (
         <button
           onClick={() => navigate("/entry", { state: { assignment: todayAssignment } })}
@@ -211,7 +173,6 @@ export default function Home() {
         </button>
       )}
 
-      {/* Heute keine Zuweisung, aber heute ist Werktag und noch kein Eintrag */}
       {!todayAssignment && !hasToday && todayInWeek && (
         <div className="dd-card mx-6 mt-4 px-4 py-4" style={{ ["--c" as any]: "#A9AEB3" }}>
           <div className="h-mono text-ink-2 text-[11px]">Heute · {fmtDateLong(today)}</div>
@@ -222,7 +183,6 @@ export default function Home() {
         </div>
       )}
 
-      {/* Offene Tage Banner — führt zum ersten offenen Tag, nicht auf heute */}
       {offen.length > 0 && (
         <Link
           to={`/entry?date=${offen[0]}`}
@@ -265,7 +225,6 @@ export default function Home() {
         </ul>
       </section>
 
-      {/* An Rick senden — erscheint wenn alle Tage erfasst und noch nicht eingereicht */}
       {offen.length === 0 && myEntries.length > 0 && !isWeekSubmitted && (
         <div className="px-6 pb-4 pt-2">
           <button
@@ -320,7 +279,7 @@ function Stat({ label, value, sub, positive }: { label: string; value: string; s
   );
 }
 
-function DayRow({ date, entry, sites }: { date: string; entry: Entry; sites: import("../lib/types").Site[] }) {
+function DayRow({ date, entry, sites }: { date: string; entry: Entry; sites: Site[] }) {
   const isToday = date === todayIso();
   if (isWorkEntry(entry)) {
     const site = sites.find((s) => s.id === entry.siteId);
@@ -432,7 +391,6 @@ function EmptyRow({ date, assignment, site }: { date: string; assignment?: Assig
     </>
   );
 
-  // Zukunfts-Tage nicht antippbar
   if (isFuture) {
     return (
       <div className="rounded-xl px-4 py-3.5 grid grid-cols-[44px_1fr_auto] gap-3 items-center bg-transparent border border-dashed border-ink/10 text-ink-mute">

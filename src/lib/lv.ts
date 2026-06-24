@@ -8,7 +8,10 @@ function requireBackend(): NonNullable<typeof supabase> {
   return supabase;
 }
 
-export const LV_CAT_ORDER = ['ERD', 'PFL', 'GTN', 'ZAU', 'VWG', 'UMZ', 'SON', 'ERR'] as const;
+// MAT seit 19.06.2026: Material-/Liefer-Positionen separat von den Arbeit-Cats.
+// Werden über Auflagen mit den Arbeit-Positionen verknüpft (z.B. ERD-108
+// „Mutterboden einbauen" → MAT-/SON-XXX „Mutterboden gesiebt liefern").
+export const LV_CAT_ORDER = ['ERD', 'PFL', 'GTN', 'ZAU', 'VWG', 'UMZ', 'SON', 'MAT', 'ERR'] as const;
 
 export const LV_CATEGORIES: Record<string, { label: string }> = {
   ERD: { label: 'Erdarbeiten' },
@@ -18,6 +21,7 @@ export const LV_CATEGORIES: Record<string, { label: string }> = {
   VWG: { label: 'Verwaltung' },
   UMZ: { label: 'Umzug' },
   SON: { label: 'Sonstige' },
+  MAT: { label: 'Material' },
   ERR: { label: 'Zulagen' },
 };
 
@@ -303,6 +307,142 @@ export async function getUsageCounts(positions: LvPosition[]): Promise<Map<strin
     }
   }
   return counts;
+}
+
+/* ====================================================================
+ * Auflagen-Optionen pro Hauptposition (19.06.2026)
+ *   Konzept: „Oberboden abtragen" (Haupt) + anhängbare Auflagen
+ *   wie lagern/entsorgen/austauschen/kultivieren, die je nach Anwahl
+ *   eine Folge-LV-Position automatisch ins Angebot ergänzen.
+ * ==================================================================== */
+
+export interface LvPositionOption {
+  id:            number;
+  baseLvId:      string;
+  key:           string;          // 'lagern' | 'entsorgen' | …
+  label:         string;
+  followLvId:    string | null;   // optional: LV-ID der Folge-Position
+  qtyFormula:    string | null;   // Hinweis welche Menge gerechnet wird
+  defaultActive: boolean;
+  displayOrder:  number;
+  info:          string | null;
+  createdAt:     string;
+  updatedAt:     string;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function rowToOption(r: any): LvPositionOption {
+  return {
+    id:            r.id,
+    baseLvId:      r.base_lv_id,
+    key:           r.key,
+    label:         r.label,
+    followLvId:    r.follow_lv_id,
+    qtyFormula:    r.qty_formula,
+    defaultActive: !!r.default_active,
+    displayOrder:  r.display_order,
+    info:          r.info,
+    createdAt:     r.created_at,
+    updatedAt:     r.updated_at,
+  };
+}
+
+/** Alle Auflagen, gruppierbar nach baseLvId. Ein Round-Trip — Aufrufer
+ *  kann daraus eine Map<baseLvId, options[]> bauen. */
+export async function listLvOptions(): Promise<LvPositionOption[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  const { data, error } = await sb
+    .from('lv_position_options')
+    .select('*')
+    .order('base_lv_id')
+    .order('display_order');
+  if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []).map((r: any) => rowToOption(r));
+}
+
+/** Auflagen für eine konkrete Hauptposition. */
+export async function listOptionsFor(baseLvId: string): Promise<LvPositionOption[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  const { data, error } = await sb
+    .from('lv_position_options')
+    .select('*')
+    .eq('base_lv_id', baseLvId)
+    .order('display_order');
+  if (error) throw error;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (data ?? []).map((r: any) => rowToOption(r));
+}
+
+export interface LvOptionInput {
+  baseLvId:      string;
+  key:           string;
+  label:         string;
+  followLvId?:   string | null;
+  qtyFormula?:   string | null;
+  defaultActive?: boolean;
+  displayOrder?: number;
+  info?:         string | null;
+}
+
+export async function addLvOption(input: LvOptionInput): Promise<LvPositionOption> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  // company_id wird über den Master gezogen
+  const { data: base, error: be } = await sb
+    .from('lv_positions')
+    .select('company_id')
+    .eq('id', input.baseLvId)
+    .single();
+  if (be) throw be;
+  const { data, error } = await sb.from('lv_position_options').insert({
+    base_lv_id:    input.baseLvId,
+    key:           input.key.trim().toLowerCase(),
+    label:         input.label.trim(),
+    follow_lv_id:  input.followLvId ?? null,
+    qty_formula:   input.qtyFormula ?? null,
+    default_active: input.defaultActive ?? false,
+    display_order: input.displayOrder ?? 100,
+    info:          input.info ?? null,
+    company_id:    base.company_id,
+  }).select('*').single();
+  if (error) throw error;
+  return rowToOption(data);
+}
+
+export async function updateLvOption(id: number, patch: Partial<LvOptionInput>): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const row: any = {};
+  if (patch.label         !== undefined) row.label          = patch.label.trim();
+  if (patch.followLvId    !== undefined) row.follow_lv_id   = patch.followLvId;
+  if (patch.qtyFormula    !== undefined) row.qty_formula    = patch.qtyFormula;
+  if (patch.defaultActive !== undefined) row.default_active = patch.defaultActive;
+  if (patch.displayOrder  !== undefined) row.display_order  = patch.displayOrder;
+  if (patch.info          !== undefined) row.info           = patch.info;
+  const { error } = await sb.from('lv_position_options').update(row).eq('id', id);
+  if (error) throw error;
+}
+
+export async function removeLvOption(id: number): Promise<void> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = requireBackend() as any;
+  const { error } = await sb.from('lv_position_options').delete().eq('id', id);
+  if (error) throw error;
+}
+
+/** Convenience: Map<baseLvId, options[]> — fürs Frontend zur schnellen Anzeige. */
+export function groupOptionsByBase(opts: LvPositionOption[]): Map<string, LvPositionOption[]> {
+  const m = new Map<string, LvPositionOption[]>();
+  for (const o of opts) {
+    const arr = m.get(o.baseLvId) ?? [];
+    arr.push(o);
+    m.set(o.baseLvId, arr);
+  }
+  return m;
 }
 
 /** Details der Anfragen, die eine bestimmte Position referenzieren (Drill-Down). */

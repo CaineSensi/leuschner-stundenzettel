@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import BackButton from "../components/BackButton";
+import LvImportModal from "../components/LvImportModal";
 import { useRealtime, useRefreshOnAuth, useRefreshOnVisible } from "../lib/realtime";
 import {
   LV_CATEGORIES,
@@ -15,11 +16,18 @@ import {
   getPriceHistory,
   getUsageCounts,
   getUsageDetail,
+  listLvOptions,
+  addLvOption,
+  updateLvOption as updateLvOptionRow,
+  removeLvOption,
+  groupOptionsByBase,
 } from "../lib/lv";
 import type {
   LvAlias,
   LvPriceHistoryEntry,
   LvUsageEntry,
+  LvPositionOption,
+  LvOptionInput,
 } from "../lib/lv";
 import type { LvPosition, LvPositionInput } from "../lib/types";
 
@@ -73,11 +81,24 @@ export default function LV() {
   const [positions, setPositions] = useState<LvPosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  /* Kategorie-Filter für Chips (Desktop + Mobil). Default = erste Kategorie. */
-  const [activeCat, setActiveCat] = useState<string>(LV_CAT_ORDER[0]);
+  /* Tab-Trennung 19.06.2026 (Rick-Vorgabe): Arbeit / Material / Zulagen strikt
+     getrennt. Zulagen (ERR) sind prozentuale/pauschale Aufschläge auf Arbeit
+     und verdienen einen eigenen Tab — sonst landen sie als Fremdkörper in der
+     Arbeit-Liste. */
+  const WORK_TAB_CATS = ['ERD','PFL','GTN','ZAU','VWG','UMZ','SON'] as const;
+  const MAT_TAB_CATS  = ['MAT'] as const;
+  const ERR_TAB_CATS  = ['ERR'] as const;
+  const [tabKind, setTabKind] = useState<'work' | 'material' | 'zulagen'>('work');
+  const tabCats: readonly string[] =
+    tabKind === 'work' ? WORK_TAB_CATS :
+    tabKind === 'material' ? MAT_TAB_CATS :
+    ERR_TAB_CATS;
+  /* Kategorie-Filter für Chips (Desktop + Mobil). Default = erste Kategorie des Tabs. */
+  const [activeCat, setActiveCat] = useState<string>(WORK_TAB_CATS[0]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [showNew, setShowNew] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [sortAZ, setSortAZ] = useState(true);
@@ -104,6 +125,24 @@ export default function LV() {
   const [mergeBusy, setMergeBusy] = useState(false);
   const [mergeError, setMergeError] = useState<string | null>(null);
   const [unmergeBusy, setUnmergeBusy] = useState<string | null>(null);
+
+  /* Auflagen (19.06.2026) — pro Hauptposition anhängbar, ergänzen beim Anwählen
+     eine Folge-LV-Position ins Angebot. Pflege im Detail-Panel rechts.
+     In der Hauptliste werden die Auflagen unter der Hauptposition ein-/ausgeklappt
+     (Rick-Vorgabe: nicht als eigene Listenzeilen, sonst zu unübersichtlich). */
+  const [optionsMap, setOptionsMap] = useState<Map<string, LvPositionOption[]>>(new Map());
+  const [optionModal, setOptionModal] = useState<{ baseLvId: string; option: LvPositionOption | null } | null>(null);
+  const [optionBusy, setOptionBusy] = useState(false);
+  const [expandedOpts, setExpandedOpts] = useState<Set<string>>(new Set());
+  function toggleOptExpand(lvId: string) {
+    setExpandedOpts((s) => {
+      const next = new Set(s);
+      if (next.has(lvId)) next.delete(lvId); else next.add(lvId);
+      return next;
+    });
+  }
+  const [optionError, setOptionError] = useState<string | null>(null);
+  const [optionDeleteConfirm, setOptionDeleteConfirm] = useState<number | null>(null);
 
   /* Desktop-Spalten brauchen eine feste Resthöhe (interne Scrolls). App-Banner
      (Push/Offline) sitzen im Flow ÜBER der Route — daher eigene Oberkante
@@ -167,6 +206,15 @@ export default function LV() {
   }, []);
   useEffect(() => { refreshAliases(); }, [refreshAliases]);
 
+  /* Auflagen laden — einmal beim Mount, Realtime hält frisch. */
+  const refreshOptions = useCallback(() => {
+    listLvOptions()
+      .then((rows) => setOptionsMap(groupOptionsByBase(rows)))
+      .catch(() => { /* still: leere Map — kein Blocker */ });
+  }, []);
+  useEffect(() => { refreshOptions(); }, [refreshOptions]);
+  useRealtime("lv-options", ["lv_position_options"], refreshOptions);
+
   /* Usage-Counts nachladen, sobald positions stehen. */
   useEffect(() => {
     if (positions.length === 0) return;
@@ -200,6 +248,19 @@ export default function LV() {
     setSearch("");
     const first = positions.find((p) => p.cat === cat);
     setActiveId(first?.id ?? null);
+    setDeleteConfirm(null);
+  }
+
+  /* Tab-Wechsel: erste verfügbare Cat des neuen Tabs aktivieren + erste Position. */
+  function switchTab(nextTab: 'work' | 'material' | 'zulagen') {
+    if (nextTab === tabKind) return;
+    setTabKind(nextTab);
+    setSearch("");
+    const cats = nextTab === 'work' ? WORK_TAB_CATS : nextTab === 'material' ? MAT_TAB_CATS : ERR_TAB_CATS;
+    const firstCat = cats[0];
+    setActiveCat(firstCat);
+    const firstPos = positions.find((p) => p.cat === firstCat);
+    setActiveId(firstPos?.id ?? null);
     setDeleteConfirm(null);
   }
 
@@ -317,6 +378,36 @@ export default function LV() {
     }
   }
 
+  /* Auflage anlegen oder ändern (eine Routine, je nach option == null) */
+  async function handleSaveOption(baseLvId: string, optionId: number | null, input: LvOptionInput) {
+    setOptionBusy(true);
+    setOptionError(null);
+    try {
+      if (optionId === null) {
+        await addLvOption({ ...input, baseLvId });
+      } else {
+        await updateLvOptionRow(optionId, input);
+      }
+      await refreshOptions();
+      setOptionModal(null);
+    } catch (err: unknown) {
+      setOptionError(err instanceof Error ? err.message : "Speichern fehlgeschlagen.");
+    } finally {
+      setOptionBusy(false);
+    }
+  }
+
+  async function handleDeleteOption(optionId: number) {
+    try {
+      await removeLvOption(optionId);
+      await refreshOptions();
+      setOptionDeleteConfirm(null);
+    } catch (err: unknown) {
+      setSaveError(err instanceof Error ? err.message : "Löschen fehlgeschlagen.");
+      setOptionDeleteConfirm(null);
+    }
+  }
+
   /* Position archivieren */
   async function handleArchive(id: string) {
     setSaving(true);
@@ -366,11 +457,23 @@ export default function LV() {
                 className="w-full lg:w-[260px] bg-white/10 border border-white/20 rounded-md px-3 py-2 text-[13px] font-sans text-white placeholder:text-white/40 focus:outline-none focus:border-copper-bright transition-colors !min-h-[44px]"
               />
               <button
+                onClick={() => setShowImport(true)}
+                aria-label="sirAdos-Datei importieren"
+                title="sirAdos .sir / GAEB .X8x importieren – Marktpreise in unser LV übernehmen"
+                className="inline-flex items-center gap-2 px-3 py-2.5 rounded-md bg-white/10 border border-white/25 text-white font-display font-extrabold uppercase tracking-wide text-[12px] hover:bg-white/15 transition-colors !min-h-[44px]"
+              >
+                📥 Import
+              </button>
+              <button
                 onClick={() => { setShowNew(true); setSaveError(null); }}
-                aria-label="Neue Position anlegen"
+                aria-label={
+                  tabKind === 'material' ? 'Neue Material-Position anlegen'
+                  : tabKind === 'zulagen' ? 'Neue Zulage anlegen'
+                  : 'Neue Position anlegen'
+                }
                 className="inline-flex items-center gap-2 px-4 py-2.5 rounded-md bg-copper text-white font-display font-extrabold uppercase tracking-wide text-[12px] hover:bg-copper-bright transition-colors !min-h-[44px]"
               >
-                + Position
+                + {tabKind === 'material' ? 'Material' : tabKind === 'zulagen' ? 'Zulage' : 'Position'}
               </button>
             </div>
           </div>
@@ -382,9 +485,37 @@ export default function LV() {
             </p>
           )}
 
-          {/* Kategorie-Chips · Desktop + Mobil (zugleich Drop-Ziele für D&D) */}
-          <div className="flex gap-1.5 overflow-x-auto board-scroll mt-4 py-0.5 -my-0.5">
-            {LV_CAT_ORDER.map((cat) => {
+          {/* Tab-Trennung · Arbeit / Material / Zulagen (Rick 19.06.2026) */}
+          <div className="flex gap-2 mt-4">
+            {([
+              { key: 'work',     label: '🛠 Arbeitspositionen', count: positions.filter(p => (WORK_TAB_CATS as readonly string[]).includes(p.cat)).length },
+              { key: 'material', label: '📦 Material',          count: positions.filter(p => (MAT_TAB_CATS  as readonly string[]).includes(p.cat)).length },
+              { key: 'zulagen',  label: '⚡ Zulagen',           count: positions.filter(p => (ERR_TAB_CATS  as readonly string[]).includes(p.cat)).length },
+            ] as const).map((t) => {
+              const isActive = tabKind === t.key;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => switchTab(t.key)}
+                  aria-pressed={isActive}
+                  className={`flex-1 lg:flex-initial inline-flex items-center justify-center gap-2.5 px-5 py-2.5 rounded-md font-display font-extrabold uppercase text-[12.5px] tracking-wide transition-all !min-h-[42px] ${
+                    isActive
+                      ? 'bg-copper text-white shadow-[0_8px_20px_-8px_rgba(220,110,45,.7)]'
+                      : 'bg-white/8 text-white/55 hover:bg-white/15 hover:text-white'
+                  }`}
+                >
+                  {t.label}
+                  <span className={`font-mono text-[10.5px] leading-none px-2 py-1 rounded ${
+                    isActive ? 'bg-black/25 text-white' : 'bg-white/10 text-white/55'
+                  }`}>{t.count}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Kategorie-Chips — nur die für den aktiven Tab. Drop-Ziele für D&D. */}
+          <div className="flex gap-1.5 overflow-x-auto board-scroll mt-3 py-0.5 -my-0.5">
+            {tabCats.map((cat) => {
               const isActive = activeCat === cat;
               const isErr = cat === "ERR";
               const canDrop = draggingId != null && !isErr && draggingPos?.cat !== cat;
@@ -474,87 +605,135 @@ export default function LV() {
                 const isActive = p.id === activeId;
                 const confirming = deleteConfirm === p.id;
                 const usage = usageCounts.get(p.id) ?? 0;
+                const opts = optionsMap.get(p.id) ?? [];
+                const hasOpts = opts.length > 0;
+                const isExpanded = expandedOpts.has(p.id);
                 return (
-                  <div
-                    key={p.id}
-                    draggable={p.cat !== "ERR"}
-                    onDragStart={(e) => {
-                      setDraggingId(p.id);
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData("text/plain", p.id);
-                    }}
-                    onDragEnd={() => { setDraggingId(null); setDragOverCat(null); }}
-                    className={`group w-full border-b border-white/6 transition-colors flex items-stretch ${
-                      draggingId === p.id ? "opacity-40" : ""
-                    } ${isActive ? "bg-white/10 border-l-2 border-l-copper" : "hover:bg-white/5"}`}
-                  >
-                    {/* Klickbereich: Position auswählen (zugleich Drag-Griff) */}
+                  <div key={p.id} className="border-b border-white/6">
                     <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => { setActiveId(p.id); setDeleteConfirm(null); }}
-                      onKeyDown={(e) => e.key === "Enter" && setActiveId(p.id)}
-                      aria-label={`Position ${p.id} anzeigen: ${p.name}`}
-                      aria-pressed={isActive}
-                      title={p.cat !== "ERR" ? "Ziehen, um die Kategorie zu wechseln" : undefined}
-                      className={`flex-1 text-left px-4 py-3 flex items-baseline gap-3 min-w-0 ${
-                        p.cat !== "ERR" ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
-                      }`}
+                      draggable={p.cat !== "ERR"}
+                      onDragStart={(e) => {
+                        setDraggingId(p.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        e.dataTransfer.setData("text/plain", p.id);
+                      }}
+                      onDragEnd={() => { setDraggingId(null); setDragOverCat(null); }}
+                      className={`group w-full transition-colors flex items-stretch ${
+                        draggingId === p.id ? "opacity-40" : ""
+                      } ${isActive ? "bg-white/10 border-l-2 border-l-copper" : "hover:bg-white/5"}`}
                     >
-                      <span className="font-mono text-[11px] tracking-wider font-bold text-copper w-[62px] flex-shrink-0">
-                        {p.id}
-                      </span>
-                      <span className="flex-1 font-sans text-[13px] font-semibold text-white/85 leading-snug truncate">
-                        {p.name}
-                        {q !== "" && (
-                          <span className="ml-1.5 font-mono text-[9.5px] text-white/35 uppercase">{p.cat}</span>
-                        )}
-                      </span>
-                      {usage > 0 && (
-                        <span
-                          className="font-mono text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded border border-good/40 bg-good/10 text-good whitespace-nowrap flex-shrink-0"
-                          title={`In ${usage} ${usage === 1 ? "Anfrage" : "Anfragen"} verwendet`}
-                        >
-                          ▸ {usage}
+                      {/* Klickbereich: Position auswählen (zugleich Drag-Griff) */}
+                      <div
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => { setActiveId(p.id); setDeleteConfirm(null); }}
+                        onKeyDown={(e) => e.key === "Enter" && setActiveId(p.id)}
+                        aria-label={`Position ${p.id} anzeigen: ${p.name}`}
+                        aria-pressed={isActive}
+                        title={p.cat !== "ERR" ? "Ziehen, um die Kategorie zu wechseln" : undefined}
+                        className={`flex-1 text-left px-4 py-3 flex items-baseline gap-3 min-w-0 ${
+                          p.cat !== "ERR" ? "cursor-grab active:cursor-grabbing" : "cursor-pointer"
+                        }`}
+                      >
+                        <span className="font-mono text-[11px] tracking-wider font-bold text-copper w-[62px] flex-shrink-0">
+                          {p.id}
                         </span>
-                      )}
-                      <span className="font-mono text-[11px] text-white/50 whitespace-nowrap flex-shrink-0">
-                        {priceStr(p)}
-                      </span>
-                    </div>
-                    {/* Löschen-Aktion */}
-                    <div className="flex items-center flex-shrink-0 pr-2">
-                      {confirming ? (
-                        <div className="flex items-center gap-1">
+                        <span className="flex-1 font-sans text-[13px] font-semibold text-white/85 leading-snug truncate">
+                          {p.name}
+                          {q !== "" && (
+                            <span className="ml-1.5 font-mono text-[9.5px] text-white/35 uppercase">{p.cat}</span>
+                          )}
+                        </span>
+                        {hasOpts && (
                           <button
-                            onClick={() => handleArchive(p.id)}
-                            disabled={saving}
-                            aria-label="Löschen bestätigen"
-                            title="Ja, Position löschen"
-                            className="font-mono text-[11px] font-bold px-2 py-1 rounded bg-rust text-white hover:bg-red-700 transition-colors disabled:opacity-50 !min-h-[28px]"
+                            onClick={(e) => { e.stopPropagation(); toggleOptExpand(p.id); }}
+                            className="font-mono text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded border border-copper/45 bg-copper/10 text-copper-bright whitespace-nowrap flex-shrink-0 hover:bg-copper/20 transition-colors"
+                            title={`${opts.length} ${opts.length === 1 ? "Auflage" : "Auflagen"} — klick zum ${isExpanded ? "Einklappen" : "Ausklappen"}`}
                           >
-                            {saving ? "…" : "Ja"}
+                            {isExpanded ? "▾" : "▸"} ⚙ {opts.length}
                           </button>
+                        )}
+                        {usage > 0 && (
+                          <span
+                            className="font-mono text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded border border-good/40 bg-good/10 text-good whitespace-nowrap flex-shrink-0"
+                            title={`In ${usage} ${usage === 1 ? "Anfrage" : "Anfragen"} verwendet`}
+                          >
+                            ▸ {usage}
+                          </span>
+                        )}
+                        <span className="font-mono text-[11px] text-white/50 whitespace-nowrap flex-shrink-0">
+                          {priceStr(p)}
+                        </span>
+                      </div>
+                      {/* Löschen-Aktion */}
+                      <div className="flex items-center flex-shrink-0 pr-2">
+                        {confirming ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleArchive(p.id)}
+                              disabled={saving}
+                              aria-label="Löschen bestätigen"
+                              title="Ja, Position löschen"
+                              className="font-mono text-[11px] font-bold px-2 py-1 rounded bg-rust text-white hover:bg-red-700 transition-colors disabled:opacity-50 !min-h-[28px]"
+                            >
+                              {saving ? "…" : "Ja"}
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirm(null)}
+                              aria-label="Abbrechen"
+                              title="Abbrechen"
+                              className="font-mono text-[11px] font-bold px-2 py-1 rounded bg-white/10 text-white/60 hover:bg-white/20 transition-colors !min-h-[28px]"
+                            >
+                              Nein
+                            </button>
+                          </div>
+                        ) : (
                           <button
-                            onClick={() => setDeleteConfirm(null)}
-                            aria-label="Abbrechen"
-                            title="Abbrechen"
-                            className="font-mono text-[11px] font-bold px-2 py-1 rounded bg-white/10 text-white/60 hover:bg-white/20 transition-colors !min-h-[28px]"
+                            onClick={() => setDeleteConfirm(p.id)}
+                            aria-label={`Position ${p.id} löschen`}
+                            title="Position löschen"
+                            className="opacity-0 group-hover:opacity-100 focus:opacity-100 font-mono text-[13px] font-bold w-7 h-7 flex items-center justify-center rounded text-white/40 hover:bg-rust/20 hover:text-rust transition-all"
                           >
-                            Nein
+                            ×
                           </button>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => setDeleteConfirm(p.id)}
-                          aria-label={`Position ${p.id} löschen`}
-                          title="Position löschen"
-                          className="opacity-0 group-hover:opacity-100 focus:opacity-100 font-mono text-[13px] font-bold w-7 h-7 flex items-center justify-center rounded text-white/40 hover:bg-rust/20 hover:text-rust transition-all"
-                        >
-                          ×
-                        </button>
-                      )}
+                        )}
+                      </div>
                     </div>
+                    {/* Auflagen-Sub-Liste (nur wenn expandiert) — wie Zulagen
+                        eingerückt unter der Hauptposition, kompakt + read-only.
+                        Pflege läuft im Detail-Panel rechts. */}
+                    {hasOpts && isExpanded && (
+                      <div className="bg-black/25 border-t border-white/5">
+                        {opts.map((opt) => {
+                          const follow = opt.followLvId ? positions.find((x) => x.id === opt.followLvId) : null;
+                          return (
+                            <div key={opt.id} className="px-4 py-1.5 flex items-baseline gap-3 text-white/65 hover:bg-white/3 cursor-default">
+                              <span className="text-copper/55 font-mono text-[10.5px] w-[62px] flex-shrink-0 pl-3">↳ {opt.key}</span>
+                              <span className="flex-1 font-sans text-[11.5px] leading-snug truncate">
+                                {opt.label}
+                              </span>
+                              {follow && (
+                                <button
+                                  onClick={() => setActiveId(follow.id)}
+                                  title={`Folge-Position öffnen: ${follow.name}`}
+                                  className="font-mono text-[9.5px] font-bold px-1.5 py-0.5 rounded border border-copper/35 bg-copper/8 text-copper-bright hover:bg-copper/20 transition-colors whitespace-nowrap flex-shrink-0"
+                                >
+                                  → {opt.followLvId}
+                                </button>
+                              )}
+                              {!follow && opt.followLvId && (
+                                <span className="font-mono text-[9.5px] text-white/30 italic flex-shrink-0" title="Folge-Position nicht gefunden / archiviert">
+                                  → {opt.followLvId} ⚠
+                                </span>
+                              )}
+                              {!opt.followLvId && (
+                                <span className="font-mono text-[9.5px] text-white/30 italic flex-shrink-0">nur Hinweis</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -578,6 +757,13 @@ export default function LV() {
               positions={positions}
               aliasesForPos={aliasesOf(activePos.id, aliases)}
               usage={usageCounts.get(activePos.id) ?? 0}
+              options={optionsMap.get(activePos.id) ?? []}
+              onOptionAdd={() => { setOptionModal({ baseLvId: activePos.id, option: null }); setOptionError(null); }}
+              onOptionEdit={(opt) => { setOptionModal({ baseLvId: activePos.id, option: opt }); setOptionError(null); }}
+              onOptionDelete={(id) => setOptionDeleteConfirm(id)}
+              optionDeleteConfirm={optionDeleteConfirm}
+              onOptionDeleteConfirm={handleDeleteOption}
+              onOptionDeleteCancel={() => setOptionDeleteConfirm(null)}
               onEdit={() => { setEditId(activePos.id); setSaveError(null); }}
               deleteConfirm={deleteConfirm}
               onDelete={() => setDeleteConfirm(activePos.id)}
@@ -647,6 +833,28 @@ export default function LV() {
         />
       )}
 
+      {/* ── Modal: sirAdos / GAEB Import (23.06.2026) ── */}
+      <LvImportModal
+        isOpen={showImport}
+        onClose={() => setShowImport(false)}
+        positions={positions}
+        onApplied={() => { refresh(); refreshOptions(); }}
+      />
+
+
+      {/* ── Modal: Auflage anlegen / bearbeiten ── */}
+      {optionModal && (
+        <OptionModal
+          baseLvId={optionModal.baseLvId}
+          option={optionModal.option}
+          positions={positions}
+          saving={optionBusy}
+          saveError={optionError}
+          onSave={(input) => handleSaveOption(optionModal.baseLvId, optionModal.option?.id ?? null, input)}
+          onClose={() => { setOptionModal(null); setOptionError(null); }}
+        />
+      )}
+
       {/* ── Modal: Bearbeiten ── */}
       {editId && (() => {
         const pos = positions.find((p) => p.id === editId);
@@ -678,6 +886,13 @@ interface DetailProps {
   positions: LvPosition[];
   aliasesForPos: string[];
   usage: number;
+  options: LvPositionOption[];
+  onOptionAdd: () => void;
+  onOptionEdit: (opt: LvPositionOption) => void;
+  onOptionDelete: (id: number) => void;
+  optionDeleteConfirm: number | null;
+  onOptionDeleteConfirm: (id: number) => void;
+  onOptionDeleteCancel: () => void;
   onEdit: () => void;
   deleteConfirm: string | null;
   onDelete: () => void;
@@ -695,6 +910,13 @@ function PanelDetail({
   positions,
   aliasesForPos,
   usage,
+  options,
+  onOptionAdd,
+  onOptionEdit,
+  onOptionDelete,
+  optionDeleteConfirm,
+  onOptionDeleteConfirm,
+  onOptionDeleteCancel,
   onEdit,
   deleteConfirm,
   onDelete,
@@ -879,6 +1101,132 @@ function PanelDetail({
               </ul>
             ) : (
               <span className="font-mono text-[11px] text-ink-mute italic">Keine Treffer.</span>
+            )}
+          </div>
+        )}
+
+        {/* Auflagen (nur für Hauptpositionen, nicht ERR-Zulagen) — anhängbare
+            Folge-Positionen wie lagern/entsorgen/austauschen/kultivieren */}
+        {!isErr && (
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <div className="font-mono text-[10px] tracking-[.14em] uppercase text-ink-mute" title="Beim Auswählen einer Auflage im PositionAdder wird automatisch die Folge-LV-Position ins Angebot ergänzt">
+                Auflagen · {options.length}
+              </div>
+              <button
+                type="button"
+                onClick={onOptionAdd}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-copper/10 text-copper border border-copper/25 font-display font-extrabold uppercase text-[10.5px] tracking-wide hover:bg-copper/20 transition-colors !min-h-[30px]"
+                title="Eine neue Auflage zu dieser Hauptposition hinzufügen"
+              >
+                + Auflage hinzufügen
+              </button>
+            </div>
+            {options.length === 0 ? (
+              <p className="font-sans text-[12.5px] text-ink-mute italic">
+                Noch keine Auflagen — Hauptposition ist eigenständig.
+              </p>
+            ) : (
+              <div className="border border-steel-line/50 rounded-lg overflow-hidden bg-white">
+                {options.map((opt) => {
+                  const isConfirming = optionDeleteConfirm === opt.id;
+                  return (
+                    <div
+                      key={opt.id}
+                      className="flex items-center gap-2 px-3 py-2 border-b border-[#F0F1F2] last:border-0 hover:bg-[#FAFAFA] transition-colors"
+                    >
+                      <span className="font-mono text-[10px] text-ink-mute w-[26px] flex-shrink-0 text-right" title="Sortier-Reihenfolge">
+                        {opt.displayOrder}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-baseline gap-2 flex-wrap">
+                          <span className="font-sans text-[13px] font-semibold text-ink leading-snug">
+                            {opt.label}
+                          </span>
+                          {opt.defaultActive && (
+                            <span
+                              className="font-mono text-[9px] tracking-wider uppercase px-1 py-0.5 rounded bg-good/15 text-good border border-good/30"
+                              title="Diese Auflage ist standardmäßig aktiv"
+                            >
+                              default
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                          <span className="font-mono text-[10px] text-ink-mute">{opt.key}</span>
+                          <span className="text-ink-mute">·</span>
+                          {opt.followLvId ? (
+                            <span
+                              className="font-mono text-[10px] font-bold tracking-wider px-1.5 py-0.5 rounded text-copper bg-copper/10 border border-copper/30"
+                              title={`Folge-LV-Position, die beim Anwählen ins Angebot ergänzt wird`}
+                            >
+                              → {opt.followLvId}
+                            </span>
+                          ) : (
+                            <span
+                              className="font-mono text-[10px] tracking-wider px-1.5 py-0.5 rounded text-ink-mute bg-black/5 border border-steel-line/40"
+                              title="Diese Auflage erzeugt keine Folge-Position — sie ist nur ein Hinweis"
+                            >
+                              nur Hinweis
+                            </span>
+                          )}
+                          {opt.qtyFormula && (
+                            <>
+                              <span className="text-ink-mute">·</span>
+                              <span
+                                className="font-mono text-[10px] text-ink-2"
+                                title="Hinweis zur Mengen-Rechnung"
+                              >
+                                {opt.qtyFormula}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                      {isConfirming ? (
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => onOptionDeleteConfirm(opt.id)}
+                            className="font-mono text-[10.5px] font-bold px-2 py-1 rounded bg-rust text-white hover:bg-red-700 transition-colors !min-h-[28px]"
+                            title="Auflage löschen"
+                          >
+                            Ja
+                          </button>
+                          <button
+                            type="button"
+                            onClick={onOptionDeleteCancel}
+                            className="font-mono text-[10.5px] font-bold px-2 py-1 rounded bg-black/5 text-ink-2 hover:bg-black/10 transition-colors !min-h-[28px]"
+                          >
+                            Nein
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-0.5 flex-shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => onOptionEdit(opt)}
+                            aria-label={`Auflage ${opt.label} bearbeiten`}
+                            title="Auflage bearbeiten"
+                            className="font-mono text-[13px] w-7 h-7 flex items-center justify-center rounded text-ink-mute hover:bg-copper/10 hover:text-copper transition-all"
+                          >
+                            ✎
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onOptionDelete(opt.id)}
+                            aria-label={`Auflage ${opt.label} löschen`}
+                            title="Auflage löschen"
+                            className="font-mono text-[13px] w-7 h-7 flex items-center justify-center rounded text-ink-mute hover:bg-rust/15 hover:text-rust transition-all"
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             )}
           </div>
         )}
@@ -1631,6 +1979,282 @@ function MergeModal({ source, positions, saving, error, onConfirm, onClose }: Me
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   Auflagen-Modal · Auflage zu einer Hauptposition anlegen oder bearbeiten
+   (19.06.2026 — Rick: lagern/entsorgen/austauschen/kultivieren als Folge-LV)
+   ──────────────────────────────────────────────────────────────────────── */
+interface OptionModalProps {
+  baseLvId: string;
+  option: LvPositionOption | null;     // null = neu anlegen
+  positions: LvPosition[];
+  saving: boolean;
+  saveError: string | null;
+  onSave: (input: LvOptionInput) => void;
+  onClose: () => void;
+}
+
+function OptionModal({
+  baseLvId,
+  option,
+  positions,
+  saving,
+  saveError,
+  onSave,
+  onClose,
+}: OptionModalProps) {
+  const isEdit = option !== null;
+  const [key, setKey] = useState<string>(option?.key ?? "");
+  const [label, setLabel] = useState<string>(option?.label ?? "");
+  const [followLvId, setFollowLvId] = useState<string>(option?.followLvId ?? "");
+  const [qtyFormula, setQtyFormula] = useState<string>(option?.qtyFormula ?? "");
+  const [defaultActive, setDefaultActive] = useState<boolean>(option?.defaultActive ?? false);
+  const [displayOrder, setDisplayOrder] = useState<number>(option?.displayOrder ?? 100);
+  const [info, setInfo] = useState<string>(option?.info ?? "");
+  const [followSearch, setFollowSearch] = useState<string>("");
+
+  /* Mögliche Folge-Positionen: alle aktiven LV außer der Hauptposition selbst,
+     keine ERR-Zulagen (die sind kein Folge-Schritt). */
+  const followCandidates = positions
+    .filter((p) => p.id !== baseLvId && p.cat !== "ERR")
+    .filter((p) => {
+      const q = followSearch.trim().toLowerCase();
+      if (q === "") return true;
+      return p.id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q);
+    })
+    .sort((a, b) => a.id.localeCompare(b.id));
+
+  const inputCls =
+    "w-full bg-white border border-steel rounded-lg px-3 py-2.5 text-[14px] text-ink focus:outline-none focus:border-copper";
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmedKey = key.trim().toLowerCase();
+    const trimmedLabel = label.trim();
+    if (trimmedKey === "" || trimmedLabel === "") return;
+    onSave({
+      baseLvId,
+      key: trimmedKey,
+      label: trimmedLabel,
+      followLvId: followLvId === "" ? null : followLvId,
+      qtyFormula: qtyFormula.trim() === "" ? null : qtyFormula.trim(),
+      defaultActive,
+      displayOrder,
+      info: info.trim() === "" ? null : info.trim(),
+    });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 backdrop-blur-md z-[75] flex items-end lg:items-center justify-center p-0 lg:p-6"
+      onClick={onClose}
+    >
+      <form
+        onSubmit={handleSubmit}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-bg-2 rounded-t-3xl lg:rounded-2xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto board-scroll"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between mb-4">
+          <span className="dd-eyebrow text-copper">Auflage zu {baseLvId}</span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Modal schließen"
+            className="font-sans text-ink-2 text-[13px] hover:text-ink"
+          >
+            Schließen
+          </button>
+        </div>
+        <h2 className="font-display font-black uppercase text-2xl text-ink mb-5">
+          {isEdit ? "Auflage bearbeiten" : "Neue Auflage"}
+        </h2>
+
+        {/* Key + Reihenfolge */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <label className="block">
+            <span className="font-sans text-[12.5px] font-bold text-ink-2 block mb-1.5">
+              Key <span className="text-ink-mute font-normal">(klein, eindeutig pro Position)</span>
+            </span>
+            <input
+              type="text"
+              value={key}
+              onChange={(e) => setKey(e.target.value.toLowerCase())}
+              required
+              disabled={isEdit}
+              placeholder="entsorgen"
+              aria-label="Auflagen-Key"
+              title={isEdit ? "Der Key kann nach dem Anlegen nicht mehr geändert werden" : "Eindeutiger Bezeichner wie entsorgen, lagern, austauschen, kultivieren"}
+              className={`${inputCls} font-mono tracking-wider !min-h-[44px] ${isEdit ? "opacity-60 cursor-not-allowed" : ""}`}
+            />
+          </label>
+          <label className="block">
+            <span className="font-sans text-[12.5px] font-bold text-ink-2 block mb-1.5">
+              Reihenfolge <span className="text-ink-mute font-normal">(klein → oben)</span>
+            </span>
+            <input
+              type="number"
+              min="0"
+              step="10"
+              value={displayOrder}
+              onChange={(e) => setDisplayOrder(e.target.value === "" ? 100 : parseInt(e.target.value, 10))}
+              aria-label="Anzeige-Reihenfolge"
+              className={`${inputCls} font-mono !min-h-[44px]`}
+            />
+          </label>
+        </div>
+
+        {/* Label */}
+        <label className="block mb-3">
+          <span className="font-sans text-[12.5px] font-bold text-ink-2 block mb-1.5">Bezeichnung</span>
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            required
+            placeholder="… entsorgen (zur Deponie abfahren)"
+            aria-label="Auflagen-Bezeichnung"
+            className={`${inputCls} !min-h-[44px]`}
+          />
+        </label>
+
+        {/* Folge-LV-Position */}
+        <div className="mb-3">
+          <div className="font-sans text-[12.5px] font-bold text-ink-2 mb-1.5">
+            Folge-LV-Position{" "}
+            <span className="text-ink-mute font-normal">— optional; ergänzt eine Zeile im Angebot</span>
+          </div>
+          <input
+            type="search"
+            value={followSearch}
+            onChange={(e) => setFollowSearch(e.target.value)}
+            placeholder="LV-ID oder Name suchen …"
+            aria-label="Folge-Position suchen"
+            className={`${inputCls} mb-2 !min-h-[40px]`}
+          />
+          <div className="border border-steel-line/50 rounded-lg bg-white max-h-[28vh] overflow-y-auto board-scroll">
+            <label
+              className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-[#F0F1F2] transition-colors ${
+                followLvId === "" ? "bg-[#FFF8F3]" : "hover:bg-[#FAFAFA]"
+              }`}
+            >
+              <input
+                type="radio"
+                name="followLvId"
+                checked={followLvId === ""}
+                onChange={() => setFollowLvId("")}
+                className="w-4 h-4 text-copper focus:ring-copper/50"
+              />
+              <span className="font-sans text-[13px] text-ink-mute italic">— keine Folge-Position —</span>
+            </label>
+            {followCandidates.length === 0 ? (
+              <p className="font-sans text-[12.5px] text-ink-mute italic p-3">
+                Keine Treffer.
+              </p>
+            ) : (
+              followCandidates.map((p) => {
+                const isSel = followLvId === p.id;
+                return (
+                  <label
+                    key={p.id}
+                    className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-[#F0F1F2] last:border-0 transition-colors ${
+                      isSel ? "bg-[#FFF8F3]" : "hover:bg-[#FAFAFA]"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="followLvId"
+                      checked={isSel}
+                      onChange={() => setFollowLvId(p.id)}
+                      className="w-4 h-4 text-copper focus:ring-copper/50"
+                    />
+                    <span className="font-mono text-[11px] tracking-wider font-bold text-copper w-[68px] flex-shrink-0">
+                      {p.id}
+                    </span>
+                    <span className="flex-1 font-sans text-[13px] text-ink-body leading-snug truncate">
+                      {p.name}
+                    </span>
+                    <span className="font-mono text-[10px] text-ink-mute uppercase">{p.cat}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Mengen-Formel + Default */}
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <label className="block">
+            <span className="font-sans text-[12.5px] font-bold text-ink-2 block mb-1.5">
+              Mengen-Hinweis <span className="text-ink-mute font-normal">optional</span>
+            </span>
+            <input
+              type="text"
+              value={qtyFormula}
+              onChange={(e) => setQtyFormula(e.target.value)}
+              placeholder="t  oder  m³  oder  T_AUSHUB_GES"
+              aria-label="Mengen-Formel"
+              className={`${inputCls} font-mono !min-h-[44px]`}
+            />
+          </label>
+          <label className="flex items-center gap-2.5 pt-7 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={defaultActive}
+              onChange={(e) => setDefaultActive(e.target.checked)}
+              className="w-4 h-4 rounded border-steel text-copper focus:ring-copper/50"
+            />
+            <span className="font-sans text-[13px] text-ink-body">
+              Standardmäßig aktiv
+            </span>
+          </label>
+        </div>
+
+        {/* Info */}
+        <label className="block mb-4">
+          <span className="font-sans text-[12.5px] font-bold text-ink-2 block mb-1.5">
+            Info <span className="text-ink-mute font-normal">optional, intern</span>
+          </span>
+          <textarea
+            value={info}
+            onChange={(e) => setInfo(e.target.value)}
+            rows={3}
+            placeholder="Hinweise zur Anwendung dieser Auflage …"
+            aria-label="Info"
+            className={`${inputCls} resize-none leading-relaxed`}
+          />
+        </label>
+
+        {/* Fehler */}
+        {saveError && (
+          <p className="text-rust text-[12.5px] font-sans mb-3 bg-rust/10 border border-rust/20 rounded-md px-3 py-2">
+            {saveError}
+          </p>
+        )}
+
+        {/* Buttons */}
+        <div className="flex gap-3 flex-wrap">
+          <button
+            type="submit"
+            disabled={saving}
+            aria-label="Auflage speichern"
+            className="btn-primary flex-1 disabled:opacity-50"
+          >
+            {saving ? "Speichert …" : "Speichern"}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Abbrechen"
+            className="btn-ghost flex-none !min-h-[56px] !px-5"
+          >
+            Abbrechen
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

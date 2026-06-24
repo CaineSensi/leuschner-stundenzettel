@@ -16,6 +16,33 @@ import BackButton from "../components/BackButton";
 import { getInquiryByCardId, listInquiries, inquiryPhotoUrl, uploadInquiryPhoto, uploadInquiryVideo, updateInquiryPhotos, updateInquiry, appendCardNote, upsertCardContact, deleteInquiryPhotoFile, SOURCE_ICON, SOURCE_LABEL, type Inquiry, type InquiryPhoto } from "../lib/inquiries";
 import { uploadSitePhoto, getCurrentCompanyId } from "../lib/photos";
 import { extractZipMedia, parseWhatsAppText, whatsAppSummary } from "../lib/zipImport";
+import { listLvPositions, listLvOptions, groupOptionsByBase, type LvPositionOption } from "../lib/lv";
+import type { LvPosition } from "../lib/types";
+
+/* ── LV-Picker · gemeinsamer Cache (19.06.2026)
+ *  Damit nicht jede PositionAdder-Instance neu lädt: ein modulweiter Cache
+ *  + Subscriber-Mechanik. Wer „lädt" muss nur einmal triggern; alle anderen
+ *  warten auf das Promise. Fallback: wenn Backend fehlt, bleibt der Cache
+ *  leer und der LV-Picker zeigt sich gar nicht erst. */
+type LvCache = { positions: LvPosition[]; options: LvPositionOption[] };
+let lvCache: LvCache | null = null;
+let lvCachePromise: Promise<LvCache> | null = null;
+function loadLvCache(): Promise<LvCache> {
+  if (lvCache) return Promise.resolve(lvCache);
+  if (lvCachePromise) return lvCachePromise;
+  lvCachePromise = Promise.all([listLvPositions(), listLvOptions()])
+    .then(([positions, options]) => {
+      lvCache = { positions, options };
+      return lvCache;
+    })
+    .catch((e) => {
+      // Backend offline / Tabellen fehlen → silent: kein LV-Picker im UI.
+      // Promise wird zurückgesetzt damit ein späterer Mount es nochmal versucht.
+      lvCachePromise = null;
+      throw e;
+    });
+  return lvCachePromise;
+}
 
 // Stufen-Logik · Farbe = Stahl-&-Beton-Tokens, Hinweis = was die Stufe bedeutet
 const STAGE_META: Record<Stage, { color: string; hint: string }> = {
@@ -751,6 +778,45 @@ function PositionAdder({
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // LV-Picker & Auflagen (nur im Add-Modus aktiv — im Edit nicht angezeigt).
+  const [lvData, setLvData] = useState<LvCache | null>(lvCache);
+  const [selectedLv, setSelectedLv] = useState<LvPosition | null>(null);
+  // Map<optionId, active> — voreingestellt aus defaultActive der jeweiligen Auflage.
+  const [activeOpts, setActiveOpts] = useState<Record<number, boolean>>({});
+
+  // LV-Cache laden — gemeinsam für alle Instances. Im Edit-Modus überspringen.
+  useEffect(() => {
+    if (isEdit) return;
+    if (lvData) return;
+    let cancelled = false;
+    loadLvCache().then((d) => { if (!cancelled) setLvData(d); }).catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, [isEdit, lvData]);
+
+  const lvOptionsByBase = useMemo(
+    () => lvData ? groupOptionsByBase(lvData.options) : new Map<string, LvPositionOption[]>(),
+    [lvData],
+  );
+  const selectedOptions: LvPositionOption[] = useMemo(
+    () => selectedLv ? (lvOptionsByBase.get(selectedLv.id) ?? []) : [],
+    [selectedLv, lvOptionsByBase],
+  );
+
+  function pickLv(lv: LvPosition) {
+    setSelectedLv(lv);
+    setName(lv.name);
+    if (lv.price != null) setPrice(lv.price.toFixed(2).replace(".", ","));
+    // Auflagen-Defaults setzen
+    const opts = lvOptionsByBase.get(lv.id) ?? [];
+    const next: Record<number, boolean> = {};
+    for (const o of opts) next[o.id] = !!o.defaultActive;
+    setActiveOpts(next);
+  }
+  function clearLv() {
+    setSelectedLv(null);
+    setActiveOpts({});
+  }
+
   function parsePrice(s: string): number {
     const cleaned = s.trim().replace(/[€\s]/g, "").replace(",", ".");
     const n = parseFloat(cleaned);
@@ -795,6 +861,34 @@ function PositionAdder({
         next[initial.index] = { ...old, ...newPos, pos: old.pos };
       } else {
         next = [...base, newPos];
+        // LV-Auflagen → Folge-Positionen aus dem Cache anhängen (nur Add-Modus).
+        // Nur Auflagen mit followLvId erzeugen eine Position; reine Hinweis-Auflagen
+        // (followLvId === null) sind UI-Only. Die Menge bleibt „offen" (Rick füllt
+        // manuell oder das Aufmaß zieht es später nach).
+        if (selectedLv && lvData) {
+          const lvById = new Map(lvData.positions.map((p) => [p.id, p]));
+          for (const opt of selectedOptions) {
+            if (!activeOpts[opt.id]) continue;
+            if (!opt.followLvId) continue;
+            const follow = lvById.get(opt.followLvId);
+            if (!follow) continue; // referenziertes LV existiert nicht (mehr) → silent
+            const followPriceStr = follow.price != null
+              ? follow.price.toFixed(2).replace(".", ",")
+              : "offen";
+            next.push({
+              pos: 0,
+              name: follow.name,
+              quantity: "offen",
+              unitPrice: followPriceStr,
+              sum: 0,
+              source: "manuell-arbeit",
+              meta: {
+                derivedFrom: selectedLv.id,
+                optionKey: opt.key,
+              },
+            });
+          }
+        }
       }
       // Neu-Nummerierung (pos 1..N) — robust gegen Lücken
       next = next.map((p, i) => ({ ...p, pos: i + 1 }));
@@ -803,6 +897,7 @@ function PositionAdder({
       onSaved(next, valueEur);
       if (!isEdit) {
         setName(""); setQty(""); setPrice("");
+        setSelectedLv(null); setActiveOpts({});
         setOpen(false);
       }
     } catch (e: any) {
@@ -846,6 +941,29 @@ function PositionAdder({
           >📦 Material</button>
         </div>
       </div>
+      {/* LV-Picker — nur im Add-Modus und nur wenn der Cache geladen ist (sonst silent) */}
+      {!isEdit && lvData && lvData.positions.length > 0 && (
+        <LvPicker
+          positions={lvData.positions}
+          selected={selectedLv}
+          onPick={pickLv}
+          onClear={clearLv}
+        />
+      )}
+      {/* Wenn LV gewählt: Badge mit ID + Einheit als Hinweis. */}
+      {!isEdit && selectedLv && (
+        <div className="flex items-center gap-2 flex-wrap text-[11px] font-mono">
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-copper/15 text-copper font-bold">
+            {selectedLv.id}
+          </span>
+          {selectedLv.unit && (
+            <span className="text-ink-mute">Einheit: <span className="text-ink-2">{selectedLv.unit}</span></span>
+          )}
+          {selectedLv.price != null && (
+            <span className="text-ink-mute">EP-Vorgabe: <span className="text-ink-2">{selectedLv.price.toFixed(2).replace(".", ",")} €</span></span>
+          )}
+        </div>
+      )}
       <input
         autoFocus
         value={name}
@@ -868,6 +986,15 @@ function PositionAdder({
           className="bg-white border border-steel-line/55 rounded px-3 py-2 text-[13px] font-mono focus:outline-none focus:border-copper"
         />
       </div>
+      {/* Auflagen-Block — nur im Add-Modus und nur wenn LV-Auflagen vorhanden sind. */}
+      {!isEdit && selectedLv && selectedOptions.length > 0 && (
+        <OptionsBlock
+          options={selectedOptions}
+          active={activeOpts}
+          kind={kind}
+          onToggle={(id, v) => setActiveOpts((prev) => ({ ...prev, [id]: v }))}
+        />
+      )}
       {err && <div className="text-rust text-[12px] font-mono">⚠ {err}</div>}
       <div className="flex items-center justify-between pt-1">
         <span className="font-mono text-[10.5px] text-ink-mute">
@@ -885,6 +1012,140 @@ function PositionAdder({
           >{busy ? "speichere …" : "Position speichern"}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** LV-Picker · Such-Input mit Dropdown-Vorschlägen (19.06.2026).
+ *  Sucht in Name und ID (case-insensitive). Auswahl per Klick übergibt die
+ *  Position an den PositionAdder; weiteres Tippen kehrt zur Suche zurück
+ *  und blendet die Vorschläge wieder ein. Wenn das Feld geleert wird,
+ *  ruft der Picker onClear() — der Adder setzt die LV-Bindung zurück. */
+function LvPicker({
+  positions, selected, onPick, onClear,
+}: {
+  positions: LvPosition[];
+  selected: LvPosition | null;
+  onPick: (lv: LvPosition) => void;
+  onClear: () => void;
+}) {
+  const [query, setQuery] = useState(selected ? `${selected.id} · ${selected.name}` : "");
+  const [focused, setFocused] = useState(false);
+
+  // Wenn die Auswahl von außen geleert wird, Suche zurücksetzen.
+  useEffect(() => {
+    if (!selected && query !== "") {
+      // Nur leeren, wenn das Feld nicht aktiv gerade getippt wird.
+      // Hier reicht passive Übernahme — der Adder löscht onSaved.
+    }
+    if (selected) setQuery(`${selected.id} · ${selected.name}`);
+  }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const hits: LvPosition[] = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return [];
+    // Wenn bereits ausgewählt und Query == die Anzeige der Auswahl → keine Vorschläge mehr.
+    if (selected && query === `${selected.id} · ${selected.name}`) return [];
+    return positions
+      .filter((p) => p.id.toLowerCase().includes(q) || p.name.toLowerCase().includes(q))
+      .slice(0, 8);
+  }, [query, positions, selected]);
+
+  function onChange(v: string) {
+    setQuery(v);
+    if (selected) onClear();
+    if (v.trim() === "") onClear();
+  }
+
+  return (
+    <div className="relative">
+      <input
+        value={query}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setTimeout(() => setFocused(false), 150)}
+        placeholder="🔍 LV-Position suchen · z.B. ERD-001 oder Oberboden"
+        className="w-full bg-white border border-copper/40 rounded px-3 py-2 text-[13px] font-sans focus:outline-none focus:border-copper"
+      />
+      {focused && hits.length > 0 && (
+        <div className="absolute z-30 left-0 right-0 mt-1 bg-white border border-steel-line/60 rounded shadow-lg max-h-72 overflow-y-auto">
+          {hits.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); onPick(p); setQuery(`${p.id} · ${p.name}`); }}
+              className="w-full text-left px-3 py-2 hover:bg-copper/10 border-b border-steel-line/30 last:border-0"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-mono text-[11px] text-copper font-bold whitespace-nowrap">{p.id}</span>
+                <span className="font-mono text-[10.5px] text-ink-mute whitespace-nowrap">
+                  {p.price != null ? `${p.price.toFixed(2).replace(".", ",")} €${p.unit ? `/${p.unit}` : ""}` : (p.unit ? `· ${p.unit}` : "")}
+                </span>
+              </div>
+              <div className="text-[12.5px] text-ink leading-snug mt-0.5 break-words">{p.name}</div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Auflagen-Block · zeigt die anhängbaren Auflagen einer Hauptposition als
+ *  Checkboxen (z.B. „… entsorgen", „… lagern"). Aktivierte Auflagen mit
+ *  followLvId werden beim Speichern als zusätzliche Folge-Position ins
+ *  Angebot ergänzt; Auflagen ohne followLvId sind reine UI-Hinweise. */
+function OptionsBlock({
+  options, active, kind, onToggle,
+}: {
+  options: LvPositionOption[];
+  active: Record<number, boolean>;
+  kind: "arbeit" | "material";
+  onToggle: (id: number, v: boolean) => void;
+}) {
+  const accent = kind === "material" ? "#3A8CE8" : "#DC6E2D";
+  return (
+    <div className="border border-steel-line/45 bg-white/70 rounded-lg p-3 space-y-2">
+      <div
+        className="font-display font-extrabold uppercase text-[10.5px] tracking-widest"
+        style={{ color: accent }}
+      >
+        ⚙ Auflagen — was passiert / was gehört dazu?
+      </div>
+      <ul className="space-y-1.5">
+        {options.map((o) => {
+          const checked = !!active[o.id];
+          return (
+            <li key={o.id} className="flex items-start gap-2.5">
+              <input
+                id={`lvopt-${o.id}`}
+                type="checkbox"
+                checked={checked}
+                onChange={(e) => onToggle(o.id, e.target.checked)}
+                className="mt-1 h-4 w-4 cursor-pointer"
+                style={{ accentColor: accent }}
+              />
+              <label htmlFor={`lvopt-${o.id}`} className="flex-1 min-w-0 cursor-pointer">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[13px] text-ink leading-snug">{o.label}</span>
+                  {o.followLvId ? (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-copper/15 text-copper font-mono text-[10.5px] font-bold whitespace-nowrap">
+                      → {o.followLvId}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2 py-0.5 rounded bg-steel-line/25 text-ink-mute font-mono text-[10.5px] whitespace-nowrap">
+                      nur Hinweis
+                    </span>
+                  )}
+                </div>
+                {o.info && (
+                  <div className="font-mono text-[10.5px] text-ink-mute mt-0.5 break-words">{o.info}</div>
+                )}
+              </label>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
@@ -1396,9 +1657,10 @@ function DetailDrawer({
         <div className="flex-1 flex min-h-0">
           <DrawerSideNav
             sections={[
-              { id: "sec-uebersicht", icon: "▤", label: "Vorgang",  show: true },
-              { id: "sec-kontakt",    icon: "👤", label: "Kontakt",  show: true },
-              { id: "sec-verlauf",    icon: "🕐", label: "Verlauf",  show: true },
+              { id: "sec-uebersicht", icon: "▤", label: "Vorgang",     show: true },
+              { id: "sec-kalk",       icon: "🧮", label: "Kalkulation", show: true },
+              { id: "sec-kontakt",    icon: "👤", label: "Kontakt",     show: true },
+              { id: "sec-verlauf",    icon: "🕐", label: "Verlauf",     show: true },
             ]}
             activeId={activeSec}
             onSelect={setActiveSec}
@@ -1707,6 +1969,13 @@ function DetailDrawer({
                 </>
               );
             })()}
+
+            {/* Tab: Kalkulation — Aufmaß-Eingaben + Berechnungs-Engine +
+                Schnell-Anlegen-Buttons für Standard-Gewerke (19.06.2026, Rick).
+                Übernimmt die Mockup-Logik aus _Reports/2026-06-16_*.html in React. */}
+            {activeSec === "sec-kalk" && (
+              <KalkulationTab card={card} inquiry={inquiry} onUpdate={onUpdate} />
+            )}
 
             {/* Tab: Kontakt */}
             {activeSec === "sec-kontakt" && (
@@ -3145,6 +3414,584 @@ function InquiryHistory({
           </summary>
           <pre className="mt-2 text-[11.5px] leading-relaxed whitespace-pre-wrap font-mono text-ink-body max-h-[400px] overflow-auto">{inquiry.rawText}</pre>
         </details>
+      )}
+    </div>
+  );
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ *  KALKULATION-TAB · Aufmaß-Eingaben + Berechnungs-Engine + Schnell-Anlegen.
+ *  Quelle: _Reports/2026-06-16_Angebot-Benditz-Mockup.html (computeQuantities).
+ *
+ *  Rick-Konzept: oben Aufmaß-Felder, in der Mitte berechnete Mengen, darunter
+ *  Buttons je Bauablauf-Schritt, die mehrere LV-Positionen mit vorausgefüllten
+ *  Mengen + Auflagen-Folge-Positionen auf einmal ins Angebot legen.
+ *
+ *  Persistenz-Strategie (19.06.2026): Component-State only (Option B aus dem
+ *  Auftrag). Die Aufmaß-Werte werden NICHT in pipeline_cards gespeichert —
+ *  ein Tab-Wechsel hält sie über useState, ein Drawer-Close verliert sie.
+ *  Rick kann später entscheiden, ob eine jsonb-Spalte dafür her muss.
+ *  Beim erneuten Öffnen werden die Defaults aus der Anfrage abgeleitet
+ *  (Mengen aus inquiry.parsedJson.leistungen, soweit erkennbar). */
+
+/** Aufmaß-Inputs. Spiegelt das HTML-Mockup 1:1 (cm/m/m³/Stk/t/m³). */
+type AufmassInputs = {
+  A_RASEN: number;      // Rasenfläche m²
+  A_PFL: number;        // Pflasterfläche m²
+  d_abtrag: number;     // Boden abtragen (Rasen) in cm
+  d_mutter: number;     // Mutterboden-Stärke in cm
+  d_schotter: number;   // Schotter-Schicht in cm
+  d_brechs: number;     // Brechsand-Schicht in cm
+  d_stein: number;      // Pflasterstärke in cm
+  d_aushub_pfl: number; // Aushubtiefe Pflaster in cm (explizit, kann überschrieben werden)
+  V_FUELL: number;      // Füllsand m³
+  L_KG: number;         // KG-Rohr Länge m
+  N_BOEGEN: number;     // Bögen Stk
+  L_BORD: number;       // Rasenbord m
+  DICHTE: number;       // Bodendichte t/m³
+};
+
+const AUFMASS_DEFAULTS: AufmassInputs = {
+  A_RASEN: 0, A_PFL: 0,
+  d_abtrag: 5, d_mutter: 20,
+  d_schotter: 20, d_brechs: 4, d_stein: 6, d_aushub_pfl: 30,
+  V_FUELL: 0, L_KG: 0, N_BOEGEN: 0, L_BORD: 0,
+  DICHTE: 1.6,
+};
+
+/** Ergebnis der Berechnungs-Engine — numerische Mengen + formatierte Anzeige. */
+type AufmassQty = {
+  // Numerisch (zur Verwendung als Mengen-Wert in PipelinePosition)
+  num: {
+    A_RASEN: number;          // m²
+    A_PFL: number;            // m²
+    V_AUSHUB_RASEN: number;   // m³
+    V_AUSHUB_PFL: number;     // m³
+    V_AUSHUB_GES: number;     // m³
+    T_AUSHUB_GES: number;     // t
+    V_MUTTER: number;         // m³
+    V_FUELL: number;          // m³
+    L_KG: number;             // m
+    L_BORD: number;           // m
+    N_BOEGEN: number;         // Stk
+    D_AUSHUB_PFL: number;     // cm
+    D_SCHICHTEN: number;      // cm
+  };
+  // Anzeige (formatiert mit Einheit + Komma)
+  fmt: {
+    V_AUSHUB_RASEN: string;
+    V_AUSHUB_PFL: string;
+    V_AUSHUB_GES: string;
+    T_AUSHUB_GES: string;
+    V_MUTTER: string;
+    D_UNTERBAU_PFL: string;
+  };
+};
+
+function fmtNumDe(n: number, dec = 2): string {
+  if (!Number.isFinite(n)) return "0";
+  const r = Math.round(n * Math.pow(10, dec)) / Math.pow(10, dec);
+  return (r % 1 === 0 ? String(r) : r.toFixed(dec)).replace(".", ",");
+}
+
+/** BERECHNUNGS-ENGINE — 1:1 aus dem HTML-Mockup übernommen. */
+function computeAufmass(i: AufmassInputs): AufmassQty {
+  const V_AUSHUB_RASEN = i.A_RASEN * (i.d_abtrag / 100);
+  const D_SCHICHTEN_CM = i.d_schotter + i.d_brechs + i.d_stein;
+  const D_AUSHUB_PFL_CM = i.d_aushub_pfl > 0 ? i.d_aushub_pfl : D_SCHICHTEN_CM;
+  const V_AUSHUB_PFL = i.A_PFL * (D_AUSHUB_PFL_CM / 100);
+  const V_AUSHUB_GES = V_AUSHUB_RASEN + V_AUSHUB_PFL;
+  const T_AUSHUB_GES = V_AUSHUB_GES * i.DICHTE;
+  const V_MUTTER = i.A_RASEN * (i.d_mutter / 100);
+  return {
+    num: {
+      A_RASEN: i.A_RASEN, A_PFL: i.A_PFL,
+      V_AUSHUB_RASEN, V_AUSHUB_PFL, V_AUSHUB_GES, T_AUSHUB_GES, V_MUTTER,
+      V_FUELL: i.V_FUELL, L_KG: i.L_KG, L_BORD: i.L_BORD, N_BOEGEN: i.N_BOEGEN,
+      D_AUSHUB_PFL: D_AUSHUB_PFL_CM, D_SCHICHTEN: D_SCHICHTEN_CM,
+    },
+    fmt: {
+      V_AUSHUB_RASEN: `${fmtNumDe(V_AUSHUB_RASEN, 2)} m³`,
+      V_AUSHUB_PFL:   `${fmtNumDe(V_AUSHUB_PFL, 2)} m³`,
+      V_AUSHUB_GES:   `${fmtNumDe(V_AUSHUB_GES, 2)} m³`,
+      T_AUSHUB_GES:   `${fmtNumDe(T_AUSHUB_GES, 2)} t`,
+      V_MUTTER:       `${fmtNumDe(V_MUTTER, 2)} m³`,
+      D_UNTERBAU_PFL: `${fmtNumDe(D_AUSHUB_PFL_CM, 0)} cm Aushub`
+        + (D_AUSHUB_PFL_CM !== D_SCHICHTEN_CM ? ` (Schichten: ${fmtNumDe(D_SCHICHTEN_CM, 0)} cm)` : ""),
+    },
+  };
+}
+
+/** Versucht, aus den vom LLM erkannten Leistungen einen numerischen Default
+ *  für eine Aufmaß-Frage zu finden. Sucht eine Leistung deren Name einen
+ *  bestimmten Begriff enthält und holt sich daraus die erste Menge. */
+function deriveFromInquiry(
+  inquiry: Inquiry | null,
+  nameContains: RegExp,
+  einheit?: RegExp,
+): number | null {
+  const list = inquiry?.parsedJson?.leistungen as InquiryLeistung[] | undefined;
+  if (!Array.isArray(list)) return null;
+  for (const l of list) {
+    if (!nameContains.test(l.name ?? "")) continue;
+    for (const m of l.mengen ?? []) {
+      if (einheit && !einheit.test(m.einheit ?? "")) continue;
+      const raw = String(m.wert ?? "").replace(",", ".").replace(/[^\d.]/g, "");
+      const n = parseFloat(raw);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return null;
+}
+
+/** Schnell-Anlegen · Definition einer einzelnen LV-Position innerhalb eines
+ *  Bauablauf-Schritts. unit/label nur informativ — die echte Einheit und der
+ *  EP kommen aus dem LV-Cache (lv_positions). */
+type QuickPosDef = {
+  lvId: string;            // LV-Position-ID
+  qty: number;             // Numerische Menge
+  unitHint: string;        // Einheit zur Anzeige (m², m³, t, m, Stk, Psch)
+  pricePerUnit?: number;   // Fallback-EP falls LV-Cache nichts liefert
+};
+
+type QuickStep = {
+  key: string;     // stabiler Identifier
+  label: string;   // Button-Text
+  positions: QuickPosDef[];
+};
+
+/** Baut die 6 Bauablauf-Schritte aus den aktuellen Aufmaß-Mengen.
+ *  Reihenfolge: Erdarbeiten → Unterbau → Pflasterung → Drainage → Bord → Rasen. */
+function buildQuickSteps(q: AufmassQty): QuickStep[] {
+  return [
+    {
+      key: "erdarbeiten",
+      label: "Erdarbeiten anlegen",
+      positions: [
+        { lvId: "ERD-001", qty: q.num.A_RASEN,        unitHint: "m²", pricePerUnit: 11 },
+        { lvId: "ERD-142", qty: q.num.V_AUSHUB_PFL,   unitHint: "m³", pricePerUnit: 55 },
+        { lvId: "ERD-102", qty: q.num.T_AUSHUB_GES,   unitHint: "t",  pricePerUnit: 20 },
+        { lvId: "ERD-114", qty: q.num.A_PFL,          unitHint: "m²", pricePerUnit: 50 },
+      ],
+    },
+    {
+      key: "unterbau",
+      label: "Pflasterunterbau anlegen",
+      positions: [
+        { lvId: "ERD-103", qty: q.num.A_PFL,    unitHint: "m²", pricePerUnit: 60 },
+        { lvId: "ERD-101", qty: q.num.A_PFL,    unitHint: "m²", pricePerUnit: 55 },
+        { lvId: "ERD-104", qty: q.num.V_FUELL,  unitHint: "m³", pricePerUnit: 55 },
+      ],
+    },
+    {
+      key: "pflasterung",
+      label: "Pflasterung anlegen",
+      positions: [
+        { lvId: "PFL-001", qty: q.num.A_PFL, unitHint: "m²", pricePerUnit: 28 },
+        { lvId: "PFL-101", qty: q.num.A_PFL, unitHint: "m²", pricePerUnit: 48 },
+      ],
+    },
+    {
+      key: "drainage",
+      label: "Drainage anlegen",
+      positions: [
+        { lvId: "ERD-170", qty: q.num.L_KG,     unitHint: "m",    pricePerUnit: 60 },
+        { lvId: "ERD-119", qty: 1,              unitHint: "Psch", pricePerUnit: 0 },
+        { lvId: "ERD-106", qty: q.num.N_BOEGEN, unitHint: "Stk",  pricePerUnit: 55 },
+      ],
+    },
+    {
+      key: "rasenbord",
+      label: "Rasenbord anlegen",
+      positions: [
+        { lvId: "GTN-111", qty: q.num.L_BORD, unitHint: "m", pricePerUnit: 47.5 },
+      ],
+    },
+    {
+      key: "rasen",
+      label: "Mutterboden + Rasen anlegen",
+      positions: [
+        { lvId: "ERD-108", qty: q.num.V_MUTTER, unitHint: "m³", pricePerUnit: 60 },
+        { lvId: "GTN-002", qty: q.num.A_RASEN,  unitHint: "m²", pricePerUnit: 8 },
+      ],
+    },
+  ];
+}
+
+/** Formatiert Menge + Einheit für PipelinePosition.quantity. */
+function fmtQtyForPos(qty: number, unit: string): string {
+  if (!Number.isFinite(qty) || qty <= 0) return `0 ${unit}`.trim();
+  return `${fmtNumDe(qty, 2)} ${unit}`.trim();
+}
+
+function KalkulationTab({
+  card, inquiry, onUpdate,
+}: {
+  card: PipelineCard;
+  inquiry: Inquiry | null;
+  onUpdate: (patch: Partial<PipelineCard>) => void;
+}) {
+  // Defaults aus der Anfrage ableiten, wenn möglich (Rasen, Pflaster, KG, Bord).
+  const initialInputs = useMemo<AufmassInputs>(() => {
+    const fromInq = (re: RegExp, einheit?: RegExp): number | null =>
+      deriveFromInquiry(inquiry, re, einheit);
+    return {
+      ...AUFMASS_DEFAULTS,
+      A_RASEN: fromInq(/rasen/i, /m²|m2/i) ?? 0,
+      A_PFL:   fromInq(/pflaster|betonstein/i, /m²|m2/i) ?? 0,
+      L_KG:    fromInq(/kg.?rohr|drainage/i, /^m$|meter/i) ?? 0,
+      N_BOEGEN: fromInq(/bögen|bogen/i, /stk|stück/i) ?? 0,
+      L_BORD:  fromInq(/rasenbord|bord/i, /^m$|meter/i) ?? 0,
+      V_FUELL: fromInq(/füllsand/i, /m³|m3/i) ?? AUFMASS_DEFAULTS.V_FUELL,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inquiry?.id]);
+
+  const [inp, setInp] = useState<AufmassInputs>(initialInputs);
+  // Beim Karten-Wechsel die Defaults neu setzen (sonst hängen alte Werte).
+  useEffect(() => { setInp(initialInputs); }, [initialInputs]);
+
+  // Aushubtiefe Pflaster: Auto-Sync zur Schichten-Summe, bis manuell überschrieben.
+  const [aushubOverride, setAushubOverride] = useState(false);
+  function setIn<K extends keyof AufmassInputs>(k: K, v: number) {
+    setInp((prev) => {
+      const next = { ...prev, [k]: v };
+      // Wenn Schichten geändert werden und kein Override aktiv ist:
+      // Aushubtiefe auf neue Schichten-Summe nachziehen.
+      if ((k === "d_schotter" || k === "d_brechs" || k === "d_stein") && !aushubOverride) {
+        next.d_aushub_pfl = next.d_schotter + next.d_brechs + next.d_stein;
+      }
+      return next;
+    });
+  }
+  function onAushubManual(v: number) {
+    setAushubOverride(true);
+    setInp((prev) => ({ ...prev, d_aushub_pfl: v }));
+  }
+  function resetAushub() {
+    setAushubOverride(false);
+    setInp((prev) => ({ ...prev, d_aushub_pfl: prev.d_schotter + prev.d_brechs + prev.d_stein }));
+  }
+
+  // Berechnung — re-runs bei jedem Input-Change.
+  const q = useMemo(() => computeAufmass(inp), [inp]);
+  const steps = useMemo(() => buildQuickSteps(q), [q]);
+
+  // LV-Cache nachladen — gemeinsam mit PositionAdder.
+  const [lvData, setLvData] = useState<LvCache | null>(lvCache);
+  useEffect(() => {
+    if (lvData) return;
+    let cancelled = false;
+    loadLvCache().then((d) => { if (!cancelled) setLvData(d); }).catch(() => { /* silent */ });
+    return () => { cancelled = true; };
+  }, [lvData]);
+
+  const lvOptionsByBase = useMemo(
+    () => lvData ? groupOptionsByBase(lvData.options) : new Map<string, LvPositionOption[]>(),
+    [lvData],
+  );
+  const lvById = useMemo(
+    () => new Map((lvData?.positions ?? []).map((p) => [p.id, p])),
+    [lvData],
+  );
+
+  // UI-Status der Schnell-Anlegen-Buttons.
+  const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  useEffect(() => {
+    if (!toastMsg) return;
+    const t = setTimeout(() => setToastMsg(null), 2200);
+    return () => clearTimeout(t);
+  }, [toastMsg]);
+
+  /** Kern: erzeugt aus einem QuickStep N neue PipelinePositions (Haupt +
+   *  Auflagen-Folgen), merged in card.positions (Duplikat-Erkennung per lvId
+   *  in meta.derivedFrom bzw. name-match), und persistiert via setCardPositions. */
+  async function applyStep(step: QuickStep) {
+    setErr(null);
+    setBusyKey(step.key);
+    try {
+      // Inquiry-Migration: wenn noch keine eigenen Positionen → erst die
+      // LLM-Leistungen migrieren, sonst werden sie beim ersten Save überschrieben.
+      const inquirySplit = splitInquiryPositions(inquiry ?? null);
+      const base: PipelinePosition[] = (card.positions && card.positions.length > 0)
+        ? [...card.positions]
+        : [...inquirySplit.work, ...inquirySplit.material];
+
+      // Hilfsfunktion: Index in base, falls eine Position mit gleichem LV-Bezug
+      // bereits existiert. Erkennung in dieser Reihenfolge:
+      //   1) meta.derivedFrom === lvId (von uns selbst angelegte Kalk-Position)
+      //   2) name === lv.name (Haupt-Position aus LV)
+      const findExistingIdx = (lvId: string, lvName: string): number => {
+        for (let i = 0; i < base.length; i++) {
+          const p = base[i];
+          if (p.meta?.derivedFrom === lvId) return i;
+          if (p.name === lvName) return i;
+        }
+        return -1;
+      };
+
+      let next = base.slice();
+
+      for (const def of step.positions) {
+        const lv = lvById.get(def.lvId);
+        const lvName = lv?.name ?? def.lvId;
+        const unit = lv?.unit ?? def.unitHint;
+        const ep = lv?.price ?? def.pricePerUnit ?? 0;
+        const qty = def.qty;
+        const sum = +(ep * qty).toFixed(2);
+        const epStr = ep > 0 ? ep.toFixed(2).replace(".", ",") : (qty <= 0 ? "offen" : "0,00");
+        const qtyStr = fmtQtyForPos(qty, unit ?? "");
+
+        const idx = findExistingIdx(def.lvId, lvName);
+        const posObj: PipelinePosition = {
+          pos: 0, // wird unten neu nummeriert
+          name: lvName,
+          quantity: qtyStr,
+          unitPrice: epStr,
+          sum,
+          source: "kalkulation",
+          meta: { derivedFrom: def.lvId, optionKey: "kalk-haupt" },
+        };
+        if (idx >= 0) {
+          next[idx] = { ...next[idx], ...posObj, pos: next[idx].pos };
+        } else {
+          next.push(posObj);
+        }
+
+        // Auflagen mit default_active = true als Folge-Positionen anhängen.
+        const opts = lvOptionsByBase.get(def.lvId) ?? [];
+        for (const opt of opts) {
+          if (!opt.defaultActive) continue;
+          if (!opt.followLvId) continue; // reine Hinweis-Auflagen erzeugen keine Position
+          const follow = lvById.get(opt.followLvId);
+          if (!follow) continue;
+          const fep = follow.price ?? 0;
+          const fqty = qty; // Folge bekommt dieselbe Menge wie der Haupt-Posten
+          const fsum = +(fep * fqty).toFixed(2);
+          const followIdx = findExistingIdx(opt.followLvId, follow.name);
+          const followObj: PipelinePosition = {
+            pos: 0,
+            name: follow.name,
+            quantity: fmtQtyForPos(fqty, follow.unit ?? unit ?? ""),
+            unitPrice: fep > 0 ? fep.toFixed(2).replace(".", ",") : "offen",
+            sum: fsum,
+            source: "kalkulation",
+            meta: { derivedFrom: def.lvId, optionKey: opt.key },
+          };
+          if (followIdx >= 0) {
+            next[followIdx] = { ...next[followIdx], ...followObj, pos: next[followIdx].pos };
+          } else {
+            next.push(followObj);
+          }
+        }
+      }
+
+      // Neu-Nummerierung (pos 1..N).
+      next = next.map((p, i) => ({ ...p, pos: i + 1 }));
+      const stepSum = step.positions.reduce((t, def) => {
+        const lv = lvById.get(def.lvId);
+        const ep = lv?.price ?? def.pricePerUnit ?? 0;
+        return t + ep * def.qty;
+      }, 0);
+      const valueEur = +next.reduce((t, p) => t + (p.sum || 0), 0).toFixed(2);
+
+      await setCardPositions(card.id, next, valueEur);
+      onUpdate({ positions: next, valueEur });
+      setToastMsg(`${step.positions.length} Positionen angelegt · ${eur(stepSum)}`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Anlegen fehlgeschlagen";
+      setErr(msg);
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  // Live-Summe für Block D
+  const liveCount = card.positions?.length ?? 0;
+  const liveSum = card.positions?.reduce((t, p) => t + (p.sum || 0), 0) ?? 0;
+
+  // Aufmaß-Input · konsistenter Style (kompakt, Stahl-&-Beton).
+  const numIn = (id: keyof AufmassInputs, label: string, step: string, unit: string,
+                 onChangeFn?: (n: number) => void) => (
+    <label className="flex flex-col gap-1">
+      <span className="font-mono text-[10px] uppercase tracking-wider text-ink-mute">{label}</span>
+      <div className="flex items-center gap-1.5">
+        <input
+          type="number"
+          inputMode="decimal"
+          value={inp[id]}
+          step={step}
+          onChange={(e) => {
+            const v = parseFloat(e.target.value.replace(",", ".")) || 0;
+            (onChangeFn ?? ((n: number) => setIn(id, n)))(v);
+          }}
+          className="flex-1 min-w-0 bg-white border border-steel-line/55 rounded px-2 py-1.5 text-[13px] font-mono focus:outline-none focus:border-copper"
+        />
+        <span className="font-mono text-[10.5px] text-ink-mute w-8">{unit}</span>
+      </div>
+    </label>
+  );
+
+  return (
+    <div className="space-y-5">
+      {/* Block A · Aufmaß-Eingaben */}
+      <div>
+        <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
+          📐 Aufmaß-Eingaben
+        </div>
+        <div className="rounded-lg border border-steel bg-white/70 p-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            {numIn("A_RASEN",    "Rasenfläche",       "1",   "m²")}
+            {numIn("A_PFL",      "Pflasterfläche",    "1",   "m²")}
+            {numIn("d_abtrag",   "Abtrag Rasen",      "1",   "cm")}
+            {numIn("d_mutter",   "Mutterboden",       "1",   "cm")}
+            {numIn("d_schotter", "Schotter",          "1",   "cm")}
+            {numIn("d_brechs",   "Brechsand",         "1",   "cm")}
+            {numIn("d_stein",    "Steinstärke",       "1",   "cm")}
+            {/* Aushubtiefe Pflaster · Auto-Sync mit Override-Erkennung */}
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-[10px] uppercase tracking-wider text-copper font-bold">
+                Aushub Pflaster {aushubOverride ? "🔒" : "↔"}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  value={inp.d_aushub_pfl}
+                  step="1"
+                  onChange={(e) => onAushubManual(parseFloat(e.target.value.replace(",", ".")) || 0)}
+                  className="flex-1 min-w-0 bg-copper/8 border border-copper/55 rounded px-2 py-1.5 text-[13px] font-mono text-copper font-bold focus:outline-none focus:border-copper"
+                />
+                <span className="font-mono text-[10.5px] text-copper w-8">cm</span>
+              </div>
+            </label>
+          </div>
+          <div className="mt-1.5 text-right">
+            {aushubOverride ? (
+              <button
+                type="button"
+                onClick={resetAushub}
+                className="font-mono text-[10.5px] text-copper hover:underline"
+              >
+                🔒 manuell · zurück zur Schichten-Summe ({q.num.D_SCHICHTEN} cm)
+              </button>
+            ) : (
+              <span className="font-mono text-[10.5px] text-ink-mute">
+                ↔ folgt automatisch Schotter + Brechsand + Stein
+              </span>
+            )}
+          </div>
+          <div className="mt-3 pt-3 border-t border-steel-line/45 grid grid-cols-2 gap-x-4 gap-y-3">
+            {numIn("V_FUELL",  "Füllsand",       "0.1", "m³")}
+            {numIn("L_KG",     "KG-Rohr DN100",  "1",   "m")}
+            {numIn("N_BOEGEN", "Bögen 45°",      "1",   "Stk")}
+            {numIn("L_BORD",   "Rasenbord",      "1",   "m")}
+            {numIn("DICHTE",   "Bodendichte",    "0.1", "t/m³")}
+          </div>
+        </div>
+      </div>
+
+      {/* Block B · Berechnete Mengen */}
+      <div>
+        <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
+          ∑ Berechnete Mengen
+        </div>
+        <div className="rounded-lg border border-good/45 bg-good/5 p-4 font-mono text-[12px] leading-relaxed text-ink-body">
+          <div className="flex justify-between gap-3">
+            <span>Aushub Rasen</span><span className="font-bold text-ink">{q.fmt.V_AUSHUB_RASEN}</span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span>Aushub Pflaster</span><span className="font-bold text-ink">{q.fmt.V_AUSHUB_PFL}</span>
+          </div>
+          <div className="flex justify-between gap-3 text-good font-bold mt-1 pt-1 border-t border-good/30">
+            <span>Aushub Gesamt</span><span>{q.fmt.V_AUSHUB_GES} · {q.fmt.T_AUSHUB_GES}</span>
+          </div>
+          <div className="flex justify-between gap-3 mt-1">
+            <span>Mutterboden</span><span className="font-bold text-ink">{q.fmt.V_MUTTER}</span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span>Pflaster-Unterbau</span><span className="font-bold text-ink">{q.fmt.D_UNTERBAU_PFL}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Block C · Schnell-Anlegen-Buttons */}
+      <div>
+        <div className="font-display font-extrabold uppercase text-[13px] tracking-widest text-ink mb-2.5">
+          ⚡ Schnell anlegen
+        </div>
+        {!lvData && (
+          <div className="mb-2 px-3 py-2 bg-bg-2 border border-steel-line/40 rounded text-[11.5px] font-mono text-ink-mute">
+            LV-Katalog wird geladen …
+          </div>
+        )}
+        {err && (
+          <div className="mb-2 px-3 py-2 bg-rust/10 border border-rust/35 rounded text-[12px] text-rust">⚠ {err}</div>
+        )}
+        <div className="flex flex-col gap-2">
+          {steps.map((s) => {
+            const busy = busyKey === s.key;
+            const stepSum = s.positions.reduce((t, def) => {
+              const lv = lvById.get(def.lvId);
+              const ep = lv?.price ?? def.pricePerUnit ?? 0;
+              return t + ep * def.qty;
+            }, 0);
+            const lvIds = s.positions.map((d) => d.lvId).join(" · ");
+            return (
+              <button
+                key={s.key}
+                onClick={() => applyStep(s)}
+                disabled={busy || !lvData}
+                className="w-full text-left border-2 border-dashed border-copper/45 hover:border-copper hover:bg-copper/5 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg px-4 py-3 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <span className="font-display font-extrabold uppercase tracking-wider text-[12.5px] text-copper">
+                    ＋ {s.label}
+                  </span>
+                  <span className="font-mono text-[11px] text-ink-2 tabular-nums">
+                    {s.positions.length} Pos · {eur(stepSum)}
+                  </span>
+                </div>
+                <div className="font-mono text-[10.5px] text-ink-mute mt-1 break-words">
+                  {busy ? "lege an …" : lvIds}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Block D · Live-Summe (Tabelle bleibt im Vorgang-Tab) */}
+      <div className="px-4 py-3 rounded-lg surface-steel flex items-center justify-between gap-3">
+        <div>
+          <div className="font-mono text-[10.5px] uppercase tracking-wider text-steel">
+            Im Angebot · Live-Stand
+          </div>
+          <div className="font-sans text-[12.5px] text-bg-2 mt-0.5">
+            Tabelle siehst du im Vorgang-Tab.
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="font-display font-black text-[20px] text-white tabular-nums">
+            {eur(liveSum)}
+          </div>
+          <div className="font-mono text-[11px] text-steel">
+            {liveCount} {liveCount === 1 ? "Position" : "Positionen"}
+          </div>
+        </div>
+      </div>
+
+      {toastMsg && (
+        <div
+          className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[80] px-4 py-2 rounded-md font-mono text-[12px] text-white shadow-lg"
+          style={{ background: "#1F7A3D" }}
+          role="status"
+          aria-live="polite"
+        >
+          ✓ {toastMsg}
+        </div>
       )}
     </div>
   );

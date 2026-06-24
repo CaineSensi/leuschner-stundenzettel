@@ -1344,7 +1344,9 @@ interface LvRow { id: string; name: string; unit: string | null }
 interface LvAliasRow { alias_id: string; master_id: string }
 
 /** Lädt aktive LV-Positionen + Aliase via Supabase REST. Bei jedem Fehler
- *  (kein Key, Netzwerk, 4xx/5xx) → `null` zurück — Aufrufer macht dann nichts. */
+ *  (kein Key, Netzwerk, 4xx/5xx, Timeout) → `null` zurück — Aufrufer macht
+ *  dann nichts. Harte 2,5-s-Abort-Grenze, damit der Anfrage-Stream nicht
+ *  ewig hängt wenn Supabase mal nicht antwortet (16.06.2026 Hänger-Fix). */
 async function fetchLvCatalog(env: Env): Promise<{ positions: LvRow[]; aliasMap: Map<string,string> } | null> {
   const key = env.SUPABASE_SERVICE_KEY;
   if (!key) return null;
@@ -1354,11 +1356,13 @@ async function fetchLvCatalog(env: Env): Promise<{ positions: LvRow[]; aliasMap:
     Authorization: `Bearer ${key}`,
     'Content-Type': 'application/json',
   };
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 2500);
   try {
     // Beide Tabellen parallel — spart einen Round-Trip.
     const [posResp, aliasResp] = await Promise.all([
-      fetch(`${base}/rest/v1/lv_positions?select=id,name,unit&archived_at=is.null`, { headers }),
-      fetch(`${base}/rest/v1/lv_position_aliases?select=alias_id,master_id`, { headers }),
+      fetch(`${base}/rest/v1/lv_positions?select=id,name,unit&archived_at=is.null`, { headers, signal: ctrl.signal }),
+      fetch(`${base}/rest/v1/lv_position_aliases?select=alias_id,master_id`, { headers, signal: ctrl.signal }),
     ]);
     if (!posResp.ok) {
       console.warn('[lv-match] lv_positions fetch failed', posResp.status);
@@ -1374,8 +1378,15 @@ async function fetchLvCatalog(env: Env): Promise<{ positions: LvRow[]; aliasMap:
     }
     return { positions, aliasMap };
   } catch (e: any) {
-    console.warn('[lv-match] catalog fetch threw', String(e?.message ?? e).slice(0, 200));
+    const msg = String(e?.message ?? e);
+    if (e?.name === 'AbortError' || msg.includes('aborted')) {
+      console.warn('[lv-match] catalog fetch timed out (>2.5s) — skip');
+    } else {
+      console.warn('[lv-match] catalog fetch threw', msg.slice(0, 200));
+    }
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

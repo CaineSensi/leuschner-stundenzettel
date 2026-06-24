@@ -202,9 +202,13 @@ export function parseWhatsAppText(text: string): WaChatMeta {
   };
 }
 
-// Baut einen kompakten Text-Summary für rawText (erste 4000 Zeichen des Chats
-// + Metadaten-Zeile). Volltext zu groß → DB würde leer laufen.
+// Baut einen Text-Summary für rawText. Bug-Fix 19.06.2026:
+//  • Limit von 4 KB auf 50 KB erhöht (alte Grenze schnitt realistische
+//    WhatsApp-Verläufe nach den ersten ~20 Nachrichten ab).
+//  • Wenn doch gekürzt werden muss → von vorne kürzen, damit die NEUESTEN
+//    Nachrichten erhalten bleiben (vorher fielen genau die weg).
 export function whatsAppSummary(meta: WaChatMeta, fullText: string): string {
+  const MAX_BODY = 50_000;
   const header = [
     `📱 WhatsApp-Gesprächsexport`,
     `Teilnehmer: ${meta.participants.join(", ")}`,
@@ -213,6 +217,14 @@ export function whatsAppSummary(meta: WaChatMeta, fullText: string): string {
     ``,
     `── Gesprächsverlauf ──`,
   ].join("\n");
-  const body = fullText.slice(0, 4000);
-  return header + "\n" + body + (fullText.length > 4000 ? "\n[…gekürzt]" : "");
+  if (fullText.length <= MAX_BODY) {
+    return header + "\n" + fullText;
+  }
+  // Kürzen: vom Anfang her abschneiden, die letzten MAX_BODY Zeichen behalten,
+  // dann beim ersten kompletten Zeilenanfang aufsetzen (sonst startet body
+  // mitten in einer Nachricht).
+  let body = fullText.slice(-MAX_BODY);
+  const nl = body.indexOf("\n");
+  if (nl > 0 && nl < 200) body = body.slice(nl + 1);
+  return header + "\n[…ältere Nachrichten gekürzt]\n" + body;
 }
