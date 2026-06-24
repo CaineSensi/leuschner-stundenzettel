@@ -4,6 +4,8 @@ import { deleteEntry, getTodayAssignment, listEntries, listSites } from "../lib/
 import { saveEntryWithSync } from "../lib/sync";
 import { queueEntry } from "../lib/offline";
 import { currentUser } from "../lib/auth";
+import { useLiveData } from "../lib/live";
+import type { Entry } from "../lib/types";
 import {
   deleteEntryPhoto, getCurrentCompanyId, listEntryPhotos, uploadEntryPhoto
 } from "../lib/photos";
@@ -55,6 +57,7 @@ export default function Entry() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [existingId, setExistingId] = useState<string | null>(null);
+  const { addEntry, patchEntry, removeEntry, refresh } = useLiveData();
 
   // Fotos
   const [pendingPhotos, setPendingPhotos] = useState<File[]>([]);
@@ -182,8 +185,26 @@ export default function Entry() {
             note: absNote || undefined
           };
 
+    // ─── Ohne Fotos: optimistisch in Context + sofort zurück ───────────────
+    if (pendingPhotos.length === 0) {
+      const tempId = existingId ?? `optimistic-${Date.now()}`;
+      const tempEntry = makeTempEntry(draft, me.id, tempId);
+      if (existingId) {
+        patchEntry(tempEntry);
+      } else {
+        addEntry(tempEntry);
+      }
+      navigate("/", { replace: true });
+      saveEntryWithSync(draft, existingId ?? undefined).catch((err: any) => {
+        console.warn("[entry] background save failed — rollback", err);
+        refresh(); // Context auf DB-Stand zurücksetzen
+      });
+      return;
+    }
+
+    // ─── Mit Fotos: warten bis echte entryId bekannt ist ──────────────────
     setSaving(true);
-    console.log("[entry] save start", { ...draft, mode: existingId ? "update" : "insert" });
+    console.log("[entry] save start (mit Fotos)", { ...draft, mode: existingId ? "update" : "insert" });
     try {
       const entryId = await Promise.race<string>([
         saveEntryWithSync(draft, existingId ?? undefined),
@@ -193,8 +214,7 @@ export default function Entry() {
       ]);
       console.log("[entry] save ok", entryId);
 
-      // Fotos hochladen — nur wenn echte UUID (kein local-Offline-Id)
-      if (pendingPhotos.length > 0 && !entryId.startsWith("local-")) {
+      if (!entryId.startsWith("local-")) {
         setPhotoBusy(true);
         const companyId = me.companyId ?? await getCurrentCompanyId();
         if (!companyId) {
@@ -224,14 +244,11 @@ export default function Entry() {
             setSaveError(`${failed} von ${pendingPhotos.length} Fotos konnten nicht hochgeladen werden`);
             setPhotoBusy(false);
             setSaving(false);
-            // Eintrag ist gespeichert — wir bleiben auf der Seite, damit der User
-            // die fehlgeschlagenen Fotos erneut hinzufügen kann
             return;
           }
         }
         setPhotoBusy(false);
-      } else if (pendingPhotos.length > 0 && entryId.startsWith("local-")) {
-        // Offline: Fotos können noch nicht hochgeladen werden
+      } else {
         setSaveError("Eintrag offline gespeichert, Fotos bitte später hinzufügen, wenn wieder online");
         setSaving(false);
         return;
@@ -240,12 +257,6 @@ export default function Entry() {
       navigate("/", { replace: true });
     } catch (err: any) {
       console.warn("[entry] save FAIL", err);
-      // Bei echtem Offline ODER Timeout/Netzfehler trotz „onLine": Eintrag
-      // lokal in die Outbox legen, damit nichts verloren geht. Der
-      // OfflineIndicator zeigt „⏱ 1 Eintrag wartet", sync läuft automatisch
-      // beim nächsten Online-Werden bzw. App-Start.
-      // Einschränkung: Offline-Update bestehender Einträge wird nicht
-      // unterstützt — dort zeigen wir den Fehler und der User probiert neu.
       const looksLikeNetIssue =
         !navigator.onLine
         || /Zeitüberschreitung/i.test(err?.message ?? "")
@@ -271,15 +282,13 @@ export default function Entry() {
   async function handleDelete() {
     if (!existingId) return;
     if (!confirm("Diesen Eintrag wirklich löschen?")) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      await deleteEntry(existingId);
-      navigate("/", { replace: true });
-    } catch (err: any) {
-      setSaveError(err?.message ?? "Löschen fehlgeschlagen");
-      setSaving(false);
-    }
+    // Sofort aus Context und Screen entfernen — Delete im Hintergrund
+    removeEntry(existingId);
+    navigate("/", { replace: true });
+    deleteEntry(existingId).catch((err: any) => {
+      console.warn("[entry] delete failed — restoring via refresh", err);
+      refresh(); // Eintrag wieder sichtbar machen, falls Löschen scheiterte
+    });
   }
 
   if (step === "type") return <TypePicker date={targetDate} onPick={handleTypeSelect} />;
@@ -660,6 +669,34 @@ function ActivityTime({
       </div>
     </main>
   );
+}
+
+/** Baut einen temporären Entry aus dem Draft für optimistische Updates. */
+function makeTempEntry(draft: any, workerId: string, id: string): Entry {
+  if (draft.type === "work") {
+    return {
+      id,
+      type: "work",
+      workerId,
+      date: draft.date,
+      siteId: draft.siteId,
+      discipline: draft.discipline,
+      startMin: draft.startMin,
+      endMin: draft.endMin,
+      pauseMin: draft.pauseMin,
+      geoVerified: draft.geoVerified ?? false,
+      submittedAt: null,
+    };
+  }
+  return {
+    id,
+    type: draft.type,
+    workerId,
+    date: draft.date,
+    endDate: draft.endDate,
+    note: draft.note,
+    submittedAt: null,
+  };
 }
 
 function TimeSlider({ value, onChange, label }: { value: number; onChange: (v: number) => void; label: string }) {

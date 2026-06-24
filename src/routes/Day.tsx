@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { listEntries } from "../lib/api";
 import { listEntryPhotos } from "../lib/photos";
 import { useRealtime } from "../lib/realtime";
 import { useLiveData } from "../lib/live";
@@ -9,7 +10,7 @@ import {
   attendanceEndMin, effectivePauseMin, fmtHours, fmtTime,
   isEntryActiveOn, shortDate, workMinutes
 } from "../lib/utils";
-import { isWorkEntry, type EntryPhoto } from "../lib/types";
+import { isWorkEntry, type Entry, type EntryPhoto } from "../lib/types";
 
 export default function Day() {
   const { date } = useParams<{ date: string }>();
@@ -19,7 +20,25 @@ export default function Day() {
   const { entries, sites, isLoaded } = useLiveData();
 
   // Eintrag für diesen Tag (unterstützt mehrtägige Abwesenheiten via isEntryActiveOn)
-  const entry = date ? (entries.find((e) => isEntryActiveOn(e, date)) ?? null) : null;
+  const contextEntry = date ? (entries.find((e) => isEntryActiveOn(e, date)) ?? null) : null;
+
+  // ── Fallback-Fetch: Datum liegt außerhalb des 14-Tage-Fensters des Context ──
+  const [fallbackEntry, setFallbackEntry] = useState<Entry | null>(null);
+  const [fallbackLoaded, setFallbackLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!isLoaded || !me || !date) return;
+    if (contextEntry) { setFallbackLoaded(true); return; } // Context hat ihn — fertig
+    setFallbackLoaded(false);
+    let cancelled = false;
+    listEntries(me.id, date, date)
+      .then((es) => { if (!cancelled) { setFallbackEntry(es[0] ?? null); setFallbackLoaded(true); } })
+      .catch(() => { if (!cancelled) setFallbackLoaded(true); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoaded, me?.id, date, !!contextEntry]);
+
+  const entry = contextEntry ?? fallbackEntry;
   const site = (entry && isWorkEntry(entry))
     ? (sites.find((s) => s.id === entry.siteId) ?? null)
     : null;
@@ -44,7 +63,7 @@ export default function Day() {
   });
 
   // ── Lade-Zustand ─────────────────────────────────────────────────────────
-  if (!isLoaded) {
+  if (!isLoaded || !fallbackLoaded) {
     return (
       <main className="on-dark min-h-screen flex items-center justify-center">
         <div className="h-mono text-ink-2 text-[12px]">Wird geladen …</div>

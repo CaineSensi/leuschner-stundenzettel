@@ -12,6 +12,12 @@ interface LiveDataContextValue {
   sites: Site[];
   isLoaded: boolean;
   refresh: () => void;
+  /** Optimistisch einen neuen Eintrag in den Cache legen (vor Server-Antwort). */
+  addEntry: (e: Entry) => void;
+  /** Optimistisch einen bestehenden Eintrag ersetzen. */
+  patchEntry: (e: Entry) => void;
+  /** Optimistisch einen Eintrag entfernen. */
+  removeEntry: (id: string) => void;
 }
 
 // ─── Context ─────────────────────────────────────────────────────────────────
@@ -22,6 +28,9 @@ const LiveDataContext = createContext<LiveDataContextValue>({
   sites: [],
   isLoaded: false,
   refresh: () => {},
+  addEntry: () => {},
+  patchEntry: () => {},
+  removeEntry: () => {},
 });
 
 export function useLiveData(): LiveDataContextValue {
@@ -165,10 +174,16 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
     const ch = supabase
       .channel(`live:${workerId}:${channelKey}`)
 
-      // entries – INSERT
+      // entries – INSERT (bereinigt auch optimistische Platzhalter mit gleicher date)
       .on("postgres_changes" as any, { event: "INSERT", schema: "public", table: "entries" }, (p: any) => {
         if (p.new?.worker_id !== workerId) return;
-        setEntries((prev) => prev.some((e) => e.id === p.new.id) ? prev : [...prev, rowToEntry(p.new)]);
+        setEntries((prev) => {
+          if (prev.some((e) => e.id === p.new.id)) return prev;
+          const cleaned = prev.filter(
+            (e) => !(e.id.startsWith("optimistic-") && e.date === p.new.date)
+          );
+          return [...cleaned, rowToEntry(p.new)];
+        });
       })
       // entries – UPDATE
       .on("postgres_changes" as any, { event: "UPDATE", schema: "public", table: "entries" }, (p: any) => {
@@ -214,8 +229,23 @@ export function LiveDataProvider({ children }: { children: React.ReactNode }) {
     return () => { supabase!.removeChannel(ch); };
   }, [workerId, channelKey, fetchAll]);
 
+  const addEntry = useCallback((e: Entry) => {
+    setEntries((prev) => prev.some((x) => x.id === e.id) ? prev : [...prev, e]);
+  }, []);
+
+  const patchEntry = useCallback((e: Entry) => {
+    setEntries((prev) => prev.map((x) => x.id === e.id ? e : x));
+  }, []);
+
+  const removeEntry = useCallback((id: string) => {
+    setEntries((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
   return (
-    <LiveDataContext.Provider value={{ entries, assignments, sites, isLoaded, refresh: fetchAll }}>
+    <LiveDataContext.Provider value={{
+      entries, assignments, sites, isLoaded,
+      refresh: fetchAll, addEntry, patchEntry, removeEntry
+    }}>
       {children}
     </LiveDataContext.Provider>
   );
