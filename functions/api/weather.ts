@@ -2,9 +2,7 @@
 //
 // Quelle: Buienradar (https://data.buienradar.nl/2.0/feed/json) — niederländische
 // Wetterdaten inkl. der DE/NL-Grenz-Stationen. Für Weener ist die Station
-// Nieuw Beerta (~10 km westlich) die naheste. Wetter zieht meistens aus
-// Westen rein, also liefert Nieuw Beerta sogar bessere Vorschau als eine
-// Station östlich der Grenze.
+// Nieuw Beerta (~10 km westlich) die naheste.
 //
 // Schnittstelle (GET /api/weather?lat=53.17&lng=7.36):
 //   {
@@ -19,103 +17,62 @@
 // Cache: 10 Minuten Edge-Cache (waitUntil + Cache API). Buienradar
 // aktualisiert ~jede 10 Minuten, mehr Polling bringt nichts.
 //
-// Hinweis: Buienradar hat im Mai 2026 die API-Felder auf PascalCase umgestellt.
+// API-Format Stand Juni 2026: lowercase/camelCase (Buienradar hat Mitte 2026
+// auf lowercase umgestellt; Stationen liefern lat/lon jetzt direkt mit).
 
 interface BuienStation {
-  StationId: number;
-  StationName: string;
-  Latitude: number;
-  Longitude: number;
-  Region?: string;
-  Timestamp: string;
-  WeatherDescription?: string;
-  IconUrl?: string;
-  FullIconUrl?: string;
-  WindDirection?: number | string;
-  AirPressure?: number;
-  Temperature?: number;
-  GroundTemperature?: number;
-  FeelTemperature?: number;
-  Visibility?: number;
-  WindGusts?: number;
-  Windspeed?: number;
-  WindspeedBeaufort?: number;
-  Humidity?: number;
-  Precipitation?: number;
-  Sunpower?: number;
-  RainfallLast24Hour?: number;
-  RainfallLastHour?: number;
-  WindDirectionDegrees?: number;
+  stationid: number;
+  stationname: string;
+  lat: number;
+  lon: number;
+  regio?: string;
+  timestamp: string;
+  weatherdescription?: string;
+  iconurl?: string;
+  fullIconUrl?: string;
+  winddirection?: number | string;
+  airpressure?: number;
+  temperature?: number;
+  groundtemperature?: number;
+  feeltemperature?: number;
+  visibility?: number;
+  windgusts?: number;
+  windspeed?: number;
+  windspeedBft?: number;
+  humidity?: number;
+  precipitation?: number;
+  sunpower?: number;
+  rainFallLast24Hour?: number;
+  rainFallLastHour?: number;
+  winddirectiondegrees?: number;
 }
 
 interface BuienForecastDay {
-  Day: string;
-  MinTemperature?: number;
-  MaxTemperature?: number;
-  MinTemperatureMax?: number;
-  MaxTemperatureMax?: number;
-  RainChance?: number;
-  SunChance?: number;
-  WindDirection?: string;
-  WindBeaufort?: number;
-  RainMinMm?: number;
-  RainMaxMm?: number;
-  WeatherDescription?: string;
-  IconUrl?: string;
-  FullIconUrl?: string;
+  day: string;
+  mintemperature?: string | number;
+  maxtemperature?: string | number;
+  mintemperatureMin?: number;
+  mintemperatureMax?: number;
+  maxtemperatureMin?: number;
+  maxtemperatureMax?: number;
+  rainChance?: number;
+  sunChance?: number;
+  windDirection?: string;
+  wind?: number;
+  mmRainMin?: number;
+  mmRainMax?: number;
+  weatherdescription?: string;
+  iconurl?: string;
+  fullIconUrl?: string;
 }
 
 interface BuienFeed {
-  Actual?: { WeatherStationMeasurements?: BuienStation[]; Sunrise?: string; Sunset?: string };
-  Forecast?: {
-    FiveDayForecast?: BuienForecastDay[];
-    WeatherReport?: { Summary?: string; Title?: string };
+  actual?: { stationmeasurements?: BuienStation[]; sunrise?: string; sunset?: string };
+  forecast?: {
+    fivedayforecast?: BuienForecastDay[];
+    weatherreport?: { summary?: string; title?: string };
   };
 }
-
-// Bekannte KNMI-Stationskoordinaten (Buienradar liefert seit 2026 keine GPS-Daten mehr)
-const STATION_COORDS: Record<number, { lat: number; lng: number }> = {
-  6275: { lat: 51.9700, lng: 5.8980 }, // Arnhem
-  6249: { lat: 52.6430, lng: 4.9800 }, // Berkhout
-  6260: { lat: 52.1010, lng: 5.1770 }, // De Bilt
-  6235: { lat: 52.9240, lng: 4.7820 }, // Den Helder
-  6370: { lat: 51.4520, lng: 5.3770 }, // Eindhoven
-  6377: { lat: 51.1980, lng: 5.7620 }, // Ell
-  6350: { lat: 51.5670, lng: 4.9310 }, // Gilze Rijen
-  6323: { lat: 51.5270, lng: 3.8900 }, // Goes
-  6283: { lat: 52.0650, lng: 6.6570 }, // Groenlo-Hupsel
-  6280: { lat: 53.1250, lng: 6.5750 }, // Groningen
-  6278: { lat: 52.4330, lng: 6.2590 }, // Heino
-  6356: { lat: 51.8590, lng: 5.1450 }, // Herwijnen
-  6330: { lat: 51.9920, lng: 4.1200 }, // Hoek van Holland
-  6279: { lat: 52.7340, lng: 6.5160 }, // Hoogeveen
-  6251: { lat: 53.3910, lng: 5.3460 }, // Hoorn Terschelling
-  6392: { lat: 51.4500, lng: 6.1980 }, // Horst
-  6258: { lat: 52.6390, lng: 5.4050 }, // Houtribdijk
-  6225: { lat: 52.4640, lng: 4.5550 }, // IJmuiden
-  6277: { lat: 53.4090, lng: 6.2000 }, // Lauwersoog
-  6270: { lat: 53.2240, lng: 5.7520 }, // Leeuwarden
-  6269: { lat: 52.4580, lng: 5.5200 }, // Lelystad
-  6348: { lat: 51.9700, lng: 4.9260 }, // Lopik-Cabauw
-  6380: { lat: 50.9060, lng: 5.7620 }, // Maastricht
-  6273: { lat: 52.7020, lng: 5.8880 }, // Marknesse
-  6286: { lat: 53.1983, lng: 7.1497 }, // Nieuw Beerta (nächste zu Weener)
-  6344: { lat: 51.9550, lng: 4.4440 }, // Rotterdam
-  6343: { lat: 51.8870, lng: 4.3420 }, // Rotterdam Geulhaven
-  6240: { lat: 52.3080, lng: 4.7810 }, // Schiphol
-  6267: { lat: 52.8980, lng: 5.3840 }, // Stavoren
-  6229: { lat: 53.0000, lng: 4.7500 }, // Texelhors
-  6290: { lat: 52.2740, lng: 6.8910 }, // Twente
-  6242: { lat: 53.2410, lng: 4.9210 }, // Vlieland
-  6310: { lat: 51.4420, lng: 3.5960 }, // Vlissingen
-  6375: { lat: 51.6560, lng: 5.7070 }, // Volkel
-  6215: { lat: 52.1430, lng: 4.4320 }, // Voorschoten
-  6319: { lat: 51.2260, lng: 3.8620 }, // Westdorpe
-  6248: { lat: 52.6390, lng: 5.1700 }, // Wijdenes
-  6257: { lat: 52.5050, lng: 4.6030 }, // Wijk aan Zee
-  6340: { lat: 51.4490, lng: 4.3420 }, // Woensdrecht
-  6239: { lat: 54.8560, lng: 4.7320 }, // Zeeplatform F-3
-};
 
 // Haversine-Entfernung in km
 function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -130,7 +87,6 @@ function distanceKm(a: { lat: number; lng: number }, b: { lat: number; lng: numb
 }
 
 // Wetter-Code aus Buienradar-Icon-URL (Single-Letter wie "a", "b", "f", "n")
-// auf deutsche Kurzbeschreibung und Emoji-Icon mappen.
 function weatherFromIcon(iconUrl?: string): { de: string; emoji: string; code: string } {
   if (!iconUrl) return { de: 'unklar', emoji: '◯', code: '?' };
   const m = iconUrl.match(/\/([a-z])\.png/i);
@@ -163,16 +119,14 @@ function weatherFromIcon(iconUrl?: string): { de: string; emoji: string; code: s
   }
 }
 
-// Windrichtungs-Abkürzung (Buchstabe wie "w", "nw", "zzw") auf deutsch
+// Windrichtungs-Abkürzung (Buienradar-NL-Codes) auf deutsch
 function windDirDe(dir?: number | string): string {
   if (!dir) return '';
   const s = String(dir).toLowerCase().trim();
   const map: Record<string, string> = {
     n: 'N', no: 'NO', o: 'O', zo: 'SO', z: 'S', zw: 'SW', w: 'W', nw: 'NW',
-    zzw: 'SSW', znzo: 'SSO', nno: 'NNO', nnw: 'NNW',
-    ozo: 'OSO', onno: 'ONO', wzw: 'WSW', wnw: 'WNW',
-    10: 'N', 20: 'NNO', 30: 'NNO', 40: 'NO', 50: 'NO', 60: 'ONO', 70: 'ONO', 80: 'O',
-    90: 'O', 180: 'S', 270: 'W', 360: 'N',
+    zzw: 'SSW', zzo: 'SSO', nno: 'NNO', nnw: 'NNW',
+    ozo: 'OSO', ono: 'ONO', wzw: 'WSW', wnw: 'WNW',
   };
   return map[s] ?? s.toUpperCase();
 }
@@ -215,12 +169,12 @@ interface WeatherResponse {
   current: {
     temperature: number;
     feelsLike: number;
-    windSpeed: number;       // km/h
+    windSpeed: number;
     windBft: number;
     windDirection: string;
     humidity: number;
-    precipitation: number;   // mm in der letzten Stunde
-    weather: string;         // deutsche Kurzfassung
+    precipitation: number;
+    weather: string;
     emoji: string;
     iconCode: string;
     timestamp: string;
@@ -247,7 +201,7 @@ type Ctx = { request: Request; waitUntil?: (p: Promise<any>) => void };
 
 export const onRequestGet = async ({ request, waitUntil }: Ctx) => {
   const url = new URL(request.url);
-  const lat = parseFloat(url.searchParams.get('lat') ?? '53.17');   // Weener default
+  const lat = parseFloat(url.searchParams.get('lat') ?? '53.17');
   const lng = parseFloat(url.searchParams.get('lng') ?? '7.36');
 
   const cacheKey = `weather-${lat.toFixed(2)}-${lng.toFixed(2)}`;
@@ -269,81 +223,76 @@ export const onRequestGet = async ({ request, waitUntil }: Ctx) => {
     }
     const feed = (await upstream.json()) as BuienFeed;
 
-    const stations = feed.Actual?.WeatherStationMeasurements ?? [];
+    const stations = feed.actual?.stationmeasurements ?? [];
     if (stations.length === 0) {
       return new Response(JSON.stringify({ error: 'no-stations' }), {
         status: 502, headers: { 'content-type': 'application/json' },
       });
     }
 
-    // Nächste Station zur Anfrage-Position finden — Koordinaten aus Lookup-Tabelle
+    // Nächste Station zur Anfrage-Position — lat/lon jetzt direkt im Feed
     let nearest = stations[0];
     let nearestDist = Infinity;
     for (const s of stations) {
-      const coords = STATION_COORDS[s.StationId];
-      if (!coords) continue;
-      const d = distanceKm({ lat, lng }, coords);
-      if (d < nearestDist) {
-        nearest = s;
-        nearestDist = d;
-      }
+      if (!s.lat || !s.lon) continue;
+      const d = distanceKm({ lat, lng }, { lat: s.lat, lng: s.lon });
+      if (d < nearestDist) { nearest = s; nearestDist = d; }
     }
-    // Fallback: Station 6286 Nieuw Beerta (nächste zu Weener) direkt wählen
+    // Fallback: Station 6286 Nieuw Beerta (nächste zu Weener)
     if (!isFinite(nearestDist)) {
-      nearest = stations.find((s) => s.StationId === 6286) ?? stations[0];
+      nearest = stations.find((s) => s.stationid === 6286) ?? stations[0];
       nearestDist = 10;
     }
 
-    const currentMeta = weatherFromIcon(nearest.IconUrl);
-    const fc = feed.Forecast?.FiveDayForecast ?? [];
+    const currentMeta = weatherFromIcon(nearest.iconurl);
+    const fc = feed.forecast?.fivedayforecast ?? [];
     const forecast = fc.slice(0, 5).map((d) => {
-      const meta = weatherFromIcon(d.IconUrl);
+      const meta = weatherFromIcon(d.iconurl);
       return {
-        date: d.Day,
-        minT: d.MinTemperatureMax ?? d.MinTemperature ?? 0,
-        maxT: d.MaxTemperatureMax ?? d.MaxTemperature ?? 0,
-        rainChance: d.RainChance ?? 0,
-        sunChance: d.SunChance ?? 0,
-        windBft: d.WindBeaufort ?? 0,
-        windDirection: windDirDe(d.WindDirection),
-        rainMmMin: d.RainMinMm ?? 0,
-        rainMmMax: d.RainMaxMm ?? 0,
+        date: d.day,
+        minT: d.mintemperatureMax ?? Number(d.mintemperature ?? 0),
+        maxT: d.maxtemperatureMax ?? Number(d.maxtemperature ?? 0),
+        rainChance: d.rainChance ?? 0,
+        sunChance: d.sunChance ?? 0,
+        windBft: d.wind ?? 0,
+        windDirection: windDirDe(d.windDirection),
+        rainMmMin: d.mmRainMin ?? 0,
+        rainMmMax: d.mmRainMax ?? 0,
         weather: meta.de,
         emoji: meta.emoji,
         iconCode: meta.code,
       };
     });
 
-    const nearestCoords = STATION_COORDS[nearest.StationId] ?? { lat: 0, lng: 0 };
     const result: WeatherResponse = {
       station: {
-        name: nearest.StationName.replace(/^Meetstation\s+/i, ''),
-        lat: nearestCoords.lat,
-        lng: nearestCoords.lng,
+        name: nearest.stationname.replace(/^Meetstation\s+/i, ''),
+        lat: nearest.lat,
+        lng: nearest.lon,
         distanceKm: Math.round(nearestDist),
       },
       current: {
-        temperature: nearest.Temperature ?? 0,
-        feelsLike: nearest.FeelTemperature ?? nearest.Temperature ?? 0,
-        windSpeed: Math.round((nearest.Windspeed ?? 0) * 3.6), // m/s → km/h
-        windBft: nearest.WindspeedBeaufort ?? 0,
-        windDirection: windDirDe(nearest.WindDirection),
-        humidity: nearest.Humidity ?? 0,
-        precipitation: nearest.RainfallLastHour ?? 0,
+        temperature: nearest.temperature ?? 0,
+        feelsLike: nearest.feeltemperature ?? nearest.temperature ?? 0,
+        windSpeed: Math.round((nearest.windspeed ?? 0) * 3.6),
+        windBft: nearest.windspeedBft ?? 0,
+        windDirection: windDirDe(nearest.winddirection),
+        humidity: nearest.humidity ?? 0,
+        precipitation: nearest.rainFallLastHour ?? 0,
         weather: currentMeta.de,
         emoji: currentMeta.emoji,
         iconCode: currentMeta.code,
-        timestamp: nearest.Timestamp,
+        timestamp: nearest.timestamp,
       },
       forecast,
-      summary: nlToDe(feed.Forecast?.WeatherReport?.Summary ?? ''),
+      summary: nlToDe(feed.forecast?.weatherreport?.summary ?? ''),
       fetchedAt: new Date().toISOString(),
     };
 
     const response = new Response(JSON.stringify(result), {
       headers: {
         'content-type': 'application/json',
-        'cache-control': 'public, max-age=600', // 10 min Browser-Cache
+        'cache-control': 'public, max-age=600',
       },
     });
     if (cache && waitUntil) {
